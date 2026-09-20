@@ -175,8 +175,9 @@ DSH
 - HTTPS 反向代理；
 - 不直接把 DSH Web UI 端口暴露到公网。
 
-补丁只修改 Settings 的持久化判断，不改变其他 loopback 安全判断。构建时如果找不到对应的
-Web 前端代码，镜像构建会失败，避免生成一个看似成功但远程 Settings 实际未生效的镜像。
+补丁只修改 `@deepseek-ai/dsh-client-ui-settings` 客户端插件中的 Settings 持久化判断，
+不改变其他 loopback 安全判断。构建时如果找不到对应表达式，镜像构建会直接失败，避免
+上游版本变化后补丁静默失效。
 
 ## 关键设计
 
