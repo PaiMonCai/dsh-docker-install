@@ -121,7 +121,7 @@ docker logs dsh | grep 'dsh web:'
 把 host 换成 `127.0.0.1` 后在浏览器打开。不带 token 访问一律 401；带 token 首次访问
 返回 302/303 并种下 30 天签名 cookie，之后同一会话不用再带。
 
-## 关键设计（来自对 dsh 源码和实测的验证，不是猜的）
+## 关键设计
 
 1. **`--host 0.0.0.0` 是禁区，用 patch 层绕过**：CLI 会明确拒绝
    `dsh web --host 0.0.0.0`（怕把 RCE 暴露到网络），但 webserver 的 schema 本身
