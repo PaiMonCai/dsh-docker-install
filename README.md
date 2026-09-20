@@ -13,7 +13,8 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 │   ├── dsh-bind.patch.yml      # 关键：让容器内 GUI 监听 0.0.0.0 的官方 patch 层
 │   └── cn-mirror.sh            # 构建期国内网络自动检测
 ├── docker-compose.yml / .env.example
-├── install.sh                  # 一键安装：拉取 GHCR 镜像并部署
+├── install.sh                  # 轻量 bootstrap：下载并启动 dshd
+├── dshd                        # 交互式安装 + Docker 运维 CLI
 └── .github/workflows/          # 自动构建 + 上游版本更新检测
 ```
 
@@ -21,20 +22,51 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 
 ### 0. 一键安装（推荐）
 
-镜像已由 GitHub Actions 发布到 GHCR，一条命令拉取并部署：
+一条命令进入交互式安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/install.sh | bash
 ```
 
-脚本会自动：检查 Docker → 拉取镜像 → 启动容器（含持久卷、工作区挂载、端口映射）
-→ 等待就绪并打印带 token 的访问地址。自定义参数用环境变量传入，例如：
+`install.sh` 现在只负责引导下载 `dshd`。真正的安装器会依次完成：
+
+- 检测 Linux 发行版、Docker 命令和 Docker daemon；
+- 未安装 Docker 时询问是否自动安装；
+- 检测 GitHub Raw、GHCR、Docker Hub 以及网络区域特征；
+- 交互配置端口、监听地址、工作区、数据卷、Trusted Hosts 和 DeepSeek API Key；
+- 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
+- 创建持久卷和工作区，启动容器并等待 Web UI；
+- 将管理器安装为 `/usr/local/bin/dshd`，以后直接输入 `dshd` 管理。
+
+安装完成后：
 
 ```bash
-DEEPSEEK_API_KEY=sk-xxx DSH_PORT=8080 bash install.sh
-# 国内拉不动 ghcr 时走镜像站：
-DSH_IMAGE=ghcr.nju.edu.cn/paimoncai/dsh-docker-install:latest bash install.sh
+dshd
 ```
+
+会打开交互式运维菜单。也可以直接使用子命令：
+
+```bash
+dshd status          # 状态 / 健康检查
+dshd start           # 启动
+dshd stop            # 停止
+dshd restart         # 重启
+dshd logs            # 实时日志
+dshd update          # 拉取镜像并重建
+dshd config          # 交互修改配置
+dshd token           # 显示首次访问 token URL
+dshd shell           # 进入容器
+dshd backup          # 备份 dsh 数据卷
+dshd restore         # 恢复备份
+dshd doctor          # Docker / 网络 / 容器诊断
+dshd recreate        # 按当前配置重建
+dshd uninstall       # 交互卸载
+```
+
+配置默认保存在 `/etc/dshd/config.env`（非 root 用户保存在
+`~/.config/dshd/config.env`），文件权限为 600。默认仍只映射
+`127.0.0.1:3080`；如果选择 `0.0.0.0`，安装器会提示不要直接暴露公网，
+建议前置 Nginx/Caddy + HTTPS。
 
 ### 1. 手动构建
 
