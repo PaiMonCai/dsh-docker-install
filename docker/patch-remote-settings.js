@@ -71,8 +71,37 @@ if (totalReplacements === 0) {
 }
 
 if (webDistReplacements === 0) {
+  const webDistFiles = files.filter(
+    file =>
+      file.includes('@deepseek-ai/dsh-web-frontend') &&
+      file.includes(`${path.sep}dist${path.sep}`),
+  );
+  process.stderr.write(
+    `Remote Settings patch diagnostic: found ${webDistFiles.length} web frontend JS asset(s).\n`,
+  );
+  for (const file of webDistFiles) {
+    let source = '';
+    try {
+      source = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    let start = 0;
+    let shown = 0;
+    while (shown < 4) {
+      const index = source.indexOf('isLoopback', start);
+      if (index < 0) break;
+      const left = Math.max(0, index - 240);
+      const right = Math.min(source.length, index + 360);
+      process.stderr.write(
+        `--- ${file} :: isLoopback snippet ---\n${source.slice(left, right)}\n`,
+      );
+      start = index + 'isLoopback'.length;
+      shown += 1;
+    }
+  }
   throw new Error(
-    'Remote Settings patch: no dsh-web-frontend/dist asset was patched; refusing to build an image where remote Settings may still be unavailable.',
+    'Remote Settings patch: no dsh-web-frontend/dist asset was patched; see diagnostics above.',
   );
 }
 
