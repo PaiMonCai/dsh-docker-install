@@ -33,9 +33,11 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 - 检测 Linux 发行版、Docker 命令和 Docker daemon；
 - 未安装 Docker 时询问是否自动安装；
 - 检测 GitHub Raw、GHCR、Docker Hub 以及网络区域特征；
-- 交互配置端口、监听地址、工作区、数据卷、Trusted Hosts 和 DeepSeek API Key；
+- **首次安装强制明确填写 Docker 容器名和 Web UI 宿主机端口**（不再直接回车使用默认值）；
+- 交互配置监听地址、工作区、数据卷、Trusted Hosts 和 DeepSeek API Key；
 - 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
 - 创建持久卷和工作区，启动容器并等待 Web UI；
+- 询问是否开启 **Docker 项目管理模式**；开启后 DSH 可通过宿主机 Docker Socket 构建、部署和测试 Docker 应用；
 - 将管理器安装为 `/usr/local/bin/dshd`，以后直接输入 `dshd` 管理。
 
 安装完成后：
@@ -60,6 +62,11 @@ dshd hosts add dsh.example.com
 dshd hosts remove dsh.example.com
 dshd hosts set dsh.example.com,other.example.com:3080
 dshd hosts clear
+dshd docker          # Docker 项目管理权限菜单
+dshd docker on       # 允许 DSH 管理宿主机 Docker
+dshd docker off      # 关闭宿主机 Docker 权限
+dshd docker status   # 检查 Docker Socket / Compose
+dshd env             # 查看 Node/Python/Go/Docker 等开发环境版本
 dshd token           # 显示首次访问 token URL
 dshd shell           # 进入容器
 dshd backup          # 备份 dsh 数据卷
@@ -132,6 +139,53 @@ dsh 的文件/命令沙箱后端候选链是 bubblewrap → 内核 Landlock：
   （只加 seccomp 不够）。
 - 内核两者都不可用时，设 `DSH_PERMISSION_MODE=danger-full-access` 临时关闭沙箱。
 
+## 内置开发环境
+
+镜像现在定位为通用 Agent 开发环境，而不只是 Node.js 容器。预装：
+
+| 环境 | 内容 |
+|---|---|
+| JavaScript / TypeScript | Node.js 24、npm、pnpm 10 |
+| Python | Python 3、pip、venv、uv |
+| Go | Go 1.27.1（amd64 / arm64） |
+| Docker 工具 | Docker CLI、Buildx、Docker Compose v2 |
+| 编译工具 | build-essential（gcc / g++ / make 等） |
+| 常用 CLI | git、curl、wget、jq、zip、unzip、openssh-client、procps、less |
+| 浏览器 | Playwright + Chromium |
+
+可直接运行：
+
+```bash
+dshd env
+```
+
+查看当前运行容器中的实际版本。
+
+## Docker 项目管理模式
+
+DSH 容器内只安装 **Docker 客户端**，不运行第二套 dockerd。需要让 DSH 部署和测试
+Docker 项目时，可执行：
+
+```bash
+dshd docker on
+```
+
+开启后 `dshd` 会把检测到的宿主机 Docker Socket 挂载为
+`/var/run/docker.sock`，并添加 `host.docker.internal:host-gateway`。此时 DSH 可以
+直接执行 `docker build`、`docker compose up -d`、查看日志和测试映射到宿主机的项目端口。
+
+为避免 Compose bind mount 的路径错位，`dshd` 管理的 workspace 会在宿主机和 DSH
+容器内使用**相同绝对路径**。
+
+> **安全提醒：** 能访问宿主机 Docker Socket 基本等价于拥有宿主机 root 级控制能力，
+> 因此此模式默认关闭，并且开启时需要明确确认。
+
+关闭：
+
+```bash
+dshd docker off
+```
+
 ## 内置浏览器
 
 镜像内通过 Playwright 安装了 Chromium（含全部系统依赖），路径
@@ -182,6 +236,8 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_BIND_HOST` | `0.0.0.0` | bind host（patch 层读取；改成 127.0.0.1 仅容器内可访问） |
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
+| `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
+| `DSH_DOCKER_SOCKET` | 自动检测 | 宿主机 Docker Socket 路径 |
 | `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
 
 ## 自动构建与更新（GitHub Actions）
@@ -205,6 +261,6 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 
 - 构建参数 `DSH_VERSION` 锁定 npm 包版本（当前版本见 Dockerfile 顶部；
   developer preview 可能有破坏性变更），check-update 工作流会自动维护
-- 镜像体积约 1.6 GB（Chromium 及其依赖占大头；不含浏览器的基础形态约 574 MB）
+- 镜像包含 Chromium、Python、Go、Docker CLI 和编译工具，因此体积会明显大于最小化 Node 镜像
 - 本方案的基础运行层（patch 绑定、入口分发、沙箱策略）已在
   Docker 26.1.4 / 内核 6.8 上实测通过
