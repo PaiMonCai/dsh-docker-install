@@ -409,7 +409,7 @@ first_trusted_host() {
 token_suffix() {
   local url="$1"
   [[ "$url" == *"?"* ]] || return 1
-  printf '?%s' "${url#*?}"
+  printf '?%s' "${url#*\?}"
 }
 
 local_token_url() {
