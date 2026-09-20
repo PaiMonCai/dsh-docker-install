@@ -15,8 +15,8 @@ DEFAULT_VOLUME="dsh-home"
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
   STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
-  BASE_WORKSPACE="/opt/dsh"
-  DEFAULT_WORKSPACE="$BASE_WORKSPACE/workspace"
+  BASE_WORKSPACE="/opt/dsh/workspaces"
+  DEFAULT_WORKSPACE="/opt/dsh/workspace"
 else
   STATE_DIR="${DSHD_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dshd}"
   BASE_WORKSPACE="$HOME/dsh-workspaces"
@@ -431,11 +431,6 @@ interactive_config() {
 
   heading "交互式配置"
   if [[ "$mode" == "initial" ]]; then
-    if is_tty; then
-      DSH_NAME=""
-      DSH_PORT=""
-    fi
-
     while true; do
       prompt_required DSH_NAME "Docker 容器名称（必填，例如 dsh）"
       if validate_container_name "$DSH_NAME"; then break; fi
@@ -459,7 +454,12 @@ interactive_config() {
       break
     done
 
-    DSH_WORKSPACE="$BASE_WORKSPACE/$DSH_NAME/workspace"
+    if container_exists; then
+      warn "已存在名为 $DSH_NAME 的 Docker 容器。"
+      confirm "确认由 dshd 接管并替换这个同名容器？" N || die "请重新安装并选择其他容器名称。"
+    fi
+
+    DSH_WORKSPACE="$BASE_WORKSPACE/$DSH_NAME"
     DSH_VOLUME="${DSH_NAME}-home"
   else
     prompt_value DSH_NAME "容器名称" "$DSH_NAME"
@@ -525,10 +525,19 @@ cmd_install() {
   network_report
 
   local first_install=false
+  local requested_name="${DSH_NAME:-}" requested_port="${DSH_PORT:-}"
   [[ -f "$CONFIG_FILE" ]] || first_install=true
   load_config
 
   if [[ "$first_install" == "true" ]]; then
+    # 交互安装必须由用户明确输入；无 TTY 时只接受调用方显式传入的环境变量。
+    if is_tty; then
+      DSH_NAME=""
+      DSH_PORT=""
+    else
+      DSH_NAME="$requested_name"
+      DSH_PORT="$requested_port"
+    fi
     interactive_config initial
   else
     info "检测到已有 dshd 配置，将进入修改模式。"
