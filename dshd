@@ -1,0 +1,619 @@
+#!/usr/bin/env bash
+# dshd - DeepSeek Harness Docker 管理器
+# 项目: https://github.com/PaiMonCai/dsh-docker-install
+set -Eeuo pipefail
+
+DSHD_VERSION="0.2.0"
+REPO="PaiMonCai/dsh-docker-install"
+RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
+DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
+MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:latest"
+DEFAULT_NAME="dsh"
+DEFAULT_PORT="3080"
+DEFAULT_BIND_ADDR="127.0.0.1"
+DEFAULT_VOLUME="dsh-home"
+
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+  STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
+  DEFAULT_WORKSPACE="/opt/dsh/workspace"
+else
+  STATE_DIR="${DSHD_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dshd}"
+  DEFAULT_WORKSPACE="$HOME/dsh-workspace"
+fi
+CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
+BACKUP_DIR="${DSHD_BACKUP_DIR:-$STATE_DIR/backups}"
+
+C_RESET=$'\033[0m'
+C_BLUE=$'\033[1;34m'
+C_GREEN=$'\033[1;32m'
+C_YELLOW=$'\033[1;33m'
+C_RED=$'\033[1;31m'
+C_CYAN=$'\033[1;36m'
+
+info()    { printf '%s==>%s %s\n' "$C_BLUE" "$C_RESET" "$*"; }
+ok()      { printf '%s[✓]%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
+warn()    { printf '%s[!]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+err()     { printf '%s[x]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
+die()     { err "$*"; exit 1; }
+heading() { printf '\n%s%s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
+
+is_tty() { [[ -t 0 && -t 1 ]]; }
+
+confirm() {
+  local prompt="${1:-确认继续？}" default="${2:-N}" ans
+  if ! is_tty; then
+    [[ "$default" =~ ^[Yy]$ ]]
+    return
+  fi
+  if [[ "$default" =~ ^[Yy]$ ]]; then
+    read -r -p "$prompt [Y/n] " ans || true
+    [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]]
+  else
+    read -r -p "$prompt [y/N] " ans || true
+    [[ "$ans" =~ ^[Yy]$ ]]
+  fi
+}
+
+prompt_value() {
+  local __var="$1" prompt="$2" default="$3" value
+  if is_tty; then
+    read -r -p "$prompt [$default]: " value || true
+  else
+    value=""
+  fi
+  printf -v "$__var" '%s' "${value:-$default}"
+}
+
+as_root() {
+  if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    die "此操作需要 root 权限；请使用 root 或安装 sudo。"
+  fi
+}
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR" "$BACKUP_DIR"
+  chmod 700 "$STATE_DIR"
+}
+
+load_config() {
+  DSH_IMAGE="${DSH_IMAGE:-$DEFAULT_IMAGE}"
+  DSH_NAME="${DSH_NAME:-$DEFAULT_NAME}"
+  DSH_PORT="${DSH_PORT:-$DEFAULT_PORT}"
+  DSH_BIND_ADDR="${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
+  DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
+  DSH_VOLUME="${DSH_VOLUME:-$DEFAULT_VOLUME}"
+  DSH_TRUSTED_HOSTS="${DSH_TRUSTED_HOSTS:-}"
+  DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # config.env 仅由 dshd 自己写入，权限默认为 600。
+    source "$CONFIG_FILE"
+  fi
+}
+
+save_config() {
+  ensure_state_dir
+  local tmp
+  tmp="$(mktemp)"
+  {
+    printf 'DSH_IMAGE=%q\n' "$DSH_IMAGE"
+    printf 'DSH_NAME=%q\n' "$DSH_NAME"
+    printf 'DSH_PORT=%q\n' "$DSH_PORT"
+    printf 'DSH_BIND_ADDR=%q\n' "$DSH_BIND_ADDR"
+    printf 'DSH_WORKSPACE=%q\n' "$DSH_WORKSPACE"
+    printf 'DSH_VOLUME=%q\n' "$DSH_VOLUME"
+    printf 'DSH_TRUSTED_HOSTS=%q\n' "$DSH_TRUSTED_HOSTS"
+    printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
+  } >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+}
+
+docker_cmd() {
+  if docker info >/dev/null 2>&1; then
+    docker "$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    sudo docker "$@"
+  else
+    return 125
+  fi
+}
+
+docker_ready() {
+  command -v docker >/dev/null 2>&1 && docker_cmd info >/dev/null 2>&1
+}
+
+detect_os() {
+  OS_ID="unknown"
+  OS_PRETTY="Unknown Linux"
+  if [[ -r /etc/os-release ]]; then
+    . /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_PRETTY="${PRETTY_NAME:-${NAME:-$OS_ID}}"
+  fi
+}
+
+install_curl_if_needed() {
+  command -v curl >/dev/null 2>&1 && return 0
+  info "未找到 curl，尝试安装..."
+  if command -v apt-get >/dev/null 2>&1; then
+    as_root apt-get update
+    as_root apt-get install -y curl ca-certificates
+  elif command -v dnf >/dev/null 2>&1; then
+    as_root dnf install -y curl ca-certificates
+  elif command -v yum >/dev/null 2>&1; then
+    as_root yum install -y curl ca-certificates
+  elif command -v apk >/dev/null 2>&1; then
+    as_root apk add --no-cache curl ca-certificates
+  else
+    die "无法自动安装 curl，请手动安装后重试。"
+  fi
+}
+
+install_docker() {
+  detect_os
+  heading "安装 Docker"
+  info "系统: $OS_PRETTY"
+
+  local installed=0
+  if command -v apt-get >/dev/null 2>&1; then
+    info "优先使用系统软件源安装 docker.io..."
+    if as_root apt-get update && as_root apt-get install -y docker.io; then
+      installed=1
+      as_root apt-get install -y docker-compose-plugin >/dev/null 2>&1 || true
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    if as_root apk add --no-cache docker docker-cli-compose; then installed=1; fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if as_root dnf install -y docker; then installed=1; fi
+  elif command -v yum >/dev/null 2>&1; then
+    if as_root yum install -y docker; then installed=1; fi
+  fi
+
+  if [[ "$installed" -ne 1 ]]; then
+    warn "系统软件源安装未成功，尝试 Docker 官方 convenience script。"
+    install_curl_if_needed
+    local tmp
+    tmp="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 8 --max-time 30 https://get.docker.com -o "$tmp"; then
+      rm -f "$tmp"
+      die "无法下载安装 Docker。请先手动安装 Docker，再运行 dshd。"
+    fi
+    as_root sh "$tmp"
+    rm -f "$tmp"
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    as_root systemctl enable --now docker >/dev/null 2>&1 || true
+  elif command -v service >/dev/null 2>&1; then
+    as_root service docker start >/dev/null 2>&1 || true
+  fi
+
+  command -v docker >/dev/null 2>&1 || die "Docker 安装后仍未找到 docker 命令。"
+  if ! docker_ready; then
+    warn "Docker 已安装，但当前用户还不能直接访问 daemon。"
+    if [[ ${EUID:-$(id -u)} -ne 0 ]] && getent group docker >/dev/null 2>&1; then
+      warn "可执行: sudo usermod -aG docker $USER，然后重新登录。当前 dshd 会尝试通过 sudo 使用 Docker。"
+    fi
+    docker_cmd info >/dev/null 2>&1 || die "Docker daemon 未运行或无法访问。"
+  fi
+  ok "Docker 可用: $(docker_cmd version --format '{{.Server.Version}}' 2>/dev/null || echo unknown)"
+}
+
+ensure_docker() {
+  if docker_ready; then
+    ok "Docker 已安装且 daemon 可用"
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    warn "检测到 docker 命令，但 daemon 未运行或当前用户无权限。"
+    if command -v systemctl >/dev/null 2>&1 && confirm "尝试启动 Docker 服务？" Y; then
+      as_root systemctl start docker || true
+    fi
+    docker_ready && { ok "Docker 已可用"; return 0; }
+  else
+    warn "未检测到 Docker。"
+  fi
+
+  confirm "是否自动安装 Docker？" Y || die "需要 Docker 才能部署 dsh。"
+  install_docker
+}
+
+probe_url() {
+  local url="$1" code
+  command -v curl >/dev/null 2>&1 || return 1
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 4 --max-time 8 "$url" 2>/dev/null || true)"
+  [[ "$code" != "000" && -n "$code" ]]
+}
+
+network_report() {
+  install_curl_if_needed
+  heading "网络环境检测"
+
+  if probe_url "https://raw.githubusercontent.com/"; then
+    NET_RAW_GITHUB=1; ok "GitHub Raw 可达"
+  else
+    NET_RAW_GITHUB=0; warn "GitHub Raw 不可达或响应超时"
+  fi
+
+  if probe_url "https://ghcr.io/v2/"; then
+    NET_GHCR=1; ok "GHCR 可达"
+  else
+    NET_GHCR=0; warn "GHCR 不可达或响应超时"
+  fi
+
+  if probe_url "https://registry-1.docker.io/v2/"; then
+    NET_DOCKERHUB=1; ok "Docker Hub Registry 可达"
+  else
+    NET_DOCKERHUB=0; warn "Docker Hub Registry 不可达或响应超时"
+  fi
+
+  if probe_url "https://www.google.com"; then
+    NET_REGION="global"; info "网络特征: 国际网络连通"
+  elif probe_url "https://www.baidu.com"; then
+    NET_REGION="cn"; info "网络特征: 可能为中国大陆网络"
+  else
+    NET_REGION="unknown"; info "网络特征: 无法可靠判断区域"
+  fi
+}
+
+pull_best_image() {
+  local candidates=() img
+  [[ -n "${DSH_IMAGE:-}" ]] && candidates+=("$DSH_IMAGE")
+  [[ "${DSH_IMAGE:-}" != "$DEFAULT_IMAGE" ]] && candidates+=("$DEFAULT_IMAGE")
+  [[ "${DSH_IMAGE:-}" != "$MIRROR_IMAGE" ]] && candidates+=("$MIRROR_IMAGE")
+
+  heading "拉取 dsh 镜像"
+  for img in "${candidates[@]}"; do
+    info "尝试: $img"
+    if docker_cmd pull "$img"; then
+      DSH_IMAGE="$img"
+      ok "镜像可用: $DSH_IMAGE"
+      return 0
+    fi
+    warn "拉取失败: $img"
+  done
+
+  if is_tty; then
+    local custom
+    read -r -p "请输入自定义镜像地址（留空退出）: " custom || true
+    if [[ -n "$custom" ]] && docker_cmd pull "$custom"; then
+      DSH_IMAGE="$custom"; ok "镜像可用: $DSH_IMAGE"; return 0
+    fi
+  fi
+
+  die "所有候选镜像均拉取失败。请检查网络、GHCR Package 可见性或自定义 DSH_IMAGE。"
+}
+
+container_exists() {
+  docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "$DSH_NAME"
+}
+container_running() {
+  docker_cmd ps --format '{{.Names}}' | grep -Fxq "$DSH_NAME"
+}
+container_state() {
+  if ! container_exists; then printf 'not-created'; return; fi
+  docker_cmd inspect -f '{{.State.Status}}' "$DSH_NAME" 2>/dev/null || printf 'unknown'
+}
+health_state() {
+  if ! container_exists; then printf 'n/a'; return; fi
+  docker_cmd inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$DSH_NAME" 2>/dev/null || printf 'unknown'
+}
+
+create_container() {
+  if ! mkdir -p "$DSH_WORKSPACE" 2>/dev/null; then
+    as_root mkdir -p "$DSH_WORKSPACE"
+  fi
+
+  if container_exists; then
+    info "移除旧容器 $DSH_NAME（持久卷 $DSH_VOLUME 保留）..."
+    docker_cmd rm -f "$DSH_NAME" >/dev/null
+  fi
+
+  local args=(
+    run -d --name "$DSH_NAME" --restart unless-stopped
+    -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
+    -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}"
+    -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
+    -v "${DSH_VOLUME}:/root/.dsh"
+    -v "${DSH_WORKSPACE}:/workspace"
+  )
+
+  info "启动容器 $DSH_NAME ..."
+  docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
+  wait_ready
+}
+
+wait_ready() {
+  local i url=""
+  info "等待 Web UI 就绪..."
+  for i in $(seq 1 60); do
+    if ! container_running; then
+      err "容器已退出。最近日志："
+      docker_cmd logs --tail 50 "$DSH_NAME" 2>&1 || true
+      return 1
+    fi
+    url="$(docker_cmd logs "$DSH_NAME" 2>&1 | grep -oE 'http://[^ ]*\?token=[A-Za-z0-9_-]+' | tail -1 || true)"
+    [[ -n "$url" ]] && break
+    sleep 1
+  done
+
+  if [[ -z "$url" ]]; then
+    warn "容器仍在运行，但 60 秒内没有从日志读取到 token URL。"
+    return 0
+  fi
+
+  local access
+  access="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://${DSH_BIND_ADDR}:${DSH_PORT}|")"
+  if [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]]; then
+    access="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://127.0.0.1:${DSH_PORT}|")"
+  fi
+  ok "Web UI 已就绪"
+  printf '\n首次访问地址：\n  %s\n\n' "$access"
+}
+
+interactive_config() {
+  local value
+  heading "交互式配置"
+  prompt_value DSH_NAME "容器名称" "${DSH_NAME:-$DEFAULT_NAME}"
+  prompt_value DSH_PORT "宿主机端口" "${DSH_PORT:-$DEFAULT_PORT}"
+  [[ "$DSH_PORT" =~ ^[0-9]+$ ]] || die "端口必须是数字。"
+  prompt_value DSH_BIND_ADDR "监听地址（127.0.0.1 推荐；0.0.0.0 可供局域网/反代访问）" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
+  prompt_value DSH_WORKSPACE "工作区目录" "${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
+  prompt_value DSH_VOLUME "Docker 数据卷" "${DSH_VOLUME:-$DEFAULT_VOLUME}"
+  prompt_value DSH_TRUSTED_HOSTS "受信任 Host（域名/反代使用，多个用逗号分隔；无则留空）" "${DSH_TRUSTED_HOSTS:-}"
+
+  if is_tty; then
+    if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
+      if confirm "已保存 DeepSeek API Key，是否修改？" N; then
+        read -r -s -p "DeepSeek API Key（留空清除）: " value || true
+        printf '\n'; DEEPSEEK_API_KEY="$value"
+      fi
+    else
+      read -r -s -p "DeepSeek API Key（可留空，之后在 Web UI 配置）: " value || true
+      printf '\n'; DEEPSEEK_API_KEY="$value"
+    fi
+  fi
+
+  if [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]]; then
+    warn "你选择了 0.0.0.0。不要直接把 3080 暴露到公网，推荐前置 Nginx/Caddy + HTTPS。"
+    [[ -n "$DSH_TRUSTED_HOSTS" ]] || warn "当前未配置 DSH_TRUSTED_HOSTS，域名/反代访问可能被 dsh Host 校验拒绝。"
+  fi
+}
+
+install_self() {
+  local source="${BASH_SOURCE[0]}" target="/usr/local/bin/dshd"
+  [[ "$source" == "$target" ]] && return 0
+  if [[ -r "$source" ]]; then
+    info "安装管理命令到 $target ..."
+    as_root install -m 0755 "$source" "$target"
+    ok "以后直接输入 dshd 即可进入管理菜单"
+  else
+    warn "无法读取当前脚本，跳过安装 dshd 命令。"
+  fi
+}
+
+cmd_install() {
+  heading "DeepSeek Harness Docker 交互式安装"
+  printf 'dshd %s\n\n' "$DSHD_VERSION"
+  detect_os; info "系统: $OS_PRETTY"
+  ensure_docker
+  network_report
+  load_config
+  interactive_config
+  pull_best_image
+  save_config
+  install_self
+  create_container
+  ok "安装完成。输入 dshd 即可进入运维菜单。"
+}
+
+cmd_status() {
+  load_config
+  heading "dsh 状态"
+  printf '容器:      %s\n' "$DSH_NAME"
+  printf '状态:      %s\n' "$(container_state)"
+  printf '健康检查:  %s\n' "$(health_state)"
+  printf '镜像:      %s\n' "$DSH_IMAGE"
+  printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
+  printf '工作区:    %s\n' "$DSH_WORKSPACE"
+  printf '数据卷:    %s\n' "$DSH_VOLUME"
+  printf '配置文件:  %s\n' "$CONFIG_FILE"
+  if container_exists; then
+    local running_image
+    running_image="$(docker_cmd inspect -f '{{.Config.Image}}' "$DSH_NAME" 2>/dev/null || true)"
+    [[ -n "$running_image" ]] && printf '运行镜像:  %s\n' "$running_image"
+  fi
+}
+
+cmd_start() {
+  load_config; ensure_docker
+  if container_running; then
+    ok "$DSH_NAME 已在运行"
+  elif container_exists; then
+    docker_cmd start "$DSH_NAME" >/dev/null; ok "$DSH_NAME 已启动"
+  else
+    warn "容器不存在，将按当前配置创建。"
+    pull_best_image; save_config; create_container
+  fi
+}
+cmd_stop() {
+  load_config; ensure_docker
+  if container_running; then docker_cmd stop "$DSH_NAME" >/dev/null; ok "$DSH_NAME 已停止"; else info "$DSH_NAME 当前未运行"; fi
+}
+cmd_restart() {
+  load_config; ensure_docker
+  if container_exists; then docker_cmd restart "$DSH_NAME" >/dev/null; ok "$DSH_NAME 已重启"; else cmd_start; fi
+}
+cmd_logs() {
+  load_config; ensure_docker
+  container_exists || die "容器 $DSH_NAME 不存在。"
+  docker_cmd logs -f --tail 200 "$DSH_NAME"
+}
+cmd_update() {
+  load_config; ensure_docker
+  heading "更新 dsh 镜像"
+  pull_best_image; save_config; create_container
+  ok "更新并重建完成"
+}
+cmd_recreate() {
+  load_config; ensure_docker
+  pull_best_image; save_config; create_container
+}
+cmd_config() {
+  load_config; ensure_docker
+  interactive_config
+  [[ -n "${DSH_IMAGE:-}" ]] || DSH_IMAGE="$DEFAULT_IMAGE"
+  save_config
+  ok "配置已保存到 $CONFIG_FILE"
+  if container_exists && confirm "是否立即按新配置重建容器？" Y; then pull_best_image; create_container; fi
+}
+cmd_shell() {
+  load_config; ensure_docker
+  container_running || die "容器未运行。"
+  docker_cmd exec -it "$DSH_NAME" bash
+}
+cmd_token() {
+  load_config; ensure_docker
+  container_exists || die "容器不存在。"
+  local url
+  url="$(docker_cmd logs "$DSH_NAME" 2>&1 | grep -oE 'http://[^ ]*\?token=[A-Za-z0-9_-]+' | tail -1 || true)"
+  [[ -n "$url" ]] || die "未从日志找到 token URL。"
+  url="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://${DSH_BIND_ADDR}:${DSH_PORT}|")"
+  [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]] && url="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://127.0.0.1:${DSH_PORT}|")"
+  printf '%s\n' "$url"
+}
+cmd_backup() {
+  load_config; ensure_docker; ensure_state_dir
+  local ts file
+  ts="$(date +%Y%m%d-%H%M%S)"
+  file="$BACKUP_DIR/${DSH_VOLUME}-${ts}.tar.gz"
+  heading "备份 dsh 数据卷"; info "目标: $file"
+  docker_cmd run --rm --entrypoint sh -v "${DSH_VOLUME}:/data:ro" -v "${BACKUP_DIR}:/backup" "$DSH_IMAGE"     -c "tar czf '/backup/$(basename "$file")' -C /data ." >/dev/null
+  ok "备份完成: $file"
+}
+cmd_restore() {
+  load_config; ensure_docker; ensure_state_dir
+  local file="${1:-}"
+  if [[ -z "$file" ]]; then
+    heading "可用备份"
+    ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null || die "没有找到备份文件。"
+    if is_tty; then read -r -p "请输入要恢复的完整备份路径: " file; else die "非交互模式请指定备份文件: dshd restore /path/file.tar.gz"; fi
+  fi
+  [[ -f "$file" ]] || die "备份文件不存在: $file"
+  confirm "恢复会覆盖数据卷 $DSH_VOLUME 的现有内容，确认继续？" N || return 0
+  container_running && docker_cmd stop "$DSH_NAME" >/dev/null || true
+  local dir base
+  dir="$(cd "$(dirname "$file")" && pwd)"; base="$(basename "$file")"
+  docker_cmd run --rm --entrypoint sh -v "${DSH_VOLUME}:/data" -v "${dir}:/backup:ro" "$DSH_IMAGE"     -c "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true; tar xzf '/backup/${base}' -C /data"
+  ok "数据卷恢复完成"; cmd_start
+}
+cmd_doctor() {
+  load_config
+  heading "dshd 诊断"
+  detect_os
+  printf '系统: %s\n' "$OS_PRETTY"
+  printf 'dshd: %s\n' "$DSHD_VERSION"
+  if command -v docker >/dev/null 2>&1; then ok "docker 命令存在: $(docker --version 2>/dev/null || true)"; else err "docker 命令不存在"; fi
+  if docker_ready; then ok "Docker daemon 可访问"; else err "Docker daemon 不可访问"; fi
+  network_report
+  if docker_ready; then
+    cmd_status
+    if container_running && command -v curl >/dev/null 2>&1; then
+      local code
+      code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "http://127.0.0.1:${DSH_PORT}/" 2>/dev/null || true)"
+      if [[ "$code" =~ ^(200|302|303|401)$ ]]; then ok "Web 端口响应正常: HTTP $code"; else warn "Web 端口响应异常: HTTP ${code:-000}"; fi
+    fi
+    docker_cmd system df 2>/dev/null || true
+  fi
+}
+cmd_uninstall() {
+  load_config; ensure_docker
+  heading "卸载 dsh"
+  if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
+  if docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 && confirm "删除数据卷 $DSH_VOLUME？这会删除会话和凭据。" N; then docker_cmd volume rm "$DSH_VOLUME" >/dev/null; ok "数据卷已删除"; fi
+  if [[ -d "$DSH_WORKSPACE" ]] && confirm "删除工作区 $DSH_WORKSPACE？" N; then as_root rm -rf "$DSH_WORKSPACE"; ok "工作区已删除"; fi
+  if confirm "删除 dshd 配置目录 $STATE_DIR？" N; then rm -rf "$STATE_DIR"; ok "配置目录已删除"; fi
+  if [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"; fi
+}
+
+print_help() {
+  cat <<'EOF'
+dshd - DeepSeek Harness Docker 管理器
+
+用法:
+  dshd                  打开交互式运维菜单
+  dshd install          首次交互安装
+  dshd status           查看状态
+  dshd start|stop       启动/停止
+  dshd restart          重启
+  dshd logs             实时日志
+  dshd update           拉取最新镜像并重建
+  dshd recreate         按当前配置重建
+  dshd config           交互修改配置
+  dshd shell            进入容器 Shell
+  dshd token            显示首次访问 URL
+  dshd backup           备份 /root/.dsh 数据卷
+  dshd restore [file]   恢复数据卷备份
+  dshd doctor           环境/网络/容器诊断
+  dshd uninstall        交互卸载
+  dshd version          显示版本
+EOF
+}
+
+menu() {
+  load_config
+  while true; do
+    clear 2>/dev/null || true
+    printf '%sDeepSeek Harness Docker Manager%s  v%s\n' "$C_CYAN" "$C_RESET" "$DSHD_VERSION"
+    printf '容器: %-16s 状态: %-12s 健康: %s\n' "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)"
+    cat <<'EOF'
+
+  1) 安装 / 初始化
+  2) 查看状态
+  3) 启动
+  4) 停止
+  5) 重启
+  6) 查看实时日志
+  7) 更新镜像并重建
+  8) 修改配置
+  9) 显示首次访问 Token URL
+ 10) 进入容器 Shell
+ 11) 备份数据
+ 12) 恢复数据
+ 13) 环境诊断
+ 14) 按当前配置重建
+ 15) 卸载
+
+  0) 退出
+EOF
+    local choice
+    read -r -p $'\n请选择: ' choice || return 0
+    printf '\n'
+    case "$choice" in
+      1) cmd_install ;; 2) cmd_status ;; 3) cmd_start ;; 4) cmd_stop ;; 5) cmd_restart ;;
+      6) cmd_logs ;; 7) cmd_update ;; 8) cmd_config ;; 9) cmd_token ;; 10) cmd_shell ;;
+      11) cmd_backup ;; 12) cmd_restore ;; 13) cmd_doctor ;; 14) cmd_recreate ;;
+      15) cmd_uninstall ;; 0) return 0 ;; *) warn "无效选项" ;;
+    esac
+    if [[ "$choice" != "6" && "$choice" != "10" ]]; then read -r -p $'\n按 Enter 返回菜单...' _ || true; fi
+  done
+}
+
+main() {
+  local cmd="${1:-menu}"
+  case "$cmd" in
+    menu) menu ;; install) cmd_install ;; status) cmd_status ;; start) cmd_start ;; stop) cmd_stop ;;
+    restart) cmd_restart ;; logs) cmd_logs ;; update|upgrade) cmd_update ;; recreate) cmd_recreate ;;
+    config) cmd_config ;; shell) cmd_shell ;; token|url) cmd_token ;; backup) cmd_backup ;;
+    restore) shift; cmd_restore "${1:-}" ;; doctor|check) cmd_doctor ;; uninstall|remove) cmd_uninstall ;;
+    version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;; help|-h|--help) print_help ;;
+    *) err "未知命令: $cmd"; print_help; exit 2 ;;
+  esac
+}
+main "$@"
