@@ -11,6 +11,7 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 ├── docker/
 │   ├── entrypoint.sh           # 入口：web/headless/sdk/acp/dsh/plugin/bash 分发
 │   ├── dsh-bind.patch.yml      # 关键：让容器内 GUI 监听 0.0.0.0 的官方 patch 层
+│   ├── patch-remote-settings.js # 构建期启用远程 Settings
 │   └── cn-mirror.sh            # 构建期国内网络自动检测
 ├── docker-compose.yml / .env.example
 ├── install.sh                  # 轻量 bootstrap：下载并启动 dshd
@@ -34,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 - 未安装 Docker 时询问是否自动安装；
 - 检测 GitHub Raw、GHCR、Docker Hub 以及网络区域特征；
 - **首次安装强制明确填写 Docker 容器名和 Web UI 宿主机端口**（不再直接回车使用默认值）；
-- 交互配置监听地址、工作区、数据卷、Trusted Hosts 和 DeepSeek API Key；
+- 交互配置监听地址、工作区、数据卷、Trusted Hosts，并选择 DeepSeek 官方 API 或自定义 Base URL，再配置 API Key；
 - 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
 - 创建持久卷和工作区，启动容器并等待 Web UI；
 - 询问是否开启 **Docker 项目管理模式**；开启后 DSH 可通过宿主机 Docker Socket 构建、部署和测试 Docker 应用；
@@ -56,6 +57,10 @@ dshd restart         # 重启
 dshd logs            # 实时日志
 dshd update          # 拉取镜像并重建
 dshd config          # 交互修改完整配置
+dshd api             # DeepSeek API / Base URL 配置菜单
+dshd api show        # 查看当前 API 模式
+dshd api official    # 切换到 DeepSeek 官方 API
+dshd api custom https://api.example.com
 dshd hosts           # 快捷管理 Trusted Hosts
 dshd hosts show      # 查看 Trusted Hosts
 dshd hosts add dsh.example.com
@@ -90,6 +95,30 @@ Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS）�
 `127.0.0.1:<端口>` 的本地回退地址。例如 `dsh.example.com` 会显示为
 `https://dsh.example.com/?token=...`。
 
+### DeepSeek API / Base URL 配置
+
+首次安装时会选择 API 接入方式：
+
+1. **DeepSeek 官方 API**：默认选项，不设置 `DEEPSEEK_BASE_URL`；
+2. **自定义 Base URL**：填写以 `http://` 或 `https://` 开头的兼容地址。
+
+两种模式都可以配置 `DEEPSEEK_API_KEY`。安装后可随时运行：
+
+```bash
+dshd api
+```
+
+快捷切换，也可以使用：
+
+```bash
+dshd api show
+dshd api official
+dshd api custom https://api.example.com
+```
+
+API 配置保存在 dshd 配置文件中，权限为 600。状态页只显示 API Key 是否已配置，不输出密钥内容。
+修改 Base URL 或 API Key 后，需要重建容器才能让新的环境变量生效，`dshd` 会直接询问是否立即重建。
+
 ### 1. 手动构建
 
 ```bash
@@ -120,6 +149,34 @@ docker logs dsh | grep 'dsh web:'
 
 把 host 换成 `127.0.0.1` 后在浏览器打开。不带 token 访问一律 401；带 token 首次访问
 返回 302/303 并种下 30 天签名 cookie，之后同一会话不用再带。
+
+## 远程 Settings
+
+官方 Web UI 会把非 loopback 浏览器会话的 Settings 持久化模式降为内存模式。
+本镜像在构建时对 Web 前端发布产物应用 Remote Settings patch，使通过域名或反向代理访问时
+也可以正常使用“设置 → 模型”等 Settings 页面。
+
+推荐保持以下访问方式：
+
+```text
+浏览器 HTTPS
+  ↓
+Nginx / Caddy / OpenResty
+  ↓
+127.0.0.1:<DSH_PORT>
+  ↓
+DSH
+```
+
+同时配置：
+
+- 首次访问 Token；
+- `DSH_TRUSTED_HOSTS`；
+- HTTPS 反向代理；
+- 不直接把 DSH Web UI 端口暴露到公网。
+
+补丁只修改 Settings 的持久化判断，不改变其他 loopback 安全判断。构建时如果找不到对应的
+Web 前端代码，镜像构建会失败，避免生成一个看似成功但远程 Settings 实际未生效的镜像。
 
 ## 关键设计
 
@@ -235,7 +292,8 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | — | DeepSeek API 密钥（也可在 Web UI 设置 → 模型 中填写） |
+| `DEEPSEEK_API_KEY` | — | DeepSeek API 密钥；dshd 官方/自定义模式共用 |
+| `DEEPSEEK_BASE_URL` | — | 可选；留空使用 DeepSeek 官方默认地址，自定义兼容 API 时填写 |
 | `DSH_HOME` | `/root/.dsh` | profile / 会话 / 凭据目录（持久卷） |
 | `DSH_PORT` | `3080` | 监听端口（命令行 `--port` 优先） |
 | `DSH_BIND_HOST` | `0.0.0.0` | bind host（patch 层读取；改成 127.0.0.1 仅容器内可访问） |
