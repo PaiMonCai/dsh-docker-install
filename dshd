@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.3.1"
+DSHD_VERSION="0.4.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
@@ -132,6 +132,7 @@ load_config() {
   DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
   DSH_VOLUME="${DSH_VOLUME:-$DEFAULT_VOLUME}"
   DSH_TRUSTED_HOSTS="${DSH_TRUSTED_HOSTS:-}"
+  DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-}"
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
   DSH_DOCKER_ACCESS="${DSH_DOCKER_ACCESS:-false}"
   DSH_DOCKER_SOCKET="${DSH_DOCKER_SOCKET:-}"
@@ -155,6 +156,7 @@ save_config() {
     printf 'DSH_WORKSPACE=%q\n' "$DSH_WORKSPACE"
     printf 'DSH_VOLUME=%q\n' "$DSH_VOLUME"
     printf 'DSH_TRUSTED_HOSTS=%q\n' "$DSH_TRUSTED_HOSTS"
+    printf 'DEEPSEEK_BASE_URL=%q\n' "$DEEPSEEK_BASE_URL"
     printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
     printf 'DSH_DOCKER_ACCESS=%q\n' "$DSH_DOCKER_ACCESS"
     printf 'DSH_DOCKER_SOCKET=%q\n' "$DSH_DOCKER_SOCKET"
@@ -370,12 +372,14 @@ create_container() {
     --name "$DSH_NAME"
     --restart unless-stopped
     -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
-    -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}"
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
     -v "${DSH_VOLUME}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
   )
+
+  [[ -n "$DEEPSEEK_API_KEY" ]] && args+=(-e "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY")
+  [[ -n "$DEEPSEEK_BASE_URL" ]] && args+=(-e "DEEPSEEK_BASE_URL=$DEEPSEEK_BASE_URL")
 
   if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
     # 同一目录额外挂到容器内相同绝对路径，并切换 cwd。
@@ -467,6 +471,88 @@ wait_ready() {
   fi
 }
 
+validate_base_url() {
+  [[ "$1" =~ ^https?://[^[:space:]]+$ ]]
+}
+
+api_mode_label() {
+  if [[ -n "${DEEPSEEK_BASE_URL:-}" ]]; then
+    printf '自定义'
+  else
+    printf 'DeepSeek 官方'
+  fi
+}
+
+api_key_state() {
+  [[ -n "${DEEPSEEK_API_KEY:-}" ]] && printf '已配置' || printf '未配置'
+}
+
+read_api_key() {
+  local value=""
+  if ! is_tty; then
+    return 0
+  fi
+  read -r -s -p "DeepSeek API Key（可留空）: " value || true
+  printf '\n'
+  DEEPSEEK_API_KEY="$value"
+}
+
+interactive_api_config() {
+  local mode="${1:-edit}" choice default_choice value
+  heading "DeepSeek API 配置"
+
+  if [[ -n "${DEEPSEEK_BASE_URL:-}" ]]; then
+    default_choice=2
+  else
+    default_choice=1
+  fi
+
+  if is_tty; then
+    cat <<'EOF'
+  1) DeepSeek 官方 API
+  2) 自定义 Base URL
+EOF
+    read -r -p "API 接入方式 [$default_choice]: " choice || true
+    choice="${choice:-$default_choice}"
+
+    case "$choice" in
+      1)
+        DEEPSEEK_BASE_URL=""
+        ;;
+      2)
+        while true; do
+          read -r -p "自定义 Base URL${DEEPSEEK_BASE_URL:+ [$DEEPSEEK_BASE_URL]}: " value || true
+          value="${value:-$DEEPSEEK_BASE_URL}"
+          if validate_base_url "$value"; then
+            DEEPSEEK_BASE_URL="${value%/}"
+            break
+          fi
+          warn "Base URL 必须以 http:// 或 https:// 开头。"
+        done
+        ;;
+      *)
+        warn "无效选项，保持当前 API 接入方式。"
+        ;;
+    esac
+
+    if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
+      if confirm "API Key 已配置，是否修改？" N; then
+        read_api_key
+      fi
+    else
+      read_api_key
+    fi
+  fi
+
+  info "API 模式: $(api_mode_label)"
+  if [[ -n "${DEEPSEEK_BASE_URL:-}" ]]; then
+    info "Base URL: $DEEPSEEK_BASE_URL"
+  else
+    info "Base URL: DeepSeek 官方默认"
+  fi
+  info "API Key: $(api_key_state)"
+}
+
 interactive_config() {
   local mode="${1:-edit}" value=""
 
@@ -514,19 +600,7 @@ interactive_config() {
   prompt_value DSH_VOLUME "Docker 数据卷" "$DSH_VOLUME"
   prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
 
-  if is_tty; then
-    if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
-      if confirm "已保存 DeepSeek API Key，是否修改？" N; then
-        read -r -s -p "DeepSeek API Key（留空清除）: " value || true
-        printf '\n'
-        DEEPSEEK_API_KEY="$value"
-      fi
-    else
-      read -r -s -p "DeepSeek API Key（可留空，之后在 Web UI 配置）: " value || true
-      printf '\n'
-      DEEPSEEK_API_KEY="$value"
-    fi
-  fi
+  interactive_api_config "$mode"
 
   if [[ "$mode" == "initial" ]]; then
     heading "Docker 项目管理"
@@ -603,6 +677,9 @@ cmd_status() {
   printf '工作区:    %s\n' "$DSH_WORKSPACE"
   printf '数据卷:         %s\n' "$DSH_VOLUME"
   printf 'Trusted Hosts:  %s\n' "${DSH_TRUSTED_HOSTS:-（未配置）}"
+  printf 'API 模式:       %s\n' "$(api_mode_label)"
+  printf 'Base URL:       %s\n' "${DEEPSEEK_BASE_URL:-DeepSeek 官方默认}"
+  printf 'API Key:        %s\n' "$(api_key_state)"
   printf 'Docker 管理:    %s\n' "$DSH_DOCKER_ACCESS"
   [[ "$DSH_DOCKER_ACCESS" == "true" ]] && printf 'Docker Socket:  %s\n' "$DSH_DOCKER_SOCKET"
   printf '配置文件:       %s\n' "$CONFIG_FILE"
@@ -705,6 +782,84 @@ apply_config_change() {
       warn "配置已保存；稍后执行 dshd recreate 即可生效。"
     fi
   fi
+}
+
+cmd_api() {
+  load_config
+  ensure_docker
+  local action="${1:-menu}" value=""
+
+  case "$action" in
+    show|status)
+      heading "DeepSeek API 配置"
+      printf '模式:     %s\n' "$(api_mode_label)"
+      printf 'Base URL: %s\n' "${DEEPSEEK_BASE_URL:-DeepSeek 官方默认}"
+      printf 'API Key:  %s\n' "$(api_key_state)"
+      return
+      ;;
+    official)
+      DEEPSEEK_BASE_URL=""
+      apply_config_change
+      return
+      ;;
+    custom)
+      [[ "$#" -ge 2 ]] || die "用法: dshd api custom https://api.example.com"
+      value="$2"
+      validate_base_url "$value" || die "Base URL 必须以 http:// 或 https:// 开头。"
+      DEEPSEEK_BASE_URL="${value%/}"
+      apply_config_change
+      return
+      ;;
+    menu) ;;
+    *) die "未知 api 子命令: $action（可用: show/official/custom）" ;;
+  esac
+
+  while true; do
+    heading "DeepSeek API 配置"
+    printf '当前模式: %s\n' "$(api_mode_label)"
+    printf 'Base URL: %s\n' "${DEEPSEEK_BASE_URL:-DeepSeek 官方默认}"
+    printf 'API Key:  %s\n\n' "$(api_key_state)"
+    cat <<'EOF'
+  1) 使用 DeepSeek 官方 API
+  2) 设置自定义 Base URL
+  3) 修改 API Key
+  4) 清空 API Key
+  0) 返回
+EOF
+    local choice=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1)
+        DEEPSEEK_BASE_URL=""
+        apply_config_change
+        ;;
+      2)
+        while true; do
+          read -r -p "自定义 Base URL${DEEPSEEK_BASE_URL:+ [$DEEPSEEK_BASE_URL]}: " value || true
+          value="${value:-$DEEPSEEK_BASE_URL}"
+          if validate_base_url "$value"; then
+            DEEPSEEK_BASE_URL="${value%/}"
+            apply_config_change
+            break
+          fi
+          warn "Base URL 必须以 http:// 或 https:// 开头。"
+        done
+        ;;
+      3)
+        read_api_key
+        apply_config_change
+        ;;
+      4)
+        confirm "确认清空 API Key？" N || continue
+        DEEPSEEK_API_KEY=""
+        apply_config_change
+        ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+    read -r -p $'\n按 Enter 继续...' _ || true
+    load_config
+  done
 }
 
 cmd_hosts() {
@@ -903,6 +1058,10 @@ dshd - DeepSeek Harness Docker 管理器
   dshd update              拉取最新镜像并重建
   dshd recreate            按当前配置重建
   dshd config              修改完整配置
+  dshd api                 配置 DeepSeek API / Base URL
+  dshd api show            查看 API 配置
+  dshd api official        切换 DeepSeek 官方 API
+  dshd api custom URL      设置自定义 Base URL
   dshd hosts               快捷管理 Trusted Hosts
   dshd docker              管理 DSH 的宿主机 Docker 权限
   dshd docker on|off       开启/关闭 Docker 管理
@@ -935,16 +1094,17 @@ menu() {
   6) 查看实时日志
   7) 更新镜像并重建
   8) 修改完整配置
-  9) 快捷管理 Trusted Hosts
- 10) Docker 项目管理权限
- 11) 查看容器开发环境
- 12) 显示首次访问 Token URL
- 13) 进入容器 Shell
- 14) 备份数据
- 15) 恢复数据
- 16) 环境诊断
- 17) 按当前配置重建
- 18) 卸载
+  9) DeepSeek API / Base URL 配置
+ 10) 快捷管理 Trusted Hosts
+ 11) Docker 项目管理权限
+ 12) 查看容器开发环境
+ 13) 显示首次访问 Token URL
+ 14) 进入容器 Shell
+ 15) 备份数据
+ 16) 恢复数据
+ 17) 环境诊断
+ 18) 按当前配置重建
+ 19) 卸载
 
   0) 退出
 EOF
@@ -960,20 +1120,21 @@ EOF
       6) cmd_logs ;;
       7) cmd_update ;;
       8) cmd_config ;;
-      9) cmd_hosts ;;
-      10) cmd_docker_access ;;
-      11) cmd_env ;;
-      12) cmd_token ;;
-      13) cmd_shell ;;
-      14) cmd_backup ;;
-      15) cmd_restore ;;
-      16) cmd_doctor ;;
-      17) cmd_recreate ;;
-      18) cmd_uninstall ;;
+      9) cmd_api ;;
+      10) cmd_hosts ;;
+      11) cmd_docker_access ;;
+      12) cmd_env ;;
+      13) cmd_token ;;
+      14) cmd_shell ;;
+      15) cmd_backup ;;
+      16) cmd_restore ;;
+      17) cmd_doctor ;;
+      18) cmd_recreate ;;
+      19) cmd_uninstall ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "13" ]]; then
+    if [[ "$choice" != "6" && "$choice" != "14" ]]; then
       read -r -p $'\n按 Enter 返回菜单...' _ || true
     fi
     load_config
@@ -993,6 +1154,7 @@ main() {
     update|upgrade) cmd_update ;;
     recreate) cmd_recreate ;;
     config) cmd_config ;;
+    api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
     env|environment) cmd_env ;;
