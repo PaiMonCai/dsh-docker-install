@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.2.0"
+DSHD_VERSION="0.3.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
@@ -15,9 +15,11 @@ DEFAULT_VOLUME="dsh-home"
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
   STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
+  BASE_WORKSPACE="/opt/dsh/workspaces"
   DEFAULT_WORKSPACE="/opt/dsh/workspace"
 else
   STATE_DIR="${DSHD_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dshd}"
+  BASE_WORKSPACE="$HOME/dsh-workspaces"
   DEFAULT_WORKSPACE="$HOME/dsh-workspace"
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
@@ -64,6 +66,36 @@ prompt_value() {
   printf -v "$__var" '%s' "${value:-$default}"
 }
 
+prompt_required() {
+  local __var="$1" prompt="$2" value="${!1:-}"
+  if ! is_tty; then
+    [[ -n "$value" ]] || die "$prompt：非交互安装必须通过环境变量提供。"
+    return
+  fi
+  while [[ -z "$value" ]]; do
+    read -r -p "$prompt: " value || true
+    [[ -n "$value" ]] || warn "此项不能为空，请重新输入。"
+  done
+  printf -v "$__var" '%s' "$value"
+}
+
+validate_container_name() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+}
+
+validate_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && (( 1 <= 10#$1 && 10#$1 <= 65535 ))
+}
+
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+  else
+    return 1
+  fi
+}
+
 as_root() {
   if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     "$@"
@@ -79,6 +111,19 @@ ensure_state_dir() {
   chmod 700 "$STATE_DIR"
 }
 
+detect_docker_socket() {
+  if [[ -S "${DSH_DOCKER_SOCKET:-}" ]]; then
+    return 0
+  fi
+  if [[ -S /var/run/docker.sock ]]; then
+    DSH_DOCKER_SOCKET=/var/run/docker.sock
+  elif [[ -n "${XDG_RUNTIME_DIR:-}" && -S "${XDG_RUNTIME_DIR}/docker.sock" ]]; then
+    DSH_DOCKER_SOCKET="${XDG_RUNTIME_DIR}/docker.sock"
+  else
+    DSH_DOCKER_SOCKET=/var/run/docker.sock
+  fi
+}
+
 load_config() {
   DSH_IMAGE="${DSH_IMAGE:-$DEFAULT_IMAGE}"
   DSH_NAME="${DSH_NAME:-$DEFAULT_NAME}"
@@ -88,11 +133,14 @@ load_config() {
   DSH_VOLUME="${DSH_VOLUME:-$DEFAULT_VOLUME}"
   DSH_TRUSTED_HOSTS="${DSH_TRUSTED_HOSTS:-}"
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+  DSH_DOCKER_ACCESS="${DSH_DOCKER_ACCESS:-false}"
+  DSH_DOCKER_SOCKET="${DSH_DOCKER_SOCKET:-}"
 
   if [[ -f "$CONFIG_FILE" ]]; then
     # config.env 仅由 dshd 自己写入，权限默认为 600。
     source "$CONFIG_FILE"
   fi
+  detect_docker_socket
 }
 
 save_config() {
@@ -108,6 +156,8 @@ save_config() {
     printf 'DSH_VOLUME=%q\n' "$DSH_VOLUME"
     printf 'DSH_TRUSTED_HOSTS=%q\n' "$DSH_TRUSTED_HOSTS"
     printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
+    printf 'DSH_DOCKER_ACCESS=%q\n' "$DSH_DOCKER_ACCESS"
+    printf 'DSH_DOCKER_SOCKET=%q\n' "$DSH_DOCKER_SOCKET"
   } >"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$CONFIG_FILE"
@@ -311,18 +361,37 @@ create_container() {
   fi
 
   if container_exists; then
-    info "移除旧容器 $DSH_NAME（持久卷 $DSH_VOLUME 保留）..."
+    info "移除旧容器 $DSH_NAME（数据卷 $DSH_VOLUME 保留）..."
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
   local args=(
-    run -d --name "$DSH_NAME" --restart unless-stopped
+    run -d
+    --name "$DSH_NAME"
+    --restart unless-stopped
     -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
     -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}"
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
     -v "${DSH_VOLUME}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
+    -w "/workspace"
   )
+
+  if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
+    # 同一目录额外挂到容器内相同绝对路径，并切换 cwd。
+    # 这样 docker compose 的相对 bind mount 交给宿主机 daemon 时路径仍然存在。
+    args+=(
+      -v "${DSH_WORKSPACE}:${DSH_WORKSPACE}"
+      -w "$DSH_WORKSPACE"
+    )
+    detect_docker_socket
+    [[ -S "$DSH_DOCKER_SOCKET" ]] || die "已开启 Docker 管理，但找不到 Docker socket: $DSH_DOCKER_SOCKET"
+    args+=(
+      -v "${DSH_DOCKER_SOCKET}:/var/run/docker.sock"
+      --add-host "host.docker.internal:host-gateway"
+      -e "DOCKER_HOST=unix:///var/run/docker.sock"
+    )
+  fi
 
   info "启动容器 $DSH_NAME ..."
   docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
@@ -358,31 +427,80 @@ wait_ready() {
 }
 
 interactive_config() {
-  local value
+  local mode="${1:-edit}" value=""
+
   heading "交互式配置"
-  prompt_value DSH_NAME "容器名称" "${DSH_NAME:-$DEFAULT_NAME}"
-  prompt_value DSH_PORT "宿主机端口" "${DSH_PORT:-$DEFAULT_PORT}"
-  [[ "$DSH_PORT" =~ ^[0-9]+$ ]] || die "端口必须是数字。"
+  if [[ "$mode" == "initial" ]]; then
+    while true; do
+      prompt_required DSH_NAME "Docker 容器名称（必填，例如 dsh）"
+      if validate_container_name "$DSH_NAME"; then break; fi
+      warn "容器名只能包含字母、数字、点、下划线、短横线，且必须以字母或数字开头。"
+      DSH_NAME=""
+    done
+
+    while true; do
+      prompt_required DSH_PORT "Web UI 宿主机端口（必填，例如 3080）"
+      if ! validate_port "$DSH_PORT"; then
+        warn "请输入 1-65535 之间的端口。"
+        DSH_PORT=""
+        continue
+      fi
+      if port_in_use "$DSH_PORT"; then
+        warn "端口 $DSH_PORT 当前已有监听。"
+        confirm "仍然使用这个端口？" N && break
+        DSH_PORT=""
+        continue
+      fi
+      break
+    done
+
+    if container_exists; then
+      warn "已存在名为 $DSH_NAME 的 Docker 容器。"
+      confirm "确认由 dshd 接管并替换这个同名容器？" N || die "请重新安装并选择其他容器名称。"
+    fi
+
+    DSH_WORKSPACE="$BASE_WORKSPACE/$DSH_NAME"
+    DSH_VOLUME="${DSH_NAME}-home"
+  else
+    prompt_value DSH_NAME "容器名称" "$DSH_NAME"
+    validate_container_name "$DSH_NAME" || die "容器名称不合法。"
+    prompt_value DSH_PORT "宿主机端口" "$DSH_PORT"
+    validate_port "$DSH_PORT" || die "端口必须是 1-65535 的数字。"
+  fi
+
   prompt_value DSH_BIND_ADDR "监听地址（127.0.0.1 推荐；0.0.0.0 可供局域网/反代访问）" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
-  prompt_value DSH_WORKSPACE "工作区目录" "${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
-  prompt_value DSH_VOLUME "Docker 数据卷" "${DSH_VOLUME:-$DEFAULT_VOLUME}"
-  prompt_value DSH_TRUSTED_HOSTS "受信任 Host（域名/反代使用，多个用逗号分隔；无则留空）" "${DSH_TRUSTED_HOSTS:-}"
+  prompt_value DSH_WORKSPACE "项目工作区目录" "$DSH_WORKSPACE"
+  prompt_value DSH_VOLUME "Docker 数据卷" "$DSH_VOLUME"
+  prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
 
   if is_tty; then
     if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
       if confirm "已保存 DeepSeek API Key，是否修改？" N; then
         read -r -s -p "DeepSeek API Key（留空清除）: " value || true
-        printf '\n'; DEEPSEEK_API_KEY="$value"
+        printf '\n'
+        DEEPSEEK_API_KEY="$value"
       fi
     else
       read -r -s -p "DeepSeek API Key（可留空，之后在 Web UI 配置）: " value || true
-      printf '\n'; DEEPSEEK_API_KEY="$value"
+      printf '\n'
+      DEEPSEEK_API_KEY="$value"
+    fi
+  fi
+
+  if [[ "$mode" == "initial" ]]; then
+    heading "Docker 项目管理"
+    warn "开启后 DSH 会挂载宿主机 Docker Socket，可构建、部署和删除宿主机容器。"
+    warn "Docker Socket 权限基本等价于宿主机 root，请只在你信任 DSH 执行内容时开启。"
+    if confirm "是否允许 DSH 管理宿主机 Docker？" N; then
+      DSH_DOCKER_ACCESS=true
+    else
+      DSH_DOCKER_ACCESS=false
     fi
   fi
 
   if [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]]; then
-    warn "你选择了 0.0.0.0。不要直接把 3080 暴露到公网，推荐前置 Nginx/Caddy + HTTPS。"
-    [[ -n "$DSH_TRUSTED_HOSTS" ]] || warn "当前未配置 DSH_TRUSTED_HOSTS，域名/反代访问可能被 dsh Host 校验拒绝。"
+    warn "不要直接把 DSH Web UI 裸露公网，推荐 Nginx/Caddy + HTTPS。"
+    [[ -n "$DSH_TRUSTED_HOSTS" ]] || warn "当前未配置 Trusted Hosts。"
   fi
 }
 
@@ -401,11 +519,31 @@ install_self() {
 cmd_install() {
   heading "DeepSeek Harness Docker 交互式安装"
   printf 'dshd %s\n\n' "$DSHD_VERSION"
-  detect_os; info "系统: $OS_PRETTY"
+  detect_os
+  info "系统: $OS_PRETTY"
   ensure_docker
   network_report
+
+  local first_install=false
+  local requested_name="${DSH_NAME:-}" requested_port="${DSH_PORT:-}"
+  [[ -f "$CONFIG_FILE" ]] || first_install=true
   load_config
-  interactive_config
+
+  if [[ "$first_install" == "true" ]]; then
+    # 交互安装必须由用户明确输入；无 TTY 时只接受调用方显式传入的环境变量。
+    if is_tty; then
+      DSH_NAME=""
+      DSH_PORT=""
+    else
+      DSH_NAME="$requested_name"
+      DSH_PORT="$requested_port"
+    fi
+    interactive_config initial
+  else
+    info "检测到已有 dshd 配置，将进入修改模式。"
+    interactive_config edit
+  fi
+
   pull_best_image
   save_config
   install_self
@@ -422,8 +560,11 @@ cmd_status() {
   printf '镜像:      %s\n' "$DSH_IMAGE"
   printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
   printf '工作区:    %s\n' "$DSH_WORKSPACE"
-  printf '数据卷:    %s\n' "$DSH_VOLUME"
-  printf '配置文件:  %s\n' "$CONFIG_FILE"
+  printf '数据卷:         %s\n' "$DSH_VOLUME"
+  printf 'Trusted Hosts:  %s\n' "${DSH_TRUSTED_HOSTS:-（未配置）}"
+  printf 'Docker 管理:    %s\n' "$DSH_DOCKER_ACCESS"
+  [[ "$DSH_DOCKER_ACCESS" == "true" ]] && printf 'Docker Socket:  %s\n' "$DSH_DOCKER_SOCKET"
+  printf '配置文件:       %s\n' "$CONFIG_FILE"
   if container_exists; then
     local running_image
     running_image="$(docker_cmd inspect -f '{{.Config.Image}}' "$DSH_NAME" 2>/dev/null || true)"
@@ -466,13 +607,174 @@ cmd_recreate() {
   pull_best_image; save_config; create_container
 }
 cmd_config() {
-  load_config; ensure_docker
-  interactive_config
-  [[ -n "${DSH_IMAGE:-}" ]] || DSH_IMAGE="$DEFAULT_IMAGE"
+  load_config
+  ensure_docker
+  interactive_config edit
   save_config
   ok "配置已保存到 $CONFIG_FILE"
-  if container_exists && confirm "是否立即按新配置重建容器？" Y; then pull_best_image; create_container; fi
+  if container_exists && confirm "是否立即按新配置重建容器？" Y; then
+    create_container
+  fi
 }
+normalize_trusted_hosts() {
+  local raw="$*" token out="" existing
+  local parts=() seen=()
+  IFS=', ' read -r -a parts <<<"$raw" || true
+  for token in "${parts[@]}"; do
+    [[ -n "$token" ]] || continue
+    if [[ "$token" == *"://"* || "$token" == */* ]]; then
+      warn "Trusted Host 应填写域名/IP/authority，而不是 URL：$token"
+    fi
+    local duplicate=0
+    for existing in "${seen[@]}"; do
+      [[ "$existing" == "$token" ]] && { duplicate=1; break; }
+    done
+    [[ "$duplicate" -eq 1 ]] && continue
+    seen+=("$token")
+    [[ -z "$out" ]] && out="$token" || out="$out,$token"
+  done
+  printf '%s' "$out"
+}
+
+hosts_remove_values() {
+  local current="$1"; shift
+  local targets item target out="" remove
+  targets="$(normalize_trusted_hosts "$*")"
+  local items=() target_items=()
+  IFS=',' read -r -a items <<<"$current" || true
+  IFS=',' read -r -a target_items <<<"$targets" || true
+  for item in "${items[@]}"; do
+    [[ -n "$item" ]] || continue
+    remove=0
+    for target in "${target_items[@]}"; do
+      [[ "$item" == "$target" ]] && { remove=1; break; }
+    done
+    [[ "$remove" -eq 1 ]] && continue
+    [[ -z "$out" ]] && out="$item" || out="$out,$item"
+  done
+  printf '%s' "$out"
+}
+
+apply_config_change() {
+  save_config
+  if container_exists; then
+    if confirm "需要重建容器才能应用，是否立即重建？" Y; then
+      create_container
+    else
+      warn "配置已保存；稍后执行 dshd recreate 即可生效。"
+    fi
+  fi
+}
+
+cmd_hosts() {
+  load_config
+  local action="${1:-menu}"
+  [[ "$#" -gt 0 ]] && shift || true
+  case "$action" in
+    show|list) heading "Trusted Hosts"; [[ -n "$DSH_TRUSTED_HOSTS" ]] && printf '%s\n' "$DSH_TRUSTED_HOSTS" | tr ',' '\n' | sed 's/^/  - /' || info "当前未配置。"; return ;;
+    set) [[ "$#" -gt 0 ]] || die "用法: dshd hosts set dsh.example.com,other.example.com"; DSH_TRUSTED_HOSTS="$(normalize_trusted_hosts "$*")"; apply_config_change; return ;;
+    add) [[ "$#" -gt 0 ]] || die "用法: dshd hosts add dsh.example.com"; DSH_TRUSTED_HOSTS="$(normalize_trusted_hosts "${DSH_TRUSTED_HOSTS},$*")"; apply_config_change; return ;;
+    remove|rm|del) [[ "$#" -gt 0 ]] || die "用法: dshd hosts remove dsh.example.com"; DSH_TRUSTED_HOSTS="$(hosts_remove_values "$DSH_TRUSTED_HOSTS" "$@")"; apply_config_change; return ;;
+    clear) confirm "清空全部 Trusted Hosts？" N || return; DSH_TRUSTED_HOSTS=""; apply_config_change; return ;;
+    menu) ;;
+    *) die "未知 hosts 子命令: $action" ;;
+  esac
+
+  while true; do
+    heading "Trusted Hosts 快捷管理"
+    printf '当前值: %s\n\n' "${DSH_TRUSTED_HOSTS:-（未配置）}"
+    cat <<'EOF'
+  1) 查看列表
+  2) 完整替换
+  3) 添加 Host
+  4) 删除 Host
+  5) 清空
+  0) 返回
+EOF
+    local choice="" value=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1) [[ -n "$DSH_TRUSTED_HOSTS" ]] && printf '%s\n' "$DSH_TRUSTED_HOSTS" | tr ',' '\n' | sed 's/^/  - /' || info "未配置" ;;
+      2) read -r -p "输入完整列表（逗号分隔）: " value || true; DSH_TRUSTED_HOSTS="$(normalize_trusted_hosts "$value")"; apply_config_change ;;
+      3) read -r -p "输入要添加的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSH_TRUSTED_HOSTS="$(normalize_trusted_hosts "${DSH_TRUSTED_HOSTS},$value")"; apply_config_change ;;
+      4) read -r -p "输入要删除的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSH_TRUSTED_HOSTS="$(hosts_remove_values "$DSH_TRUSTED_HOSTS" "$value")"; apply_config_change ;;
+      5) confirm "清空全部 Trusted Hosts？" N || continue; DSH_TRUSTED_HOSTS=""; apply_config_change ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+    read -r -p $'\n按 Enter 继续...' _ || true
+  done
+}
+
+docker_access_summary() {
+  printf 'Docker 管理: %s\n' "$DSH_DOCKER_ACCESS"
+  printf 'Host socket: %s\n' "$DSH_DOCKER_SOCKET"
+  if container_running && [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
+    docker_cmd exec "$DSH_NAME" docker version --format 'Client={{.Client.Version}} Server={{.Server.Version}}' 2>/dev/null || warn "容器内 Docker CLI 无法连接宿主机 daemon"
+    docker_cmd exec "$DSH_NAME" docker compose version 2>/dev/null || true
+  fi
+}
+
+cmd_docker_access() {
+  load_config
+  ensure_docker
+  local action="${1:-menu}"
+  case "$action" in
+    status) heading "DSH → 宿主机 Docker"; docker_access_summary; return ;;
+    on|enable) detect_docker_socket; [[ -S "$DSH_DOCKER_SOCKET" ]] || die "找不到 Docker socket: $DSH_DOCKER_SOCKET"; warn "开启后 DSH 通过 Docker Socket 可获得近似宿主机 root 的控制能力。"; confirm "确认开启？" N || return; DSH_DOCKER_ACCESS=true; apply_config_change; return ;;
+    off|disable) DSH_DOCKER_ACCESS=false; apply_config_change; return ;;
+    ps) docker_cmd ps; return ;;
+    df) docker_cmd system df; return ;;
+    menu) ;;
+    *) die "未知 docker 子命令: $action（可用: status/on/off/ps/df）" ;;
+  esac
+  while true; do
+    heading "Docker 项目管理"
+    docker_access_summary
+    cat <<'EOF'
+
+  1) 开启 DSH 管理宿主机 Docker
+  2) 关闭 DSH 管理宿主机 Docker
+  3) 查看宿主机容器
+  4) 查看 Docker 磁盘占用
+  0) 返回
+EOF
+    local choice=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1) cmd_docker_access on ;;
+      2) cmd_docker_access off ;;
+      3) docker_cmd ps ;;
+      4) docker_cmd system df ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+    read -r -p $'\n按 Enter 继续...' _ || true
+    load_config
+  done
+}
+
+cmd_env() {
+  load_config
+  ensure_docker
+  container_running || die "容器未运行。"
+  heading "DSH 容器开发环境"
+  docker_cmd exec "$DSH_NAME" bash -lc '
+    printf "OS: "; grep PRETTY_NAME /etc/os-release | cut -d= -f2- | tr -d "\""
+    printf "Node: "; node --version 2>/dev/null || echo missing
+    printf "npm: "; npm --version 2>/dev/null || echo missing
+    printf "pnpm: "; pnpm --version 2>/dev/null || echo missing
+    printf "Python: "; python3 --version 2>/dev/null || echo missing
+    printf "pip: "; python3 -m pip --version 2>/dev/null | head -1 || echo missing
+    printf "uv: "; uv --version 2>/dev/null || echo missing
+    printf "Go: "; go version 2>/dev/null || echo missing
+    printf "Git: "; git --version 2>/dev/null || echo missing
+    printf "Docker CLI: "; docker --version 2>/dev/null || echo missing
+    printf "Compose: "; docker compose version 2>/dev/null || echo missing
+    printf "Chromium: "; chromium --version 2>/dev/null || echo missing
+  '
+}
+
 cmd_shell() {
   load_config; ensure_docker
   container_running || die "容器未运行。"
@@ -547,22 +849,26 @@ print_help() {
 dshd - DeepSeek Harness Docker 管理器
 
 用法:
-  dshd                  打开交互式运维菜单
-  dshd install          首次交互安装
-  dshd status           查看状态
-  dshd start|stop       启动/停止
-  dshd restart          重启
-  dshd logs             实时日志
-  dshd update           拉取最新镜像并重建
-  dshd recreate         按当前配置重建
-  dshd config           交互修改配置
-  dshd shell            进入容器 Shell
-  dshd token            显示首次访问 URL
-  dshd backup           备份 /root/.dsh 数据卷
-  dshd restore [file]   恢复数据卷备份
-  dshd doctor           环境/网络/容器诊断
-  dshd uninstall        交互卸载
-  dshd version          显示版本
+  dshd                     打开交互式运维菜单
+  dshd install             首次交互安装
+  dshd status              查看状态
+  dshd start|stop|restart  启停/重启
+  dshd logs                实时日志
+  dshd update              拉取最新镜像并重建
+  dshd recreate            按当前配置重建
+  dshd config              修改完整配置
+  dshd hosts               快捷管理 Trusted Hosts
+  dshd docker              管理 DSH 的宿主机 Docker 权限
+  dshd docker on|off       开启/关闭 Docker 管理
+  dshd docker status       检查 Docker Socket
+  dshd env                 查看容器开发环境版本
+  dshd shell               进入容器 Shell
+  dshd token               显示首次访问 URL
+  dshd backup              备份 /root/.dsh
+  dshd restore [file]      恢复数据卷备份
+  dshd doctor              环境/网络/容器诊断
+  dshd uninstall           交互卸载
+  dshd version             显示版本
 EOF
 }
 
@@ -571,7 +877,8 @@ menu() {
   while true; do
     clear 2>/dev/null || true
     printf '%sDeepSeek Harness Docker Manager%s  v%s\n' "$C_CYAN" "$C_RESET" "$DSHD_VERSION"
-    printf '容器: %-16s 状态: %-12s 健康: %s\n' "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)"
+    printf '容器: %-16s 状态: %-12s 健康: %-10s Docker管理: %s\n' \
+      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)" "$DSH_DOCKER_ACCESS"
     cat <<'EOF'
 
   1) 安装 / 初始化
@@ -581,39 +888,78 @@ menu() {
   5) 重启
   6) 查看实时日志
   7) 更新镜像并重建
-  8) 修改配置
-  9) 显示首次访问 Token URL
- 10) 进入容器 Shell
- 11) 备份数据
- 12) 恢复数据
- 13) 环境诊断
- 14) 按当前配置重建
- 15) 卸载
+  8) 修改完整配置
+  9) 快捷管理 Trusted Hosts
+ 10) Docker 项目管理权限
+ 11) 查看容器开发环境
+ 12) 显示首次访问 Token URL
+ 13) 进入容器 Shell
+ 14) 备份数据
+ 15) 恢复数据
+ 16) 环境诊断
+ 17) 按当前配置重建
+ 18) 卸载
 
   0) 退出
 EOF
-    local choice
-    read -r -p $'\n请选择: ' choice || return 0
+    local choice=""
+    read -r -p $'\n请选择: ' choice || return
     printf '\n'
     case "$choice" in
-      1) cmd_install ;; 2) cmd_status ;; 3) cmd_start ;; 4) cmd_stop ;; 5) cmd_restart ;;
-      6) cmd_logs ;; 7) cmd_update ;; 8) cmd_config ;; 9) cmd_token ;; 10) cmd_shell ;;
-      11) cmd_backup ;; 12) cmd_restore ;; 13) cmd_doctor ;; 14) cmd_recreate ;;
-      15) cmd_uninstall ;; 0) return 0 ;; *) warn "无效选项" ;;
+      1) cmd_install ;;
+      2) cmd_status ;;
+      3) cmd_start ;;
+      4) cmd_stop ;;
+      5) cmd_restart ;;
+      6) cmd_logs ;;
+      7) cmd_update ;;
+      8) cmd_config ;;
+      9) cmd_hosts ;;
+      10) cmd_docker_access ;;
+      11) cmd_env ;;
+      12) cmd_token ;;
+      13) cmd_shell ;;
+      14) cmd_backup ;;
+      15) cmd_restore ;;
+      16) cmd_doctor ;;
+      17) cmd_recreate ;;
+      18) cmd_uninstall ;;
+      0) return ;;
+      *) warn "无效选项" ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "10" ]]; then read -r -p $'\n按 Enter 返回菜单...' _ || true; fi
+    if [[ "$choice" != "6" && "$choice" != "13" ]]; then
+      read -r -p $'\n按 Enter 返回菜单...' _ || true
+    fi
+    load_config
   done
 }
 
 main() {
   local cmd="${1:-menu}"
   case "$cmd" in
-    menu) menu ;; install) cmd_install ;; status) cmd_status ;; start) cmd_start ;; stop) cmd_stop ;;
-    restart) cmd_restart ;; logs) cmd_logs ;; update|upgrade) cmd_update ;; recreate) cmd_recreate ;;
-    config) cmd_config ;; shell) cmd_shell ;; token|url) cmd_token ;; backup) cmd_backup ;;
-    restore) shift; cmd_restore "${1:-}" ;; doctor|check) cmd_doctor ;; uninstall|remove) cmd_uninstall ;;
-    version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;; help|-h|--help) print_help ;;
+    menu) menu ;;
+    install) cmd_install ;;
+    status) cmd_status ;;
+    start) cmd_start ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart ;;
+    logs) cmd_logs ;;
+    update|upgrade) cmd_update ;;
+    recreate) cmd_recreate ;;
+    config) cmd_config ;;
+    hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
+    docker|docker-access) shift; cmd_docker_access "$@" ;;
+    env|environment) cmd_env ;;
+    shell) cmd_shell ;;
+    token|url) cmd_token ;;
+    backup) cmd_backup ;;
+    restore) shift; cmd_restore "${1:-}" ;;
+    doctor|check) cmd_doctor ;;
+    uninstall|remove) cmd_uninstall ;;
+    version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;;
+    help|-h|--help) print_help ;;
     *) err "未知命令: $cmd"; print_help; exit 2 ;;
   esac
 }
+
 main "$@"

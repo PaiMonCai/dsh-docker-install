@@ -1,54 +1,37 @@
 # syntax=docker/dockerfile:1
 #
-# DeepSeek Harness (dsh) 自定义镜像：Web GUI / headless / SDK / ACP 多模式，
-# 内置 Chromium 浏览器，构建期自动检测国内网络并切换镜像源。
+# DeepSeek Harness (dsh) 通用开发镜像：
+# Node.js / Python / Go / Docker CLI / Playwright Chromium / 常用构建工具。
 #
-#   docker build -t dsh:latest .
-#   docker run -d --name dsh \
-#     -p 127.0.0.1:3080:3080 \
-#     -e DEEPSEEK_API_KEY=sk-... \
-#     -v dsh-home:/root/.dsh \
-#     -v "$PWD:/workspace" \
-#     dsh:latest
-#
-# 启动后从 `docker logs dsh` 里取带 token 的地址（形如
-# dsh web: http://127.0.0.1:3080/?token=...），首次访问必须带上它。
-
 ARG NODE_IMAGE=node:24-bookworm-slim
 
 FROM ${NODE_IMAGE}
 
-# 上游发布版本；升级镜像时只改这里（check-update 工作流会自动维护）。
 ARG DSH_VERSION=0.1.5-rc.2
-# `dsh plugin add/remove` 会转发给 pnpm，所以顺带装上。
 ARG PNPM_VERSION=10
-
-# IN_CHINA=auto 自动检测国内网络并切换镜像源；yes/no 可强制指定。
-# 有真实 HTTP 代理时直接传 --build-arg HTTPS_PROXY=http://proxy:7890。
+ARG GO_VERSION=1.27.1
+ARG TARGETARCH
 ARG IN_CHINA=auto
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
+ARG DOCKER_APT_BASE=https://download.docker.com/linux/debian
+
 ENV IN_CHINA=${IN_CHINA}
 
 LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
-      org.opencontainers.image.description="DeepSeek Harness Web GUI, headless, SDK and ACP profiles in one image, with bundled Chromium" \
-      org.opencontainers.image.source="https://github.com/deepseek-ai/deepseek-harness" \
+      org.opencontainers.image.description="DeepSeek Harness development container with Node.js, Python, Go, Docker CLI and Chromium" \
+      org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install" \
       org.opencontainers.image.licenses="MIT"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/root/.dsh \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PATH=/usr/local/go/bin:${PATH}
 
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 
-# bash    → dsh 的默认终端 shell（/bin/bash）
-# git     → 仓库相关功能与 git 形式的插件安装
-# curl    → HEALTHCHECK / 排查（cn-mirror 的探测也用它）
-# tini    → PID 1，正确处理信号（docker stop）
-# bubblewrap → Linux 沙箱后端候选之一（另一个是内核 Landlock，已随 npm 包内置）
-# procps/less → 让模型在 shell 里的常见命令可用
 RUN chmod +x /usr/local/bin/cn-mirror \
  && . /usr/local/bin/cn-mirror \
  && if is_cn; then \
@@ -62,22 +45,69 @@ RUN chmod +x /usr/local/bin/cn-mirror \
  && apt-get install -y --no-install-recommends \
       bash \
       bubblewrap \
+      build-essential \
       ca-certificates \
       curl \
       git \
+      jq \
       less \
+      openssh-client \
       procps \
+      python3 \
+      python3-dev \
+      python3-pip \
+      python3-venv \
       tini \
+      unzip \
+      wget \
+      zip \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system --add safe.directory '*'
 
-# 全局安装 dsh 本体（自带构建好的 Web 前端产物）、pnpm、Playwright Chromium。
-# 国内网络：npm registry 切 npmmirror（全局生效，运行时安装插件同样受益），
-# Playwright 浏览器二进制走 npmmirror CDN。
-# npm 11.19+ 默认拦截依赖的 install/postinstall 脚本，这里会打印几行
-# `npm warn install-scripts` 提示。已实测 koffi / node-pty / protobufjs /
-# @deepseek-ai/dsh-subprocess-local 四个包在拦截状态下仍可正常 require：
-# 平台二进制都随 tarball 发布。放开它们反而可能在 slim 镜像里触发 node-gyp 源码编译。
+# Python 通用项目工具；国内构建时切清华 PyPI 镜像。
+RUN . /usr/local/bin/cn-mirror \
+ && if is_cn; then \
+      python3 -m pip install --break-system-packages --no-cache-dir \
+        --index-url https://pypi.tuna.tsinghua.edu.cn/simple uv; \
+    else \
+      python3 -m pip install --break-system-packages --no-cache-dir uv; \
+    fi \
+ && python3 --version \
+ && python3 -m pip --version \
+ && uv --version
+
+# Go 1.27.1（amd64/arm64），下载后校验官方 SHA256。
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) GO_SHA256="63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445" ;; \
+      arm64) GO_SHA256="3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec" ;; \
+      *) echo "Unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" -o /tmp/go.tgz; \
+    echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c -; \
+    rm -rf /usr/local/go; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    go version
+
+# 只装 Docker 客户端。dshd 可选挂载宿主机 docker.sock，不在容器里运行 dockerd。
+RUN set -eux; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL --retry 3 "${DOCKER_APT_BASE}/gpg" -o /etc/apt/keyrings/docker.asc; \
+    chmod a+r /etc/apt/keyrings/docker.asc; \
+    . /etc/os-release; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] ${DOCKER_APT_BASE} ${VERSION_CODENAME} stable" \
+      > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      docker-ce-cli \
+      docker-buildx-plugin \
+      docker-compose-plugin; \
+    rm -rf /var/lib/apt/lists/*; \
+    docker --version; \
+    docker buildx version; \
+    docker compose version
+
 RUN . /usr/local/bin/cn-mirror \
  && if is_cn; then \
       echo "==> China network detected, switching npm/playwright to npmmirror.com"; \
@@ -92,26 +122,21 @@ RUN . /usr/local/bin/cn-mirror \
  && ln -sf "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name chrome -path '*chrome-linux*' | head -1)" /usr/local/bin/chromium \
  && npm cache clean --force \
  && dsh --version \
+ && node --version \
+ && pnpm --version \
  && chromium --version
 
-# 容器内 bind host 叠加层：CLI 拒绝 --host 0.0.0.0，改用官方 patch 层打开。
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN chmod 0755 /usr/local/bin/dsh-entrypoint
 
-# 供浏览器类工具/插件引用内置 Chromium。
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
 
-# 调用目录就是默认 workspace 根；把它做成挂载点。
 WORKDIR /workspace
-
-# 持久化 $DSH_HOME：profiles / sessions / credentials / settings 都在这里。
 VOLUME ["/root/.dsh"]
-
 EXPOSE 3080
 
-# 未带 token 的 GET / 会返回 401，带 token 的首次访问是 302 + cookie，故两者都算健康。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${DSH_PORT:-3080}/" | grep -qE '^(200|302|401)$'
 
