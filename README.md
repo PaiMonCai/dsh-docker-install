@@ -53,7 +53,13 @@ dshd stop            # 停止
 dshd restart         # 重启
 dshd logs            # 实时日志
 dshd update          # 拉取镜像并重建
-dshd config          # 交互修改配置
+dshd config          # 交互修改完整配置
+dshd hosts           # 快捷管理 Trusted Hosts
+dshd hosts show      # 查看 Trusted Hosts
+dshd hosts add dsh.example.com
+dshd hosts remove dsh.example.com
+dshd hosts set dsh.example.com,other.example.com:3080
+dshd hosts clear
 dshd token           # 显示首次访问 token URL
 dshd shell           # 进入容器
 dshd backup          # 备份 dsh 数据卷
@@ -67,6 +73,10 @@ dshd uninstall       # 交互卸载
 `~/.config/dshd/config.env`），文件权限为 600。默认仍只映射
 `127.0.0.1:3080`；如果选择 `0.0.0.0`，安装器会提示不要直接暴露公网，
 建议前置 Nginx/Caddy + HTTPS。
+
+首次安装时会直接询问 `DSH_TRUSTED_HOSTS`。安装完成后如果新增域名或修改反代，
+无需重新走完整配置，直接运行 `dshd hosts` 即可快捷增删。修改后管理器会询问是否
+立即重建容器，使新的 Trusted Hosts 马上生效。
 
 ### 1. 手动构建
 
