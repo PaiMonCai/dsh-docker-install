@@ -51,6 +51,7 @@ jobs:
           bash -n install.sh
           bash -n docker/entrypoint.sh
           sh -n docker/cn-mirror.sh
+          node --check docker/patch-remote-settings.js
 
       - name: Resolve dsh version
         id: ver
