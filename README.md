@@ -1,0 +1,168 @@
+# DeepSeek Harness (dsh) 自定义 Docker 镜像
+
+DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方 npm 包
+[`@deepseek-ai/dsh`](https://github.com/deepseek-ai/deepseek-harness) 构建自定义镜像，
+只调用 DeepSeek API，不跑本地模型。镜像内置 Chromium 浏览器（Playwright 管理），
+供 agent 的浏览器类工具/插件使用。
+
+```
+.
+├── Dockerfile                  # node:24-bookworm-slim + dsh + pnpm + Chromium
+├── docker/
+│   ├── entrypoint.sh           # 入口：web/headless/sdk/acp/dsh/plugin/bash 分发
+│   ├── dsh-bind.patch.yml      # 关键：让容器内 GUI 监听 0.0.0.0 的官方 patch 层
+│   └── cn-mirror.sh            # 构建期国内网络自动检测
+├── docker-compose.yml / .env.example
+├── install.sh                  # 一键安装：拉取 GHCR 镜像并部署
+└── .github/workflows/          # 自动构建 + 上游版本更新检测
+```
+
+## 快速开始
+
+### 0. 一键安装（推荐）
+
+镜像已由 GitHub Actions 发布到 GHCR，一条命令拉取并部署：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/install.sh | bash
+```
+
+脚本会自动：检查 Docker → 拉取镜像 → 启动容器（含持久卷、工作区挂载、端口映射）
+→ 等待就绪并打印带 token 的访问地址。自定义参数用环境变量传入，例如：
+
+```bash
+DEEPSEEK_API_KEY=sk-xxx DSH_PORT=8080 bash install.sh
+# 国内拉不动 ghcr 时走镜像站：
+DSH_IMAGE=ghcr.nju.edu.cn/paimoncai/dsh-docker-install:latest bash install.sh
+```
+
+### 1. 手动构建
+
+```bash
+docker build -t dsh:latest .
+# 或指定 dsh 版本
+docker build --build-arg DSH_VERSION=0.1.5-rc.2 -t dsh:latest .
+```
+
+### 2. 运行
+
+```bash
+docker run -d --name dsh \
+  -p 127.0.0.1:3080:3080 \
+  -e DEEPSEEK_API_KEY=sk-xxx \
+  -v dsh-home:/root/.dsh \
+  -v "$PWD:/workspace" \
+  dsh:latest
+```
+
+或复制 `.env.example` 为 `.env` 后 `docker compose up -d`。
+
+### 3. 访问 Web UI（重要：带 token）
+
+```bash
+docker logs dsh | grep 'dsh web:'
+# dsh web: http://0.0.0.0:3080/?token=xxxxxxxx
+```
+
+把 host 换成 `127.0.0.1` 后在浏览器打开。不带 token 访问一律 401；带 token 首次访问
+返回 302/303 并种下 30 天签名 cookie，之后同一会话不用再带。
+
+## 关键设计（来自对 dsh 源码和实测的验证，不是猜的）
+
+1. **`--host 0.0.0.0` 是禁区，用 patch 层绕过**：CLI 会明确拒绝
+   `dsh web --host 0.0.0.0`（怕把 RCE 暴露到网络），但 webserver 的 schema 本身
+   接受 `0.0.0.0`。所以镜像用 `dsh web --patch /opt/dsh/dsh-bind.patch.yml` 这个
+   **官方叠加层**改 bind host（见 `docker/dsh-bind.patch.yml`），用户显式传
+   `--host` 仍然优先。
+2. **Host 围栏**：回环 Host 永远受信任；域名/局域网访问要用 `DSH_TRUSTED_HOSTS`
+   声明对外 authority（逗号分隔），否则 `/api` 返回 401/403。
+3. **默认 root 运行**：bind mount 权限最省事，文件级限制交给 dsh 自己的沙箱。
+   要降权加 `--user 1000:1000` 并保证挂载目录可写。
+
+## 文件沙箱
+
+dsh 的文件/命令沙箱后端候选链是 bubblewrap → 内核 Landlock：
+
+- 默认 `docker run`（seccomp+AppArmor）下 bwrap 拿不到 userns 会失败，候选链自动
+  落到 **Landlock**，开箱可用（实测 `/workspace` 可写、`/etc` 被拒）。
+- 要让 bwrap 生效需同时给
+  `--security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN`
+  （只加 seccomp 不够）。
+- 内核两者都不可用时，设 `DSH_PERMISSION_MODE=danger-full-access` 临时关闭沙箱。
+
+## 内置浏览器
+
+镜像内通过 Playwright 安装了 Chromium（含全部系统依赖），路径
+`/usr/local/bin/chromium`（同时暴露在 `CHROME_BIN` / `CHROMIUM_PATH` 环境变量），
+浏览器二进制存放在 `/ms-playwright`。浏览器类工具/插件（如 Playwright MCP）
+直接指向该路径即可；容器内启动 Chromium 通常需要 `--no-sandbox`。
+
+## 国内服务器
+
+构建时**自动检测网络环境**（默认 `IN_CHINA=auto`）：连不通 Google 且能连通百度
+即判定为国内网络，自动切换下载通道——
+
+| 内容 | 境外源 | 国内自动切换为 |
+|---|---|---|
+| apt 软件包 | deb.debian.org | mirrors.aliyun.com |
+| npm 包 | registry.npmjs.org | registry.npmmirror.com（全局生效，运行时装插件同样走镜像） |
+| Playwright 浏览器 | playwright CDN | npmmirror.com/mirrors/playwright |
+
+手动控制：
+
+```bash
+# 强制按国内处理 / 强制按境外处理
+docker build --build-arg IN_CHINA=yes -t dsh:latest .
+docker build --build-arg IN_CHINA=no  -t dsh:latest .
+
+# 有真实 HTTP 代理时直接传代理
+docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
+```
+
+## 其他运行模式
+
+同一个镜像入口支持多种 profile：
+
+```bash
+docker run --rm dsh:latest headless "跑一下测试"   # 一次性 headless 任务
+docker run --rm dsh:latest dsh --dump-config      # 原样透传给 dsh CLI
+docker run --rm dsh:latest plugin add <name>      # 插件管理
+docker run --rm -it dsh:latest bash               # 进容器排查
+```
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | — | DeepSeek API 密钥（也可在 Web UI 设置 → 模型 中填写） |
+| `DSH_HOME` | `/root/.dsh` | profile / 会话 / 凭据目录（持久卷） |
+| `DSH_PORT` | `3080` | 监听端口（命令行 `--port` 优先） |
+| `DSH_BIND_HOST` | `0.0.0.0` | bind host（patch 层读取；改成 127.0.0.1 仅容器内可访问） |
+| `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
+| `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
+| `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
+
+## 自动构建与更新（GitHub Actions）
+
+- **`.github/workflows/build.yml`** — 构建并推送镜像到 GHCR
+  （`ghcr.io/<owner>/<repo>`），打 `:latest` 和 `:<dsh版本>` 双标签，
+  amd64 + arm64 双架构。触发方式：镜像相关文件变更、手动触发、被更新检查调用。
+- **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
+  `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
+  `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
+  然后调用 build 工作流构建新镜像。也可在 Actions 页面手动触发。
+
+使用前确认仓库 **Settings → Actions → General → Workflow permissions** 选择
+"Read and write permissions"（更新检查需要提交代码的权限）。GHCR 首次推送后
+在 Packages 页面把包设为 Public 即可免登录拉取。
+
+注意：用 `GITHUB_TOKEN` 提交的 push 不会触发其他工作流（GitHub 防递归限制），
+所以更新后的构建是通过 `workflow_call` 显式调用的，不依赖 push 事件。
+
+## 说明
+
+- 构建参数 `DSH_VERSION` 锁定 npm 包版本（当前版本见 Dockerfile 顶部；
+  developer preview 可能有破坏性变更），check-update 工作流会自动维护
+- 镜像体积约 1.6 GB（Chromium 及其依赖占大头；不含浏览器的基础形态约 574 MB）
+- 本方案的基础运行层（patch 绑定、入口分发、沙箱策略）已在
+  Docker 26.1.4 / 内核 6.8 上实测通过

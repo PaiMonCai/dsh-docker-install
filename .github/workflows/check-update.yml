@@ -1,0 +1,64 @@
+name: Check dsh Updates
+
+# 定时检查 npm registry 上 @deepseek-ai/dsh 的最新版本：
+# 有更新 -> 修改 Dockerfile / compose / README 中的版本号并提交 -> 调用 build 工作流构建。
+#
+# 注意：用 GITHUB_TOKEN 提交的 push 不会触发其他工作流（GitHub 防递归限制），
+# 所以这里用 reusable workflow（uses:）显式调用 build，并把新版本号作为输入传入，
+# 不依赖 push 事件触发。
+
+on:
+  schedule:
+    # 每天 UTC 02:23（北京时间 10:23）
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 提交版本变更
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.check.outputs.updated }}
+      latest: ${{ steps.check.outputs.latest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare versions
+        id: check
+        run: |
+          CURRENT=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)
+          LATEST=$(curl -fsSL https://registry.npmjs.org/@deepseek-ai/dsh/latest | jq -r .version)
+          echo "current: $CURRENT"
+          echo "latest:  $LATEST"
+          {
+            echo "current=$CURRENT"
+            echo "latest=$LATEST"
+            if [ "$CURRENT" != "$LATEST" ]; then echo "updated=true"; else echo "updated=false"; fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump version and commit
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          CURRENT="${{ steps.check.outputs.current }}"
+          LATEST="${{ steps.check.outputs.latest }}"
+          sed -i "s/^ARG DSH_VERSION=.*/ARG DSH_VERSION=${LATEST}/" Dockerfile
+          sed -i "s/^\(\s*DSH_VERSION: \)[\"']*${CURRENT}[\"']*$/\1\"${LATEST}\"/" docker-compose.yml
+          sed -i "s/dsh:${CURRENT}/dsh:${LATEST}/g" docker-compose.yml README.md
+          sed -i "s/DSH_VERSION=${CURRENT}/DSH_VERSION=${LATEST}/g" README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile docker-compose.yml README.md
+          git commit -m "chore: bump dsh ${CURRENT} -> ${LATEST}"
+          git push
+
+  build:
+    needs: check
+    if: needs.check.outputs.updated == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      dsh_version: ${{ needs.check.outputs.latest }}
+    permissions:
+      contents: read
+      packages: write
