@@ -85,6 +85,11 @@ dshd uninstall       # 交互卸载
 无需重新走完整配置，直接运行 `dshd hosts` 即可快捷增删。修改后管理器会询问是否
 立即重建容器，使新的 Trusted Hosts 马上生效。
 
+如果配置了 Trusted Hosts，安装完成后的 Token 地址和 `dshd token` 会优先使用第一个
+Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS），同时安装完成页保留
+`127.0.0.1:<端口>` 的本地回退地址。例如 `dsh.example.com` 会显示为
+`https://dsh.example.com/?token=...`。
+
 ### 1. 手动构建
 
 ```bash

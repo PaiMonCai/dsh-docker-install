@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.3.0"
+DSHD_VERSION="0.3.1"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
@@ -398,8 +398,46 @@ create_container() {
   wait_ready
 }
 
+first_trusted_host() {
+  local raw="${DSH_TRUSTED_HOSTS:-}" host=""
+  [[ -n "$raw" ]] || return 1
+  IFS=', ' read -r host _ <<<"$raw" || true
+  [[ -n "$host" ]] || return 1
+  printf '%s' "$host"
+}
+
+token_suffix() {
+  local url="$1"
+  [[ "$url" == *"?"* ]] || return 1
+  printf '?%s' "${url#*\?}"
+}
+
+local_token_url() {
+  local source_url="$1" host suffix
+  suffix="$(token_suffix "$source_url")" || return 1
+  host="$DSH_BIND_ADDR"
+  [[ "$host" == "0.0.0.0" || "$host" == "::" ]] && host="127.0.0.1"
+  printf 'http://%s:%s/%s' "$host" "$DSH_PORT" "${suffix#?}"
+}
+
+public_token_url() {
+  local source_url="$1" trusted scheme="https" authority suffix
+  trusted="$(first_trusted_host)" || return 1
+  suffix="$(token_suffix "$source_url")" || return 1
+
+  case "$trusted" in
+    http://*) scheme="http"; authority="${trusted#http://}" ;;
+    https://*) scheme="https"; authority="${trusted#https://}" ;;
+    *) authority="$trusted" ;;
+  esac
+  authority="${authority%%/*}"
+  [[ -n "$authority" ]] || return 1
+
+  printf '%s://%s/%s' "$scheme" "$authority" "${suffix#?}"
+}
+
 wait_ready() {
-  local i url=""
+  local i url="" public_url="" local_url=""
   info "等待 Web UI 就绪..."
   for i in $(seq 1 60); do
     if ! container_running; then
@@ -417,13 +455,16 @@ wait_ready() {
     return 0
   fi
 
-  local access
-  access="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://${DSH_BIND_ADDR}:${DSH_PORT}|")"
-  if [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]]; then
-    access="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://127.0.0.1:${DSH_PORT}|")"
-  fi
+  local_url="$(local_token_url "$url")"
+  public_url="$(public_token_url "$url" 2>/dev/null || true)"
+
   ok "Web UI 已就绪"
-  printf '\n首次访问地址：\n  %s\n\n' "$access"
+  if [[ -n "$public_url" ]]; then
+    printf '\n域名访问地址（需反代 / HTTPS 已配置）：\n  %s\n' "$public_url"
+    printf '\n本地回退地址：\n  %s\n\n' "$local_url"
+  else
+    printf '\n首次访问地址：\n  %s\n\n' "$local_url"
+  fi
 }
 
 interactive_config() {
@@ -783,12 +824,17 @@ cmd_shell() {
 cmd_token() {
   load_config; ensure_docker
   container_exists || die "容器不存在。"
-  local url
+  local url public_url
   url="$(docker_cmd logs "$DSH_NAME" 2>&1 | grep -oE 'http://[^ ]*\?token=[A-Za-z0-9_-]+' | tail -1 || true)"
   [[ -n "$url" ]] || die "未从日志找到 token URL。"
-  url="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://${DSH_BIND_ADDR}:${DSH_PORT}|")"
-  [[ "$DSH_BIND_ADDR" == "0.0.0.0" ]] && url="$(printf '%s' "$url" | sed -E "s|http://[^/]+|http://127.0.0.1:${DSH_PORT}|")"
-  printf '%s\n' "$url"
+
+  public_url="$(public_token_url "$url" 2>/dev/null || true)"
+  if [[ -n "$public_url" ]]; then
+    printf '%s\n' "$public_url"
+  else
+    local_token_url "$url"
+    printf '\n'
+  fi
 }
 cmd_backup() {
   load_config; ensure_docker; ensure_state_dir
