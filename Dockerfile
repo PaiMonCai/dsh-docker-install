@@ -31,6 +31,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/local/go/bin:${PATH}
 
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
+COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
 
 RUN chmod +x /usr/local/bin/cn-mirror \
  && . /usr/local/bin/cn-mirror \
@@ -118,6 +119,7 @@ RUN . /usr/local/bin/cn-mirror \
       "@deepseek-ai/dsh@${DSH_VERSION}" \
       "pnpm@${PNPM_VERSION}" \
       playwright \
+ && node /usr/local/bin/patch-remote-settings.js \
  && npx playwright install --with-deps chromium \
  && ln -sf "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name chrome -path '*chrome-linux*' | head -1)" /usr/local/bin/chromium \
  && npm cache clean --force \
