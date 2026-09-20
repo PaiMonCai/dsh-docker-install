@@ -15,9 +15,11 @@ DEFAULT_VOLUME="dsh-home"
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
   STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
-  DEFAULT_WORKSPACE="/opt/dsh/workspace"
+  BASE_WORKSPACE="/opt/dsh"
+  DEFAULT_WORKSPACE="$BASE_WORKSPACE/workspace"
 else
   STATE_DIR="${DSHD_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dshd}"
+  BASE_WORKSPACE="$HOME/dsh-workspaces"
   DEFAULT_WORKSPACE="$HOME/dsh-workspace"
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
@@ -371,11 +373,17 @@ create_container() {
     -e "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}"
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
     -v "${DSH_VOLUME}:/root/.dsh"
-    -v "${DSH_WORKSPACE}:${DSH_WORKSPACE}"
-    -w "$DSH_WORKSPACE"
+    -v "${DSH_WORKSPACE}:/workspace"
+    -w "/workspace"
   )
 
   if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
+    # 同一目录额外挂到容器内相同绝对路径，并切换 cwd。
+    # 这样 docker compose 的相对 bind mount 交给宿主机 daemon 时路径仍然存在。
+    args+=(
+      -v "${DSH_WORKSPACE}:${DSH_WORKSPACE}"
+      -w "$DSH_WORKSPACE"
+    )
     detect_docker_socket
     [[ -S "$DSH_DOCKER_SOCKET" ]] || die "已开启 Docker 管理，但找不到 Docker socket: $DSH_DOCKER_SOCKET"
     args+=(
