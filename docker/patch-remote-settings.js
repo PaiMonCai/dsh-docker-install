@@ -7,86 +7,78 @@ const { execFileSync } = require('child_process');
 
 const npmRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
 
-const targets = [
-  {
-    packageName: '@deepseek-ai/dsh-client-ui-settings',
-    description: 'settings persistence',
-    expectedMin: 1,
-  },
-  {
-    packageName: '@deepseek-ai/dsh-client-ui-settings-general',
-    description: 'settings document controller',
-    expectedMin: 1,
-  },
-];
-
-function walk(dir, wantedSuffix, results) {
+function walk(dir, files) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     return;
   }
+
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      walk(full, wantedSuffix, results);
-    } else if (entry.isFile() && full.endsWith(wantedSuffix)) {
-      results.push(full);
+      walk(full, files);
+    } else if (entry.isFile() && /\.(?:js|mjs|cjs)$/.test(entry.name)) {
+      files.push(full);
     }
   }
 }
 
-function patchPackage(target) {
-  const suffix = path.join(
-    '@deepseek-ai',
-    target.packageName.split('/')[1],
-    'lib',
-    'client.js',
+const files = [];
+walk(npmRoot, files);
+
+// Upstream Settings chooses durable host persistence only for loopback browser
+// sessions. Patch only this exact ternary; other isLoopback checks remain intact.
+const persistencePattern =
+  /\b[A-Za-z_$][\w$]*\.remote\.\$host\.isLoopback\s*\?\s*(['"])host\1\s*:\s*(['"])memory\2/g;
+
+let totalReplacements = 0;
+let webDistReplacements = 0;
+const patchedFiles = [];
+
+for (const file of files) {
+  let before;
+  try {
+    before = fs.readFileSync(file, 'utf8');
+  } catch {
+    continue;
+  }
+
+  let count = 0;
+  const after = before.replace(persistencePattern, (_match, q1) => {
+    count += 1;
+    return `${q1}host${q1}`;
+  });
+
+  if (count === 0) continue;
+
+  fs.writeFileSync(file, after);
+  totalReplacements += count;
+  if (
+    file.includes('@deepseek-ai/dsh-web-frontend') &&
+    file.includes(`${path.sep}dist${path.sep}`)
+  ) {
+    webDistReplacements += count;
+  }
+  patchedFiles.push({ file, count });
+}
+
+if (totalReplacements === 0) {
+  throw new Error(
+    'Remote Settings patch: Settings persistence ternary was not found in the installed DSH packages.',
   );
-  const files = [];
-  walk(npmRoot, suffix, files);
-
-  if (files.length === 0) {
-    throw new Error(
-      `Remote Settings patch: cannot find ${target.packageName}/lib/client.js under ${npmRoot}`,
-    );
-  }
-
-  let replacements = 0;
-
-  for (const file of files) {
-    const before = fs.readFileSync(file, 'utf8');
-
-    // The upstream browser code gates durable Settings on
-    // ctx.remote.$host.isLoopback. In this Docker image the Web UI is intended
-    // to be used behind token auth + Trusted Hosts + HTTPS reverse proxy, so
-    // keep Settings persistence enabled for remote browser sessions too.
-    const pattern = /\b[A-Za-z_$][\w$]*\.remote\.\$host\.isLoopback\b/g;
-    let count = 0;
-    const after = before.replace(pattern, () => {
-      count += 1;
-      return 'true';
-    });
-
-    if (count > 0) {
-      fs.writeFileSync(file, after);
-      replacements += count;
-      process.stdout.write(
-        `patched ${target.description}: ${file} (${count} replacement(s))\n`,
-      );
-    }
-  }
-
-  if (replacements < target.expectedMin) {
-    throw new Error(
-      `Remote Settings patch: expected at least ${target.expectedMin} replacement(s) in ${target.packageName}, got ${replacements}`,
-    );
-  }
 }
 
-for (const target of targets) {
-  patchPackage(target);
+if (webDistReplacements === 0) {
+  throw new Error(
+    'Remote Settings patch: no dsh-web-frontend/dist asset was patched; refusing to build an image where remote Settings may still be unavailable.',
+  );
 }
 
-process.stdout.write('Remote Settings patch applied successfully.\n');
+for (const item of patchedFiles) {
+  process.stdout.write(`patched remote Settings: ${item.file} (${item.count})\n`);
+}
+process.stdout.write(
+  `Remote Settings patch applied: ${totalReplacements} replacement(s), ${webDistReplacements} in web frontend dist.\n`,
+);
