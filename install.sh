@@ -11,7 +11,11 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/dshd" ]]; then
-  exec bash "$SCRIPT_DIR/dshd" install "$@"
+  if [[ -r /dev/tty ]]; then
+    exec bash "$SCRIPT_DIR/dshd" install "$@" </dev/tty
+  else
+    exec bash "$SCRIPT_DIR/dshd" install "$@"
+  fi
 fi
 
 TMP="$(mktemp)"
@@ -39,4 +43,8 @@ fi
 
 [[ -s "$TMP" ]] || die "下载到的 dshd 文件为空。"
 chmod +x "$TMP"
-exec bash "$TMP" install "$@"
+if [[ -r /dev/tty ]]; then
+  exec bash "$TMP" install "$@" </dev/tty
+else
+  exec bash "$TMP" install "$@"
+fi
