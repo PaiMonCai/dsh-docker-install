@@ -5,6 +5,16 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 只调用 DeepSeek API，不跑本地模型。镜像内置 Chromium 浏览器（Playwright 管理），
 供 agent 的浏览器类工具/插件使用。
 
+项目现在提供三层镜像：
+
+| 层级 | 镜像标签 | 用途 |
+|---|---|---|
+| Standard | `:latest` / `:<dsh版本>` | 通用 DSH Agent / 开发环境 |
+| Research Core | `:research` / `:research-<research版本>` | 一般科研、文献、数据、可复现分析与论文 |
+| Research Economics | `:research-economics` / `:research-economics-<research版本>` | 经济学、计量经济学、DiD / Event Study |
+
+Research Edition 当前版本见 `research/VERSION`；当前为 **0.3.0**。
+
 ```
 .
 ├── Dockerfile                  # node:24-bookworm-slim + dsh + pnpm + Chromium
@@ -15,8 +25,14 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 │   └── cn-mirror.sh            # 构建期国内网络自动检测
 ├── docker-compose.yml / .env.example
 ├── install.sh                  # 轻量 bootstrap：下载并启动 dshd
-├── dshd                        # 交互式安装 + Docker 运维 CLI
-└── .github/workflows/          # 自动构建 + 上游版本更新检测
+├── dshd                        # 交互式安装 + Docker 运维 / Edition 管理 CLI
+├── research/
+│   ├── Dockerfile              # Research Core + Economics Pack 多阶段镜像
+│   ├── VERSION                 # Research Edition 版本
+│   ├── bin/                    # 通用科研命令
+│   ├── packs/economics/        # 经济学依赖、数据/回归/DiD 工具
+│   └── templates/              # General / Economics 项目模板
+└── .github/workflows/          # Standard / Research 构建与上游版本更新检测
 ```
 
 ## 快速开始
@@ -71,6 +87,12 @@ dshd docker          # Docker 项目管理权限菜单
 dshd docker on       # 允许 DSH 管理宿主机 Docker
 dshd docker off      # 关闭宿主机 Docker 权限
 dshd docker status   # 检查 Docker Socket / Compose
+dshd edition show    # 查看 Standard / Research Edition
+dshd edition research # 切换到 Research Core
+dshd edition standard # 切换回 Standard
+dshd research-pack show      # 查看 Research Pack
+dshd research-pack economics # 启用 Economics Pack
+dshd research-pack none      # 回到 Research Core
 dshd env             # 查看 Node/Python/Go/Docker 等开发环境版本
 dshd env show        # 查看自定义容器环境变量（敏感值隐藏）
 dshd env set NAME VALUE # 添加或更新容器环境变量
@@ -458,77 +480,251 @@ docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
 
 ## Research Edition（一般科研版）
 
-Research Edition 在 Standard 镜像之上增加 Python 科研栈、Jupyter、Quarto、Pandoc、
-XeLaTeX 与可复现研究工具，不 fork DSH 核心。
-
-镜像标签：
+Research Edition 不 fork DSH 核心，而是在 Standard 镜像之上叠加科研工具链：
 
 ```text
-ghcr.io/paimoncai/dsh-docker-install:research
+Standard
+  └─ Research Core
+       └─ Economics Research Pack
 ```
 
-安装时可直接选择 **Research**；已有安装可切换：
+对应镜像：
+
+| Edition / Pack | 镜像 |
+|---|---|
+| Standard | `ghcr.io/paimoncai/dsh-docker-install:latest` |
+| Research Core | `ghcr.io/paimoncai/dsh-docker-install:research` |
+| Research Economics | `ghcr.io/paimoncai/dsh-docker-install:research-economics` |
+
+Research Core 额外提供 NumPy / pandas / Polars / SciPy / statsmodels /
+scikit-learn / SymPy / PyArrow / DuckDB、JupyterLab、Jupytext、Quarto、Pandoc、
+XeLaTeX、中文 TeX 字体、Poppler、qpdf、Graphviz 等科研与论文工具。
+
+安装时可以直接选择 Research；已有安装可切换：
 
 ```bash
 dshd edition research
 dshd edition show
-dshd research-pack show
 dshd env
 ```
 
-切换回通用版：
+切回 Standard：
 
 ```bash
 dshd edition standard
 ```
 
-Research 容器内提供四个基础工作流命令：
+### 一般科研工作流
+
+新建项目：
 
 ```bash
 research-init my-study "研究标题"
 cd my-study
+```
+
+默认项目结构围绕：
+
+```text
+literature → data/raw → data/processed → analysis → results → paper → archive
+```
+
+常用命令：
+
+```bash
 research-literature add 10.1257/aer.20181234
+research-literature add arXiv:2401.01234
+research-literature add ./paper.pdf
+research-literature review
 research-literature verify
+
 research-run --name baseline -- python src/analysis.py
+quarto render paper/paper.qmd
 research-archive
 ```
 
-`research-literature` 支持 DOI、arXiv ID/URL 和本地 PDF。它会维护
-`references.bib`、`sources.jsonl`、结构化阅读笔记和 Evidence Matrix；
-`research-literature review` 可生成可追溯证据索引，`verify` 用于检查论文引用和证据链的一致性。
+`research-literature` 会维护 `references.bib`、`sources.jsonl`、结构化阅读笔记、
+Evidence Matrix 和 PDF / 文本 SHA256；`research-run` 会记录 Git 状态、运行命令、
+环境、输入/输出 hash 与日志；`research-archive` 默认不打包 `data/raw`。
 
-项目采用 `literature / data / notebooks / src / results / paper / runs` 结构。
-`literature/evidence-matrix.csv` 用于维护“文献—数据—方法—结论—局限”的证据矩阵；
-`research-run` 会记录 Git 状态、运行环境、输入/输出 hash 与日志；
-`research-archive` 默认不打包 `data/raw`，避免误发布敏感或受许可限制的数据。
+### Economics Research Pack
 
-
-经济学 / 计量研究可以切换独立的 Economics Pack：
+启用经济学环境：
 
 ```bash
 dshd research-pack economics
+dshd research-pack show
 ```
 
-对应镜像：
-
-```text
-ghcr.io/paimoncai/dsh-docker-install:research-economics
-```
-
-进入 Economics 镜像后可创建专用项目模板：
+创建经济学项目：
 
 ```bash
 research-init --template economics thesis "经济学本科毕业论文"
+cd thesis
 ```
 
-它额外提供 pyfixest、linearmodels、arch、World Bank / DataReader 工具，并要求在
-`research.yaml` 明确 estimand、识别策略、固定效应、标准误/聚类层级和稳健性计划。
+Economics Pack 额外包含：
 
-正式回归可通过 `research-econ-model` 生成可校验的 model manifest、Markdown/CSV 回归表、系数图，并自动写入 Quarto 论文结果区；生成结果支持 `@tbl-econ-<name>` 与 `@fig-econ-<name>` 交叉引用。
+```text
+pyfixest==0.60.0
+linearmodels
+arch
+wbgapi
+pandas-datareader
+```
 
-DiD / Event Study 使用 `research-econ-did`：先检查 treatment timing 和 cohort，再可选择 TWFE、DID2S、saturated 或 LP-DiD；结果会自动生成 treatment timing 图、动态效应图和 Quarto 引用片段。
+并要求在 `research.yaml` 中显式记录 population、unit of observation、outcome、
+estimand、identification strategy、fixed effects、standard errors / clustering、
+robustness、heterogeneity、mechanism，以及 DiD 项目的 treatment timing /
+comparison group / reference period / anticipation assumptions。
 
-完整设计与构建说明见 `research/README.md`。
+#### 经济数据
+
+```bash
+research-econ-data worldbank NY.GDP.MKTP.CD \
+  --economy CHN,USA \
+  --start 2000 \
+  --end 2025
+
+research-econ-data fred FEDFUNDS
+
+research-econ-data list
+research-econ-data verify
+```
+
+外部数据会保存为不可变时间戳快照，并记录来源、查询参数、检索时间和 SHA256。
+FRED 的检索时间不会被冒充为 ALFRED historical vintage。
+
+#### 回归 → 表格 → 图 → 论文
+
+```bash
+research-run --name baseline-regression -- \
+  research-econ-model feols \
+  --name baseline \
+  --title "基准回归" \
+  --data data/processed/analysis.csv \
+  --formula "y ~ treatment + x1 | entity_id + year" \
+  --vcov cluster \
+  --cluster entity_id \
+  --focus treatment
+```
+
+会生成 model manifest、CSV / Markdown 回归表、系数图，并自动更新：
+
+```text
+paper/generated/economics-results.qmd
+```
+
+Quarto 可直接引用：
+
+```text
+@tbl-econ-baseline
+@fig-econ-baseline
+```
+
+多个模型可以生成 manifest-backed 并列表：
+
+```bash
+research-econ-model compare \
+  --name main \
+  --title "主回归结果" \
+  --model baseline \
+  --model controls \
+  --term treatment
+```
+
+对应引用：
+
+```text
+@tbl-econ-compare-main
+```
+
+#### DiD / Event Study
+
+先检查 panel、cohort 和 treatment timing：
+
+```bash
+research-econ-did check \
+  --name policy-check \
+  --data data/processed/panel.csv \
+  --outcome y \
+  --id firm_id \
+  --time year \
+  --cohort first_treated_year \
+  --treatment treated \
+  --never-treated 0
+```
+
+正式动态估计：
+
+```bash
+research-run --name did-saturated -- \
+  research-econ-did estimate \
+  --name did-saturated \
+  --title "政策动态效应" \
+  --data data/processed/panel.csv \
+  --outcome y \
+  --id firm_id \
+  --time year \
+  --cohort first_treated_year \
+  --treatment treated \
+  --never-treated 0 \
+  --cluster firm_id \
+  --estimator saturated \
+  --mode dynamic
+```
+
+当前支持：
+
+| Estimator | 用途 |
+|---|---|
+| `twfe` | 传统双向固定效应；staggered adoption 时作为 baseline |
+| `did2s` | Gardner DID2S |
+| `saturated` | cohort-interacted / Sun-Abraham-style event study |
+| `lpdid` | Local-projection DiD |
+
+输出目录：
+
+```text
+results/did/<name>/
+├── did.json
+├── diagnostics.json
+├── cohorts.csv
+├── estimates.csv
+├── panel.png
+└── event-study.png
+```
+
+同时自动更新：
+
+```text
+paper/generated/did-results.qmd
+```
+
+Quarto 交叉引用：
+
+```text
+@tbl-did-<name>
+@fig-did-<name>-panel
+@fig-did-<name>-event
+```
+
+`research-econ-did check` 会检查重复 unit-time、cohort 一致性、处理是否出现
+`1 → 0`、显式 treatment 是否与 cohort 隐含处理路径一致等问题。
+对于 staggered adoption，工具会提示不要只依赖 TWFE；pre-treatment 的逐点 p 值只作为
+诊断，不被视为“平行趋势成立/不成立”的单独证明。
+
+最终归档前：
+
+```bash
+research-literature verify
+research-econ-data verify
+research-econ-model verify
+research-econ-did verify
+research-archive
+```
+
+完整科研版说明见 `research/README.md`。
 
 ## 其他运行模式
 
@@ -542,7 +738,7 @@ docker run --rm -v dsh-home:/root/.dsh dsh:latest \
 docker run --rm -it dsh:latest bash               # 进容器排查
 ```
 
-镜像把 pnpm 固定为 dsh `0.1.5-rc.2` 官方使用的 `11.7.0`。如果已有数据卷中的
+镜像把 pnpm 固定为当前 DSH 构建所使用的 `11.7.0`。如果已有数据卷中的
 `profiles/*/node_modules/.modules.yaml` 是由其他 pnpm 大版本生成的，需先用当前 pnpm
 重新执行一次 `pnpm install --force --no-frozen-lockfile`；仅重建镜像不会改写持久卷中的
 旧依赖树。
@@ -578,6 +774,10 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 - **`.github/workflows/build.yml`** — 构建并推送镜像到 GHCR
   （`ghcr.io/<owner>/<repo>`），打 `:latest` 和 `:<dsh版本>` 双标签，
   amd64 + arm64 双架构。触发方式：镜像相关文件变更、手动触发、被更新检查调用。
+- **`.github/workflows/build-research.yml`** — 构建 Research Core 与 Economics Pack。
+  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64：
+  `:research`、`:research-<research版本>`、`:research-economics`、
+  `:research-economics-<research版本>`。
 - **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
   `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
   `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
