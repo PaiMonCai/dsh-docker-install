@@ -7,6 +7,7 @@ import sys
 
 from dsh_research.checks import render_report, run_checks
 from dsh_research.errors import ResearchError
+from dsh_research.json_api import failure_json, success_json
 from dsh_research.project import ResearchProject
 
 
@@ -60,15 +61,45 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_checks(ResearchProject.discover(), mode)
         if args.json:
-            print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+            payload = report.as_dict()
+            success_json(
+                command="research-check",
+                operation=mode,
+                data=payload,
+            ) if report.ok else failure_json(
+                command="research-check",
+                operation=mode,
+                code="CHECK_FAILED",
+                message=f"{payload['summary']['errors']} error(s), {payload['summary']['warnings']} warning(s)",
+                details=payload["summary"],
+                data=payload,
+            )
         else:
             print(render_report(report))
         return 0 if report.ok else 1
     except ResearchError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
+        if args.json:
+            failure_json(
+                command="research-check",
+                operation=mode,
+                code="RESEARCH_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        if args.json:
+            failure_json(
+                command="research-check",
+                operation=mode,
+                code="INTERNAL_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 
 
