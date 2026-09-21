@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+from dsh_research.state import build_project_state, render_project_state
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-status",
+        description="聚合 Research Project 的只读派生状态。",
+    )
+    parser.add_argument("--json", action="store_true", help="输出稳定 JSON")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+    from pathlib import Path
+    from dsh_research.config import write_yaml
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        write_yaml(
+            root / "research.yaml",
+            {
+                "schema": 2,
+                "project": {"slug": "smoke", "title": "Smoke", "template": "default", "status": "active"},
+                "research": {"field": "", "question": "", "hypotheses": []},
+            },
+        )
+        state = build_project_state(ResearchProject(root.resolve()))
+        assert state.project["title"] == "Smoke"
+        assert state.project["config_schema"] == 2
+    print("research-status self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.self_test:
+        return self_test()
+    try:
+        state = build_project_state(ResearchProject.discover())
+        if args.json:
+            print(json.dumps(state.as_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(render_project_state(state))
+        return 0
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
