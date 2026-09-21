@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -798,7 +799,11 @@ economics:
         assert "#tbl-econ-compare-main" in qmd
         assert verify(root) == 0
 
-        if shutil.which("quarto"):
+        skip_quarto_smoke = os.environ.get(
+            "DSH_RESEARCH_SKIP_QUARTO_SMOKE", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+        if shutil.which("quarto") and not skip_quarto_smoke:
             paper_dir = root / "paper"
             paper_dir.mkdir(exist_ok=True)
             paper = paper_dir / "paper.qmd"
