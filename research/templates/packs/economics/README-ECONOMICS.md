@@ -21,3 +21,35 @@
 - `pandas-datareader`：常见经济金融数据接口
 
 基础脚手架位于 `src/econometrics.py`。其中公式只是示例，不应在没有研究设计依据时直接作为论文模型。
+
+## 可追溯宏观/金融数据快照
+
+World Bank：
+
+```bash
+research-econ-data worldbank NY.GDP.MKTP.CD --economy CHN,USA --start 2000 --end 2025
+```
+
+FRED：
+
+```bash
+research-econ-data fred FEDFUNDS --start 2000-01-01
+```
+
+每次下载都会创建新的不可覆盖快照：
+
+```text
+data/raw/external/<provider>/<series>/<UTC timestamp>/
+├── data.csv
+└── metadata.json
+```
+
+`metadata.json` 记录 provider、series/indicator、查询范围、访问时间和数据文件 SHA256。
+可以使用：
+
+```bash
+research-econ-data list
+research-econ-data verify
+```
+
+注意：FRED 这里记录的是“检索时间”，不是 ALFRED 的历史实时 vintage。若研究依赖当时可获得的信息集，需要单独使用真正的 vintage 数据源。
