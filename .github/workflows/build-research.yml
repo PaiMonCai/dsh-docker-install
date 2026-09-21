@@ -61,6 +61,10 @@ jobs:
           PYTHONPATH=research python research/bin/research-result --self-test
           PYTHONPATH=research python research/bin/research-dashboard --self-test
           node --check research/dsh_research/dashboard_assets/app.js
+          node --check research/adapter/index.js
+          bash -n research/adapter/dsh-wrapper
+          node research/tests/test-adapter.mjs
+          bash research/tests/test-adapter-wrapper.sh
           grep -q '^schema: 2$' research/templates/default/research.yaml
           grep -q '^schema: 2$' research/templates/packs/economics/research.yaml
           grep -q 'status: "active"' research/templates/default/research.yaml
