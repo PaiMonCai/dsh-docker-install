@@ -1,6 +1,9 @@
 
 ## Economics research rules
 
+- When the native `economics_did` or `economics_model` tools are available, use them instead of manually composing `research-econ-*` shell commands.
+- Use `economics_did(action="check")` before any DiD estimate. Treat the low-level Economics CLI as a fallback/debugging surface.
+
 This project uses the Economics Research Pack.
 
 - Start by stating the economic question, target population, unit of observation, outcome, treatment/exposure, and estimand.
