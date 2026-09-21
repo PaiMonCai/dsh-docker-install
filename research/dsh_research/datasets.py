@@ -282,6 +282,17 @@ def register_dataset(
     if dataset_id in input_ids:
         raise ManifestError("Dataset 不能把自己作为 lineage input。")
 
+    input_refs: list[dict[str, str]] = []
+    for input_id in input_ids:
+        input_status = dataset_status(project, input_id)
+        if input_status.status != "current" or not input_status.current_sha256:
+            raise ManifestError(
+                f"上游 Dataset 必须已登记且为 current: {input_id} ({input_status.status})"
+            )
+        input_refs.append(
+            {"dataset": input_id, "sha256": input_status.current_sha256}
+        )
+
     code_refs: list[dict[str, str]] = []
     for value in code:
         code_path, code_relative = _relative_project_path(project, value)
@@ -312,7 +323,7 @@ def register_dataset(
         },
         "dimensions": dimensions,
         "lineage": {
-            "inputs": [{"dataset": value} for value in input_ids],
+            "inputs": input_refs,
             "code": code_refs,
             "pipeline_step": pipeline_step.strip() or None,
             "run_id": run_id.strip() or None,
@@ -354,6 +365,7 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
             lineage = data.get("lineage") if isinstance(data.get("lineage"), dict) else {}
             refs = lineage.get("inputs") if isinstance(lineage.get("inputs"), list) else []
             missing = []
+            input_problem = None
             for ref in refs:
                 if not isinstance(ref, dict):
                     missing.append("<invalid>")
@@ -361,6 +373,15 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
                 dep = str(ref.get("dataset") or "")
                 if dep not in ids:
                     missing.append(dep or "<empty>")
+                    continue
+                expected_input = str(ref.get("sha256") or "")
+                dep_status = dataset_status(project, dep)
+                if dep_status.status != "current":
+                    input_problem = f"upstream dataset is {dep_status.status}: {dep}"
+                    break
+                if expected_input and dep_status.current_sha256 != expected_input:
+                    input_problem = f"upstream dataset SHA256 changed: {dep}"
+                    break
             if missing:
                 rewritten.append(
                     DatasetStatus(
@@ -370,6 +391,18 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
                         status.expected_sha256,
                         status.current_sha256,
                         "missing lineage dataset(s): " + ", ".join(missing),
+                    )
+                )
+                continue
+            if input_problem:
+                rewritten.append(
+                    DatasetStatus(
+                        status.dataset_id,
+                        "stale",
+                        status.path,
+                        status.expected_sha256,
+                        status.current_sha256,
+                        input_problem,
                     )
                 )
                 continue
