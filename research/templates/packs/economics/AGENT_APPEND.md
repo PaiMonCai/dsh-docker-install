@@ -18,6 +18,7 @@ This project uses the Economics Research Pack.
 - For paper-producing linear/fixed-effects regressions, prefer `research-run --name <label> -- research-econ-model feols ...` so estimation, output hashes, logs, and the paper include are all traceable.
 - `research-econ-model` requires an explicit variance estimator; do not omit `--vcov` and silently accept package defaults.
 - Do not hand-edit `paper/generated/economics-results.qmd`, generated regression tables, or generated coefficient figures. Regenerate them from model manifests instead.
-- For a publication-style main-results table, register each specification separately and use `research-econ-model compare`; do not manually copy coefficients across models.\n- When using external macro/financial databases, record provider, series ID, vintage/access date, frequency, units, seasonal adjustment, and transformations.
+- For a publication-style main-results table, register each specification separately and use `research-econ-model compare`; do not manually copy coefficients across models.
+- When using external macro/financial databases, record provider, series ID, vintage/access date, frequency, units, seasonal adjustment, and transformations.
 - Prefer `research-econ-data worldbank ...` or `research-econ-data fred ...` for supported external data so the raw snapshot, retrieval metadata, and SHA256 are recorded automatically.
 - Treat `data/raw/external/` snapshots as immutable. Transform them into `data/processed/` rather than editing downloaded files in place.
