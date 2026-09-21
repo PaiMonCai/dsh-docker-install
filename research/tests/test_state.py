@@ -41,6 +41,26 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(load_yaml(backup), original)
             self.assertEqual(load_yaml(root / "research.yaml")["schema"], 2)
 
+    def test_migration_backup_does_not_add_untracked_git_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            write_yaml(root / "research.yaml", {"schema": 1, "project": {"slug": "x", "title": "X"}})
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "DSH Test"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "dsh@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "research.yaml"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "v1"], check=True)
+
+            migrate_project(ResearchProject(root), target=2)
+            status = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            self.assertIn(" M research.yaml", status)
+            self.assertFalse(any("research.yaml.bak.schema1" in line for line in status))
+
     def test_template_inference(self) -> None:
         self.assertEqual(infer_template({"schema": 1, "economics": {}}), "economics")
         self.assertEqual(infer_template({"schema": 1, "research": {"field": ""}}), "default")
