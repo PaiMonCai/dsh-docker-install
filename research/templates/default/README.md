@@ -14,6 +14,21 @@
 8. 使用 `quarto render paper/paper.qmd` 生成论文。
 9. 使用 `research-archive` 创建可复现归档。
 
+
+## 项目模板
+
+查看可用模板：
+
+```bash
+research-init --list-templates
+```
+
+Economics Research Pack 安装后，可以使用：
+
+```bash
+research-init --template economics my-econ-study "经济学研究"
+```
+
 ## 三个核心对象
 
 - **Evidence Matrix**：每个结论对应哪篇论文、什么数据与什么方法。
