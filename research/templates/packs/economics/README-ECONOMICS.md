@@ -120,3 +120,83 @@ comparison manifest 的模型 SHA256 会失效，`verify` 会要求重新生成�
 ```
 
 如果分析数据、表格、系数图或比较表在登记后被手动改动，`verify` 会报 SHA256 不一致。
+
+## DiD / Event Study Pipeline
+
+先检查面板和 treatment timing：
+
+```bash
+research-econ-did check \
+  --name policy-check \
+  --data data/processed/panel.csv \
+  --outcome y \
+  --id firm_id \
+  --time year \
+  --cohort first_treated_year \
+  --treatment treated \
+  --never-treated 0
+```
+
+正式估计建议继续通过 `research-run`：
+
+```bash
+research-run --name did-saturated -- \
+  research-econ-did estimate \
+  --name did-saturated \
+  --title "政策动态效应" \
+  --data data/processed/panel.csv \
+  --outcome y \
+  --id firm_id \
+  --time year \
+  --cohort first_treated_year \
+  --treatment treated \
+  --never-treated 0 \
+  --cluster firm_id \
+  --estimator saturated \
+  --mode dynamic
+```
+
+当前支持：
+
+```text
+twfe       传统双向固定效应基准
+did2s      Gardner DID2S
+saturated  cohort-interacted / Sun-Abraham-style event study
+lpdid      Local-projection DiD
+```
+
+每个设计会保存：
+
+```text
+results/did/<name>/
+├── did.json
+├── diagnostics.json
+├── cohorts.csv
+├── estimates.csv
+├── panel.png
+└── event-study.png
+```
+
+并自动更新：
+
+```text
+paper/generated/did-results.qmd
+```
+
+Quarto 交叉引用：
+
+```text
+@tbl-did-<name>
+@fig-did-<name>-panel
+@fig-did-<name>-event
+```
+
+`research-econ-did check` 会检查重复 unit-time、cohort 是否在 unit 内恒定、一次性处理是否出现 1→0，
+以及显式 treatment 与 cohort 隐含 treatment path 是否一致。
+
+对于 staggered adoption，TWFE 只作为基准。若 treatment effects 可能随 cohort 或 event time 异质，
+应同时考虑 DID2S、saturated 等估计器，而不是只报告 TWFE。
+
+`research-econ-did verify` 会校验输入数据与输出 hash，并要求
+`research.yaml` 中填写 treatment timing、comparison group、reference period 和 anticipation assumptions。
+pre-treatment 的逐点 p 值只作为诊断，不被当作“平行趋势成立/不成立”的单独证明。
