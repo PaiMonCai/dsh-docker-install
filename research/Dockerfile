@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.18
-ARG RESEARCH_VERSION=0.9.0-rc.1
+ARG RESEARCH_VERSION=0.9.0-rc.2
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \
@@ -17,6 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DSH_RESEARCH_HOME=/opt/dsh-research \
     DSH_RESEARCH_VENV=/opt/dsh-research/venv \
     DSH_RESEARCH_VERSION=${RESEARCH_VERSION} \
+    DSH_RESEARCH_ADAPTER_PATCH=/opt/dsh-research/adapter/cordis.patch.yml \
     PYTHONPATH=/opt/dsh-research \
     PATH=/opt/dsh-research/venv/bin:${PATH}
 
@@ -70,8 +71,11 @@ RUN uv venv --seed /opt/dsh-research/venv \
 COPY research/dsh_research/ /opt/dsh-research/dsh_research/
 COPY research/bin/ /usr/local/bin/
 COPY research/templates/ /opt/dsh-research/templates/
+COPY research/adapter/ /opt/dsh-research/adapter/
+COPY research/adapter/dsh-wrapper /opt/dsh-research/venv/bin/dsh
 
 RUN chmod 0755 \
+      /opt/dsh-research/venv/bin/dsh \
       /usr/local/bin/research-init \
       /usr/local/bin/research-run \
       /usr/local/bin/research-archive \
@@ -95,6 +99,12 @@ RUN chmod 0755 \
  && research-pipeline --self-test \
  && research-result --self-test \
  && research-dashboard --self-test \
+ && node --check /opt/dsh-research/adapter/index.js \
+ && bash -n /opt/dsh-research/venv/bin/dsh \
+ && tmp_home="$(mktemp -d)" \
+ && DSH_HOME="$tmp_home" dsh --profile web --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
+ && DSH_HOME="$tmp_home" dsh --profile headless --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
+ && rm -rf "$tmp_home" \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
