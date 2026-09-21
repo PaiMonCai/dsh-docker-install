@@ -1733,17 +1733,117 @@ cmd_token() {
     printf '\n'
   fi
 }
+cmd_storage() {
+  load_config; ensure_docker
+  local action="${1:-show}"
+  shift || true
+
+  case "$action" in
+    show|status)
+      heading "DSH 持久化存储"
+      printf '模式:       %s\n' "$DSH_STORAGE_MODE"
+      printf '宿主机来源: %s\n' "$(storage_source)"
+      printf '容器路径:   /root/.dsh\n'
+      printf '工作区:     %s -> /workspace\n' "$DSH_WORKSPACE"
+      return
+      ;;
+    bind)
+      local target="${1:-$DEFAULT_DATA_DIR}"
+      [[ "$target" == /* ]] || die "bind 目录必须使用绝对路径。"
+      if ! mkdir -p "$target" 2>/dev/null; then
+        as_root mkdir -p "$target"
+      fi
+      DSH_STORAGE_MODE="bind"
+      DSH_DATA_DIR="$target"
+      save_config
+      ok "已切换为 bind mount: $DSH_DATA_DIR -> /root/.dsh"
+      if container_exists; then
+        if confirm "是否立即重建容器应用新存储？" Y; then
+          create_container
+        else
+          warn "配置已保存；稍后执行 dshd recreate。"
+        fi
+      fi
+      return
+      ;;
+    migrate)
+      [[ "$DSH_STORAGE_MODE" == "volume" ]] || die "当前不是 named volume 模式，无需 migrate。"
+      local target="${1:-$DEFAULT_DATA_DIR}"
+      [[ "$target" == /* ]] || die "迁移目标必须使用绝对路径。"
+      if [[ -d "$target" && -n "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+        die "目标目录非空: $target。若你已经手工复制完成，请使用: dshd storage bind $target"
+      fi
+      if ! mkdir -p "$target" 2>/dev/null; then
+        as_root mkdir -p "$target"
+      fi
+
+      local was_running=false
+      if container_running; then
+        was_running=true
+        info "停止容器以获得一致的数据快照..."
+        docker_cmd stop "$DSH_NAME" >/dev/null
+      fi
+
+      heading "迁移 DSH 数据"
+      info "来源: volume:$DSH_VOLUME"
+      info "目标: bind:$target"
+      if ! docker_cmd run --rm --entrypoint sh \
+        -v "${DSH_VOLUME}:/from:ro" \
+        -v "${target}:/to" \
+        "$DSH_IMAGE" \
+        -c 'cp -a /from/. /to/'; then
+        [[ "$was_running" == "true" ]] && docker_cmd start "$DSH_NAME" >/dev/null || true
+        die "数据复制失败；原 named volume 未修改。"
+      fi
+
+      DSH_STORAGE_MODE="bind"
+      DSH_DATA_DIR="$target"
+      save_config
+      ok "数据迁移完成，旧 volume $DSH_VOLUME 仍保留作为回退。"
+      create_container
+      return
+      ;;
+    volume)
+      local volume_name="${1:-$DSH_VOLUME}"
+      [[ -n "$volume_name" ]] || die "volume 名称不能为空。"
+      DSH_STORAGE_MODE="volume"
+      DSH_VOLUME="$volume_name"
+      ensure_storage
+      save_config
+      ok "已切换为 named volume: $DSH_VOLUME -> /root/.dsh"
+      if container_exists; then
+        if confirm "是否立即重建容器应用新存储？" Y; then
+          create_container
+        else
+          warn "配置已保存；稍后执行 dshd recreate。"
+        fi
+      fi
+      return
+      ;;
+    *)
+      die "未知 storage 子命令: $action（可用: show/bind/migrate/volume）"
+      ;;
+  esac
+}
+
 cmd_backup() {
-  load_config; ensure_docker; ensure_state_dir
-  local ts file
+  load_config; ensure_docker; ensure_state_dir; ensure_storage
+  local ts file source
   ts="$(date +%Y%m%d-%H%M%S)"
-  file="$BACKUP_DIR/${DSH_VOLUME}-${ts}.tar.gz"
-  heading "备份 dsh 数据卷"; info "目标: $file"
-  docker_cmd run --rm --entrypoint sh -v "${DSH_VOLUME}:/data:ro" -v "${BACKUP_DIR}:/backup" "$DSH_IMAGE"     -c "tar czf '/backup/$(basename "$file")' -C /data ." >/dev/null
+  file="$BACKUP_DIR/${DSH_NAME}-data-${ts}.tar.gz"
+  source="$(storage_source)"
+  heading "备份 DSH 持久化数据"
+  info "来源: $(storage_label)"
+  info "目标: $file"
+  docker_cmd run --rm --entrypoint sh \
+    -v "${source}:/data:ro" \
+    -v "${BACKUP_DIR}:/backup" \
+    "$DSH_IMAGE" \
+    -c "tar czf '/backup/$(basename "$file")' -C /data ." >/dev/null
   ok "备份完成: $file"
 }
 cmd_restore() {
-  load_config; ensure_docker; ensure_state_dir
+  load_config; ensure_docker; ensure_state_dir; ensure_storage
   local file="${1:-}"
   if [[ -z "$file" ]]; then
     heading "可用备份"
@@ -1751,12 +1851,19 @@ cmd_restore() {
     if is_tty; then read -r -p "请输入要恢复的完整备份路径: " file; else die "非交互模式请指定备份文件: dshd restore /path/file.tar.gz"; fi
   fi
   [[ -f "$file" ]] || die "备份文件不存在: $file"
-  confirm "恢复会覆盖数据卷 $DSH_VOLUME 的现有内容，确认继续？" N || return 0
+  confirm "恢复会覆盖 $(storage_label) 的现有内容，确认继续？" N || return 0
   container_running && docker_cmd stop "$DSH_NAME" >/dev/null || true
-  local dir base
-  dir="$(cd "$(dirname "$file")" && pwd)"; base="$(basename "$file")"
-  docker_cmd run --rm --entrypoint sh -v "${DSH_VOLUME}:/data" -v "${dir}:/backup:ro" "$DSH_IMAGE"     -c "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true; tar xzf '/backup/${base}' -C /data"
-  ok "数据卷恢复完成"; cmd_start
+  local dir base source
+  dir="$(cd "$(dirname "$file")" && pwd)"
+  base="$(basename "$file")"
+  source="$(storage_source)"
+  docker_cmd run --rm --entrypoint sh \
+    -v "${source}:/data" \
+    -v "${dir}:/backup:ro" \
+    "$DSH_IMAGE" \
+    -c "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true; tar xzf '/backup/${base}' -C /data"
+  ok "持久化数据恢复完成"
+  cmd_start
 }
 cmd_doctor() {
   load_config
@@ -1937,7 +2044,22 @@ cmd_uninstall() {
   load_config; ensure_docker
   heading "卸载 dsh"
   if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
-  if docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 && confirm "删除数据卷 $DSH_VOLUME？这会删除会话和凭据。" N; then docker_cmd volume rm "$DSH_VOLUME" >/dev/null; ok "数据卷已删除"; fi
+
+  if [[ "$DSH_STORAGE_MODE" == "volume" ]]; then
+    if docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 && confirm "删除数据卷 $DSH_VOLUME？这会删除会话和凭据。" N; then
+      docker_cmd volume rm "$DSH_VOLUME" >/dev/null
+      ok "数据卷已删除"
+    fi
+  elif [[ -d "$DSH_DATA_DIR" ]]; then
+    if confirm "删除数据目录 $DSH_DATA_DIR？这会删除会话、凭据和插件数据。" N; then
+      case "$DSH_DATA_DIR" in
+        /|/root|/home|/opt|/usr|/var) die "拒绝删除高风险目录: $DSH_DATA_DIR" ;;
+      esac
+      as_root rm -rf -- "$DSH_DATA_DIR"
+      ok "数据目录已删除"
+    fi
+  fi
+
   if [[ -d "$DSH_WORKSPACE" ]] && confirm "删除工作区 $DSH_WORKSPACE？" N; then as_root rm -rf "$DSH_WORKSPACE"; ok "工作区已删除"; fi
   if confirm "删除 dshd 配置目录 $STATE_DIR？" N; then rm -rf "$STATE_DIR"; ok "配置目录已删除"; fi
   if [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"; fi
@@ -1970,11 +2092,15 @@ dshd - DeepSeek Harness Docker 管理器
   dshd docker              管理 DSH 的宿主机 Docker 权限
   dshd docker on|off       开启/关闭 Docker 管理
   dshd docker status       检查 Docker Socket
+  dshd storage show        查看 /root/.dsh 的宿主机存储
+  dshd storage bind PATH   使用宿主机目录作为 DSH 数据目录
+  dshd storage migrate PATH  从旧 named volume 迁移到宿主机目录
+  dshd storage volume NAME 切换/回退到 Docker named volume
   dshd env                 查看容器开发环境版本
   dshd shell               进入容器 Shell
   dshd token               显示首次访问 URL
   dshd backup              备份 /root/.dsh
-  dshd restore [file]      恢复数据卷备份
+  dshd restore [file]      恢复持久化数据备份
   dshd doctor              环境/网络/容器诊断
   dshd self-update         立即检查并更新 dshd 脚本自身
   dshd uninstall           交互卸载
@@ -2020,6 +2146,7 @@ menu() {
  20) 卸载
  21) Standard / Research 版本切换
  22) Research Pack 切换
+ 23) 查看持久化存储
 
   0) 退出
 EOF
@@ -2049,6 +2176,7 @@ EOF
       20) cmd_uninstall ;;
       21) cmd_edition_menu ;;
       22) cmd_research_pack_menu ;;
+      23) cmd_storage show ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2084,6 +2212,7 @@ main() {
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
+    storage|data-storage) shift; cmd_storage "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
     token|url) cmd_token ;;
