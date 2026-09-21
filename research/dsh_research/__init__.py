@@ -31,6 +31,16 @@ from .pipeline import (
 )
 from .project import ResearchProject, find_project_root
 from .runs import RUN_MANIFEST_SCHEMA, RunResult, record_run
+from .results import (
+    RESULT_SCHEMA,
+    ResultStatus,
+    load_result_manifest,
+    register_result,
+    result_status,
+    result_type_counts,
+    sync_legacy_results,
+    verify_registry,
+)
 from .schema import CURRENT_PROJECT_SCHEMA, migrate_config, migrate_project, validate_project_schema
 from .state import ProjectState, build_project_state
 from .vcs import GitState, git_state
@@ -44,6 +54,8 @@ __all__ = [
     "GitState",
     "ResearchProject",
     "RUN_MANIFEST_SCHEMA",
+    "RESULT_SCHEMA",
+    "ResultStatus",
     "RunResult",
     "ProjectState",
     "PIPELINE_SCHEMA",
@@ -62,21 +74,27 @@ __all__ = [
     "load_dataset_manifest",
     "load_json",
     "load_pipeline",
+    "load_result_manifest",
     "load_research_config",
     "load_yaml",
     "migrate_config",
     "migrate_project",
     "read_jsonl",
     "record_run",
+    "register_result",
+    "result_status",
+    "result_type_counts",
     "register_dataset",
     "run_checks",
     "sha256_file",
     "tree_digest",
     "step_statuses",
     "topological_order",
+    "sync_legacy_results",
     "write_json",
     "write_jsonl",
     "validate_project_schema",
     "verify_catalog",
+    "verify_registry",
     "write_yaml",
 ]
