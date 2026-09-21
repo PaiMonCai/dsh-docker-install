@@ -19,6 +19,10 @@ from .vcs import git_state
 
 _BIB_KEY_RE = re.compile(r"@\w+\s*\{\s*([^,\s]+)\s*,", re.I)
 _PAPER_CITE_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9_.:+-]+)")
+_QUARTO_CROSSREF_PREFIXES = (
+    "fig-", "tbl-", "eq-", "sec-", "lst-",
+    "thm-", "lem-", "cor-", "prp-", "cnj-", "def-", "exm-", "exr-",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +123,11 @@ def _paper_citations(root: Path) -> set[str]:
     if not paper.is_dir():
         return cited
     for qmd in paper.rglob("*.qmd"):
-        cited.update(_PAPER_CITE_RE.findall(qmd.read_text(encoding="utf-8", errors="ignore")))
+        candidates = _PAPER_CITE_RE.findall(qmd.read_text(encoding="utf-8", errors="ignore"))
+        cited.update(
+            key for key in candidates
+            if not key.lower().startswith(_QUARTO_CROSSREF_PREFIXES)
+        )
     return cited
 
 
