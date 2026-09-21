@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from dsh_research.errors import ResearchError
+from dsh_research.json_api import failure_json, success_json
 from dsh_research.project import ResearchProject
 from dsh_research.runs import RUN_MANIFEST_SCHEMA, record_run
 
@@ -19,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-dataset", action="append", default=[], help="精确记录输入 dataset，可重复")
     parser.add_argument("--input-file", action="append", default=[], help="精确记录输入文件，可重复")
     parser.add_argument("--output-file", action="append", default=[], help="精确记录输出文件，可重复")
+    parser.add_argument("--json", action="store_true", help="输出稳定 JSON；子命令 stdout/stderr 仅写入 run 日志")
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
@@ -60,7 +62,15 @@ def main(argv: list[str] | None = None) -> int:
     if command and command[0] == "--":
         command = command[1:]
     if not command:
-        print("缺少要执行的命令。", file=sys.stderr)
+        if args.json:
+            failure_json(
+                command="research-run",
+                operation="run",
+                code="USAGE_ERROR",
+                message="缺少要执行的命令。",
+            )
+        else:
+            print("缺少要执行的命令。", file=sys.stderr)
         return 2
 
     try:
@@ -72,16 +82,59 @@ def main(argv: list[str] | None = None) -> int:
             input_datasets=args.input_dataset,
             input_files=args.input_file,
             output_files=args.output_file,
+            stream_output=not args.json,
         )
-        print(f"\nResearch run recorded: {result.run_dir}")
-        print(f"Run manifest schema: {RUN_MANIFEST_SCHEMA}")
-        return result.exit_code
+        data = {
+            "run_schema": RUN_MANIFEST_SCHEMA,
+            "run_id": result.run_id,
+            "run_dir": result.run_dir.relative_to(project.root).as_posix(),
+            "manifest": result.manifest_path.relative_to(project.root).as_posix(),
+            "command_exit_code": result.exit_code,
+        }
+        if args.json:
+            if result.exit_code == 0:
+                success_json(
+                    command="research-run",
+                    operation="run",
+                    data=data,
+                )
+            else:
+                failure_json(
+                    command="research-run",
+                    operation="run",
+                    code="RUN_COMMAND_FAILED",
+                    message=f"research command exited with {result.exit_code}",
+                    details={"command_exit_code": result.exit_code},
+                    data=data,
+                )
+        else:
+            print(f"\nResearch run recorded: {result.run_dir}")
+            print(f"Run manifest schema: {RUN_MANIFEST_SCHEMA}")
+        return 0 if result.exit_code == 0 else 1
     except ResearchError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+        if args.json:
+            failure_json(
+                command="research-run",
+                operation="run",
+                code="RESEARCH_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        if args.json:
+            failure_json(
+                command="research-run",
+                operation="run",
+                code="INTERNAL_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
