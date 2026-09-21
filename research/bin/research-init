@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+TEMPLATE_ROOT="${DSH_RESEARCH_HOME:-/opt/dsh-research}/templates/default"
+
+usage() {
+  cat <<'EOF'
+用法:
+  research-init <project-slug> [title] [destination]
+
+示例:
+  research-init ai-productivity "AI 与生产率"
+  research-init thesis "本科毕业论文" /workspace/thesis
+EOF
+}
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  [[ -d "$TEMPLATE_ROOT" ]] || { echo "missing template: $TEMPLATE_ROOT" >&2; exit 1; }
+  [[ -f "$TEMPLATE_ROOT/research.yaml" ]] || exit 1
+  echo "research-init self-test passed"
+  exit 0
+fi
+
+[[ "${1:-}" != "-h" && "${1:-}" != "--help" ]] || { usage; exit 0; }
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+
+slug="$1"
+title="${2:-$slug}"
+destination="${3:-$PWD/$slug}"
+
+[[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+  echo "project-slug 只能包含字母、数字、点、下划线和短横线。" >&2
+  exit 2
+}
+
+if [[ -e "$destination" ]] && [[ -n "$(find "$destination" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+  echo "目标目录已存在且非空: $destination" >&2
+  exit 1
+fi
+
+mkdir -p "$destination"
+cp -a "$TEMPLATE_ROOT/." "$destination/"
+
+created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+python - "$destination" "$slug" "$title" "$created_at" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+values = {
+    "__PROJECT_SLUG__": sys.argv[2],
+    "__PROJECT_TITLE__": sys.argv[3],
+    "__CREATED_AT__": sys.argv[4],
+}
+for path in root.rglob("*"):
+    if not path.is_file():
+        continue
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        continue
+    new = text
+    for key, value in values.items():
+        new = new.replace(key, value)
+    if new != text:
+        path.write_text(new, encoding="utf-8")
+PY
+
+if ! git -C "$destination" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "$destination" init -q
+fi
+
+printf 'Research project created: %s\n' "$destination"
+printf 'Next: cd %q && edit research.yaml\n' "$destination"
