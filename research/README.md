@@ -16,6 +16,7 @@ Literature → Question → Data → Analysis → Results → Paper → Archive
 - Research Project 标准目录。
 - Evidence Matrix 文献证据矩阵。
 - `research-literature`：DOI / arXiv / PDF → BibTeX → 结构化笔记 → Evidence Matrix → 引用校验。
+- 可选 **Economics Research Pack**：pyfixest / linearmodels / arch + 经济学项目模板与研究规则。
 - `research-run` 可复现实验记录。
 - `research-archive` 可交付研究归档。
 
@@ -87,6 +88,44 @@ PDF 导入时会尝试从前几页识别 DOI；识别成功且网络可用时，
 `review` 只从 Evidence Matrix 生成可追溯证据索引，不会凭空生成论文结论。
 `verify` 会检查 BibTeX、Evidence Matrix、结构化笔记和 `paper/*.qmd` 引用的一致性，并检查原始数据是否被误提交到 Git。
 
+## Economics Research Pack
+
+Economics Pack 不是把所有经济学工具塞进通用科研镜像，而是一个独立派生镜像：
+
+```text
+ghcr.io/paimoncai/dsh-docker-install:research-economics
+```
+
+宿主机切换：
+
+```bash
+dshd research-pack economics
+dshd research-pack show
+```
+
+切回通用 Research：
+
+```bash
+dshd research-pack none
+```
+
+创建经济学项目：
+
+```bash
+research-init --template economics minimum-wage "最低工资与就业"
+cd minimum-wage
+```
+
+Economics 模板会在通用 Research Project 的基础上增加：
+
+- `research.yaml` 中的 population、unit of observation、estimand、identification strategy、fixed effects、clustering、robustness 等字段；
+- 经济学专用 Agent 规则，要求区分相关/预测/因果并明确识别假设；
+- `src/econometrics.py` 的 pyfixest 与 IV/2SLS 脚手架；
+- 更适合经验经济学论文的 Quarto 结构；
+- `pyfixest`、`linearmodels`、`arch`、`wbgapi`、`pandas-datareader`。
+
+这些示例公式只是脚手架。Research Agent 被明确要求先定义 estimand 和识别策略，不能因为某个规格“显著”就把它升级为基准模型。
+
 ## V1 设计原则
 
 1. 不 fork DSH 核心，Research Edition 继承标准镜像。
@@ -95,4 +134,4 @@ PDF 导入时会尝试从前几页识别 DOI；识别成功且网络可用时，
 4. 文献综述优先维护 Evidence Matrix，而不是只生成自由文本总结。
 5. 项目可独立归档，方便论文复核、复现和交付。
 
-R、Zotero 同步、领域扩展包（Economics / Finance / ML）留到后续版本。
+R、Zotero 同步、Finance / ML 等领域扩展包留到后续版本；Economics Pack 已进入 V1。
