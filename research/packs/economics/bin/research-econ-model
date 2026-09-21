@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -46,6 +47,25 @@ def safe_name(value: str) -> str:
     if not NAME_RE.fullmatch(value):
         raise EconModelError("name 只能包含字母、数字、点、下划线和短横线，且必须以字母或数字开头。")
     return value
+
+
+def git_state(root: Path) -> dict[str, Any]:
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return {"commit": commit or None, "dirty": bool(status)}
+    except OSError:
+        return {"commit": None, "dirty": None}
 
 
 def resolve_processed_data(root: Path, value: str) -> Path:
@@ -270,6 +290,7 @@ def qmd_from_manifests(root: Path) -> str:
             f"**Inference:** {inference}  ",
             f"**Data:** \`{data_info.get('path','')}\`; SHA256 \`{data_info.get('sha256','')}\`  ",
             f"**Input rows:** {data_info.get('input_rows','')}  ",
+            f"**Estimation observations:** {(data.get('estimation') or {}).get('nobs','')}  ",
             "",
             table_text,
             "",
@@ -323,6 +344,7 @@ def run_feols(args, root: Path) -> int:
         "formula": args.formula,
         "vcov": vcov_meta,
         "focus": args.focus or [],
+        "git": git_state(root),
         "data": {
             "path": rel(root, data_path),
             "sha256": sha256_file(data_path),
@@ -390,6 +412,29 @@ def verify(root: Path) -> int:
     manifests = sorted(model_root.glob("*/model.json")) if model_root.is_dir() else []
     errors: list[str] = []
 
+    if manifests:
+        try:
+            import yaml
+
+            config = yaml.safe_load((root / "research.yaml").read_text(encoding="utf-8")) or {}
+            economics = config.get("economics") or {}
+            required_design = [
+                "population",
+                "unit_of_observation",
+                "outcome",
+                "estimand",
+                "identification_strategy",
+                "standard_errors",
+            ]
+            missing_design = [key for key in required_design if not economics.get(key)]
+            if missing_design:
+                errors.append(
+                    "research.yaml 的 economics 研究设计仍有空项: "
+                    + ", ".join(missing_design)
+                )
+        except Exception as exc:
+            errors.append(f"无法检查 research.yaml economics 研究设计: {exc}")
+
     for manifest_path in manifests:
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -400,6 +445,20 @@ def verify(root: Path) -> int:
                 errors.append(f"{name}: analysis data missing: {data_info['path']}")
             elif sha256_file(data_path) != str(data_info["sha256"]):
                 errors.append(f"{name}: analysis data SHA256 changed: {data_info['path']}")
+
+            vcov = data.get("vcov") or {}
+            if str(vcov.get("type") or "").upper().startswith("CRV"):
+                try:
+                    import yaml
+
+                    config = yaml.safe_load((root / "research.yaml").read_text(encoding="utf-8")) or {}
+                    economics = config.get("economics") or {}
+                    if not economics.get("clustering_level"):
+                        errors.append(
+                            f"{name}: 模型使用聚类标准误，但 research.yaml economics.clustering_level 为空"
+                        )
+                except Exception:
+                    pass
 
             for label, item in (data.get("outputs") or {}).items():
                 output_path = root / str(item["path"])
