@@ -116,7 +116,7 @@ RUN chmod 0755 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
  && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
-      printf '%s\\n' \
+      printf '%s\n' \
         '---' \
         'title: "科研环境测试"' \
         'format: pdf' \
