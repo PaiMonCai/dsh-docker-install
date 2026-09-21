@@ -23,6 +23,11 @@ The adapter is a zero-runtime-dependency Cordis plugin. It registers a small set
 of high-level model-callable tools through `ctx.tools.register()`; it does not
 fork or modify the Harness loop.
 
+It also registers a concise `ctx.systemPrompt.section()` guidance block so the
+Agent knows, even before a project-specific `AGENTS.md` exists, to prefer the
+native Research tools over manually constructing backend CLI commands. Project
+`AGENTS.md` files remain responsible for domain/research-specific rules.
+
 ## Model-visible tools
 
 Research Core:
