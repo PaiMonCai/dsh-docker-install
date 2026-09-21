@@ -63,7 +63,7 @@ hash_tree "$root" "data/processed" "$run_dir/manifests/input-processed.sha256"
 
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 python - "$run_dir/metadata.json" "$started_at" "$label" "$git_commit" "$git_dirty" <<'PY'
-import json, platform, sys
+import json, os, platform, sys
 path, started_at, label, commit, dirty = sys.argv[1:]
 payload = {
     "schema": 1,
@@ -71,6 +71,7 @@ payload = {
     "label": label,
     "git_commit": commit or None,
     "git_dirty": dirty == "true",
+    "research_pack": os.environ.get("DSH_RESEARCH_PACK", "none"),
     "platform": platform.platform(),
     "exit_code": None,
 }
