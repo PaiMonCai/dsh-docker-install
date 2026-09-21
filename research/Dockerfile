@@ -33,6 +33,7 @@ RUN apt-get update \
       texlive-latex-base \
       texlive-latex-extra \
       texlive-latex-recommended \
+      texlive-lang-chinese \
       texlive-xetex \
  && rm -rf /var/lib/apt/lists/*
 
@@ -73,6 +74,18 @@ RUN chmod 0755 \
  && research-archive --self-test \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
- && latexmk -v | head -1
+ && latexmk -v | head -1 \
+ && printf '%s\n' \
+      '---' \
+      'title: "科研环境测试"' \
+      'format: pdf' \
+      'pdf-engine: xelatex' \
+      'mainfont: "Noto Serif CJK SC"' \
+      '---' \
+      '' \
+      '中文排版 smoke test。' > /tmp/research-smoke.qmd \
+ && quarto render /tmp/research-smoke.qmd --to pdf \
+ && test -s /tmp/research-smoke.pdf \
+ && rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf
 
 WORKDIR /workspace
