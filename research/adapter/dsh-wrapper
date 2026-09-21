@@ -15,7 +15,7 @@ if [[ "${DSH_RESEARCH_ADAPTER_DISABLE:-0}" == "1" || ! -f "$PATCH" ]]; then
 fi
 
 case "${1:-}" in
-  web|headless|sdk|sdk-minimal|acp)
+  web|headless)
     profile="$1"
     shift
     exec "$REAL_DSH" "$profile" --patch "$PATCH" "$@"
@@ -23,8 +23,11 @@ case "${1:-}" in
   --profile)
     [[ $# -ge 2 ]] || exec "$REAL_DSH" "$@"
     profile="$2"
-    shift 2
-    exec "$REAL_DSH" --profile "$profile" --patch "$PATCH" "$@"
+    if [[ "$profile" == "web" || "$profile" == "headless" ]]; then
+      shift 2
+      exec "$REAL_DSH" --profile "$profile" --patch "$PATCH" "$@"
+    fi
+    exec "$REAL_DSH" "$@"
     ;;
   plugin|--version|-V|version|help|-h|--help|"")
     exec "$REAL_DSH" "$@"
