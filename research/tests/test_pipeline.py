@@ -152,6 +152,23 @@ class PipelineTests(unittest.TestCase):
                 [("clean", "SKIP"), ("model", "SKIP"), ("paper", "RUN")],
             )
 
+    def test_dry_run_plans_full_chain_before_outputs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self.make_project(root)
+            self.write_scripts(root)
+            self.write_pipeline(root)
+            (root / "data" / "raw.txt").write_text("one\n", encoding="utf-8")
+            pipeline = load_pipeline(project)
+            decisions = execute_pipeline(project, pipeline, dry_run=True)
+            self.assertEqual(
+                self.actions(decisions),
+                [("clean", "RUN"), ("model", "RUN"), ("paper", "RUN")],
+            )
+            self.assertFalse((root / "data" / "clean.txt").exists())
+            self.assertFalse((root / "results" / "model.txt").exists())
+            self.assertFalse((root / "paper" / "out.txt").exists())
+
     def test_explain_reports_input_change(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
