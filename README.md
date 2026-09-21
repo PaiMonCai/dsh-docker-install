@@ -72,6 +72,11 @@ dshd docker on       # 允许 DSH 管理宿主机 Docker
 dshd docker off      # 关闭宿主机 Docker 权限
 dshd docker status   # 检查 Docker Socket / Compose
 dshd env             # 查看 Node/Python/Go/Docker 等开发环境版本
+dshd env show        # 查看自定义容器环境变量（敏感值隐藏）
+dshd env set NAME VALUE # 添加或更新容器环境变量
+dshd env remove NAME # 删除容器环境变量
+dshd env edit        # 编辑独立的 container.env
+dshd env path        # 显示环境变量文件路径
 dshd token           # 显示首次访问 token URL
 dshd shell           # 进入容器
 dshd backup          # 备份 dsh 数据卷
@@ -125,6 +130,41 @@ export DSHD_UPDATE_URL=https://example.com/dshd
 Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS），同时安装完成页保留
 `127.0.0.1:<端口>` 的本地回退地址。例如 `dsh.example.com` 会显示为
 `https://dsh.example.com/?token=...`。
+
+### 自定义容器环境变量
+
+需要向 DSH 容器传入代理、第三方工具或其他自定义环境变量时，使用：
+
+```bash
+dshd env set HTTP_PROXY http://proxy.example.com:7890
+dshd env set HTTPS_PROXY http://proxy.example.com:7890
+dshd env show
+```
+
+变量默认保存在 `/etc/dshd/container.env`；非 root 用户保存在
+`~/.config/dshd/container.env`。文件权限为 `600`，重建容器时由
+`docker run --env-file` 自动加载。名称包含 `KEY`、`TOKEN`、`SECRET`、
+`PASSWORD`、`PASSWD` 或 `CREDENTIAL` 的变量在 `show` 输出中会隐藏值。
+
+修改后，交互终端会询问是否立即重建；非交互调用需要执行：
+
+```bash
+dshd recreate
+```
+
+也可以直接编辑完整文件：
+
+```bash
+dshd env edit
+```
+
+删除变量：
+
+```bash
+dshd env remove HTTP_PROXY
+```
+
+`/etc/dshd/config.env` 仍只保存 dshd 管理配置，不会整体传入容器，避免意外泄露管理器内部配置。
 
 ### DeepSeek API / Base URL 配置
 
@@ -399,6 +439,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_DOCKER_SOCKET` | 自动检测 | 宿主机 Docker Socket 路径 |
 | `DSHD_NO_SELF_UPDATE` | — | 设为 `1` 关闭 dshd 运行时的脚本自更新 |
 | `DSHD_UPDATE_URL` | — | 自定义 dshd 自更新源（默认 GitHub Raw → jsDelivr） |
+| `DSHD_CONTAINER_ENV_FILE` | 自动选择 | 自定义容器环境变量文件路径 |
 | `DSHD_SELF_UPDATE_RETRY_DELAY` | `300` | 自更新失败后的退避秒数，`0` 表示不节流 |
 | `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
 
