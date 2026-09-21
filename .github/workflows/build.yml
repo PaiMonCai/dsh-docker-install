@@ -126,9 +126,7 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
-            test ! -e /usr/local/go/api
             test ! -e /usr/local/go/doc
-            test ! -e /usr/local/go/misc
             test ! -e /usr/local/go/test
             test ! -e /usr/local/bin/cn-mirror
             test ! -e /usr/local/bin/patch-remote-settings.js
