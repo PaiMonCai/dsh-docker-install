@@ -30,6 +30,7 @@ from .pipeline import (
     topological_order,
 )
 from .project import ResearchProject, find_project_root
+from .runs import RUN_MANIFEST_SCHEMA, RunResult, record_run
 from .schema import CURRENT_PROJECT_SCHEMA, migrate_config, migrate_project, validate_project_schema
 from .state import ProjectState, build_project_state
 from .vcs import GitState, git_state
@@ -42,6 +43,8 @@ __all__ = [
     "FileFingerprint",
     "GitState",
     "ResearchProject",
+    "RUN_MANIFEST_SCHEMA",
+    "RunResult",
     "ProjectState",
     "PIPELINE_SCHEMA",
     "PipelineDefinition",
@@ -64,6 +67,7 @@ __all__ = [
     "migrate_config",
     "migrate_project",
     "read_jsonl",
+    "record_run",
     "register_dataset",
     "run_checks",
     "sha256_file",
