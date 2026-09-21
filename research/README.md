@@ -152,14 +152,14 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.8.2，更新于 2026-09-22）：V2.0 Phase 0–8 已全部落地，包括 Shared Research Engine、Project State / Check、Data Catalog / Lineage、Pipeline DAG、Run Manifest v2、Result Registry、Stable JSON API v1 与只读 Research Dashboard。V2.0 功能层已闭环，下一步进入 0.9.0 RC 硬化。
+> 当前开发状态（Research 0.9.0-rc.1，更新于 2026-09-22）：V2.0 Phase 0–8 已全部落地，并进入 Release Candidate 硬化。RC1 不扩张功能面，重点验证 schema1→2 升级、Dataset→Pipeline→Run→Result→Dashboard→Release Gate 的真实端到端生命周期，以及 stale propagation、机器接口和安全边界。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 95% | Phase 0–8 已完成；剩余为 0.9.0 RC 集成/安全/兼容性硬化 |
-| 完整 V2 Roadmap | 约 55%–60% | V2.0 功能层闭环；V2.1–V2.4 尚未系统展开 |
+| V2.0 Research Project Engine | 约 98% | 0.9.0-rc.1：功能层闭环，RC gate / 升级兼容 / release-readiness 语义已进入验收 |
+| 完整 V2 Roadmap | 约 55%–60% | V2.0 接近稳定；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
 
@@ -229,15 +229,129 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发停在 Research `0.8.2` / V2.0 Phase 8。V2.0 功能开发已闭环，下一步是：
+当前开发进入 Research `0.9.0-rc.1`。V2.0 的功能开发已经停止扩张，RC 阶段只处理：
 
 ```text
-0.9.0  V2 release candidate
-       ↓
-2.0.0  V2 stable
+integration correctness
+upgrade / migration compatibility
+release-readiness semantics
+security boundaries
+real-project dogfooding
+amd64 / arm64 image smoke
+documentation / operator ergonomics
 ```
 
-RC 阶段不再扩张功能面，重点转向集成测试、升级/迁移兼容、安全边界、Release 语义与实际项目 dogfooding。
+版本路径：
+
+```text
+0.9.0-rc.1
+     ↓
+0.9.0-rc.N   仅修 RC blocker
+     ↓
+2.0.0        Stable V2
+```
+
+### V2 Release Candidate Gate
+
+RC1 将 `research-check --release` 定义为 V2.0 唯一的 **release-readiness gate**：
+
+```bash
+research-check --release
+research-check --release --json
+```
+
+机器模式继续遵守 Stable JSON API v1，并在 `data` 中增加：
+
+```json
+{
+  "release_gate": {
+    "policy_version": 1,
+    "ready": true,
+    "blocking_errors": 0,
+    "warnings": 0
+  }
+}
+```
+
+Release Gate 语义：
+
+```text
+exit 0  ready=true，当前没有 ERROR blocker
+exit 1  ready=false，存在 release blocker
+exit 2  项目/配置/执行层错误，无法完成 gate
+```
+
+WARN 不阻断 release；ERROR 阻断。当前 gate 会综合现有 Project / Dataset / Pipeline /
+Result / Literature / Paper / Git 检查，并在 release 模式下额外要求：
+
+```text
+current project schema
+current pipeline state（若定义）
+current registered results
+clean Git worktree
+rendered paper PDF or HTML
+```
+
+完整 replication package builder 仍属于后续 `research-release` 路线；RC1 先固定“是否具备发布条件”的稳定语义，不提前把 V2.4 功能塞回 V2.0。
+
+### RC End-to-End Gate
+
+CI 新增独立的：
+
+```bash
+bash research/tests/rc-gate.sh
+```
+
+它通过真实 CLI 黑盒执行以下生命周期：
+
+```text
+schema 1 project
+      ↓ research-migrate
+schema 2
+      ↓
+register raw Dataset
+      ↓
+Pipeline: clean → model → paper
+      ↓
+second run = SKIP / SKIP / SKIP
+      ↓
+register processed Dataset
+      ↓
+research-run Manifest v2
+      ↓
+Result Registry
+      ↓
+research-status --json
+      ↓
+clean Git + rendered paper
+      ↓
+research-check --release = READY
+      ↓
+Research Dashboard /api/status
+      ↓
+modify raw data
+      ↓
+Dataset stale
+      ↓
+Pipeline stale
+      ↓
+Result stale
+      ↓
+Release Gate = NOT READY
+```
+
+同一 gate 还验证：
+
+```text
+schema migration backup + idempotency
+future schema fails safely
+Stable JSON API v1
+Dashboard remote bind requires --allow-remote
+raw data remains outside Git
+stale propagation across subsystems
+```
+
+从 RC1 到 Stable V2 不再接受新的 V2.0 功能；只修会破坏上述契约、真实项目使用或镜像兼容性的 blocker。
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
 Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
 **Research Project lifecycle**。
@@ -1531,6 +1645,9 @@ RUN paper
 此外必须覆盖 DAG cycle、失败节点、schema migration、hash 稳定性、
 release secret scanning 和 amd64 / arm64 镜像 smoke test。
 
+从 `0.9.0-rc.1` 开始，unit tests 之外必须额外通过 `research/tests/rc-gate.sh`；
+RC gate 使用真实 CLI 和 HTTP Dashboard，不允许只用内部 Python API 替代端到端验收。
+
 ### V2 推荐开发顺序
 
 V2 不一次性做成一个大 PR，而是按可回滚、可测试的小步演进：
@@ -1563,8 +1680,9 @@ PR N   feat: Planner / Reviewer + replication release
 0.8.0  Result Registry
 0.8.1  Stable JSON API v1
 0.8.2  Dashboard preview
-0.9.0  V2 release candidate
-2.0.0  Stable V2
+0.9.0-rc.1  V2 release candidate gate
+0.9.0-rc.N  RC blocker fixes only
+2.0.0       Stable V2
 ```
 
 在 `2.0.0` 前保持现有 V1 CLI 尽量兼容，不因为内部重构破坏已创建的 Research Project。
