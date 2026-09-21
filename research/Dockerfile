@@ -151,7 +151,11 @@ RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-mo
       -r /opt/dsh-research/economics-requirements.txt \
  && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')" \
  && research-econ-data --self-test \
- && research-econ-model --self-test \
+ && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
+      research-econ-model --self-test; \
+    else \
+      DSH_RESEARCH_SKIP_QUARTO_SMOKE=1 research-econ-model --self-test; \
+    fi \
  && research-econ-did --self-test \
  && tmp="$(mktemp -d)" \
  && research-init --template economics economics-smoke "Economics Smoke Test" "$tmp/project" \
