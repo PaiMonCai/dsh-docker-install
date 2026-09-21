@@ -1,0 +1,70 @@
+name: Build & Publish Research Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - research/**
+      - .github/workflows/build-research.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - research/**
+      - .github/workflows/build-research.yml
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Research scripts
+        run: |
+          bash -n research/bin/research-init
+          bash -n research/bin/research-run
+          bash -n research/bin/research-archive
+          test -s research/templates/default/research.yaml
+          test -s research/templates/default/literature/evidence-matrix.csv
+
+      - name: Read Research version
+        id: ver
+        run: echo "version=$(cat research/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize image name
+        id: img
+        run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: research/Dockerfile
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            BASE_IMAGE=${{ steps.img.outputs.name }}:latest
+          tags: |
+            ${{ steps.img.outputs.name }}:research
+            ${{ steps.img.outputs.name }}:research-${{ steps.ver.outputs.version }}
+          cache-from: type=gha,scope=research
+          cache-to: type=gha,mode=max,scope=research
