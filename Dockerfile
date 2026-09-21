@@ -93,6 +93,11 @@ RUN set -eux; \
     rm -rf /usr/local/go; \
     tar -C /usr/local -xzf /tmp/go.tgz; \
     rm -f /tmp/go.tgz; \
+    rm -rf \
+      /usr/local/go/api \
+      /usr/local/go/doc \
+      /usr/local/go/misc \
+      /usr/local/go/test; \
     go version
 
 # 只装 Docker 客户端。dshd 可选挂载宿主机 docker.sock，不在容器里运行 dockerd。
@@ -143,7 +148,10 @@ RUN . /usr/local/bin/cn-mirror \
  && node --version \
  && test "$(pnpm --version)" = "${PNPM_VERSION}" \
  && pnpm store path \
- && chromium --version
+ && chromium --version \
+ && rm -f \
+      /usr/local/bin/cn-mirror \
+      /usr/local/bin/patch-remote-settings.js
 
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
