@@ -25,6 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     XDG_CACHE_HOME=/tmp/dsh-cache \
     UV_CACHE_DIR=/tmp/dsh-cache/uv \
     PIP_CACHE_DIR=/tmp/dsh-cache/pip \
+    DENO_DIR=/tmp/dsh-cache/deno \
     MPLCONFIGDIR=/tmp/dsh-cache/matplotlib \
     JUPYTER_CONFIG_DIR=/tmp/dsh-cache/jupyter \
     QUARTO_CACHE_DIR=/tmp/dsh-cache/quarto \
@@ -88,7 +89,7 @@ RUN uv venv --seed /opt/dsh-research/venv \
  && python --version \
  && python -c "import numpy, pandas, scipy, statsmodels, sklearn, sympy, pyarrow, duckdb" \
  && jupyter --version \
- && chmod -R a+rX,u+w,g+w /opt/dsh-research/venv
+ && chmod -R a+rwX /opt/dsh-research/venv
 
 COPY research/dsh_research/ /opt/dsh-research/dsh_research/
 COPY research/bin/ /usr/local/bin/
@@ -132,8 +133,11 @@ RUN chmod 0755 \
       | grep -q '/opt/dsh-research/adapter/index.js' \
  && rm -rf "$tmp_home" \
  && /opt/dsh-research/adapter/smoke-web.sh \
- && npx playwright install chromium-headless-shell \
- && test -n "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name 'chrome-headless-shell' -o -name 'headless_shell' | head -1)" \
+ && npx playwright install --only-shell chromium \
+ && HEADLESS_SHELL="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f \( -name 'chrome-headless-shell' -o -name 'headless_shell' \) | head -1)" \
+ && test -n "$HEADLESS_SHELL" \
+ && ln -sf "$HEADLESS_SHELL" /usr/local/bin/chrome-headless-shell \
+ && chrome-headless-shell --version \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && lualatex --version | head -1 \
