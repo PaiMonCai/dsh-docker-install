@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 from http import HTTPStatus
@@ -374,6 +375,10 @@ class ResearchDashboardServer(ThreadingHTTPServer):
         super().__init__(server_address, DashboardRequestHandler)
 
 
+class ResearchDashboardIPv6Server(ResearchDashboardServer):
+    address_family = socket.AF_INET6
+
+
 def make_server(
     project_root: Path,
     *,
@@ -383,4 +388,5 @@ def make_server(
     source_bin_dir: Path | None = None,
 ) -> ResearchDashboardServer:
     client = ResearchCliClient(project_root, source_bin_dir=source_bin_dir)
-    return ResearchDashboardServer((host, port), client, quiet=quiet)
+    server_cls = ResearchDashboardIPv6Server if ":" in host else ResearchDashboardServer
+    return server_cls((host, port), client, quiet=quiet)
