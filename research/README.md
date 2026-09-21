@@ -15,6 +15,7 @@ Literature → Question → Data → Analysis → Results → Paper → Archive
 - PDF 工具：Poppler / qpdf。
 - Research Project 标准目录。
 - Evidence Matrix 文献证据矩阵。
+- `research-literature`：DOI / arXiv / PDF → BibTeX → 结构化笔记 → Evidence Matrix → 引用校验。
 - `research-run` 可复现实验记录。
 - `research-archive` 可交付研究归档。
 
@@ -35,6 +36,12 @@ cd /workspace
 research-init my-study "My Study"
 cd my-study
 
+research-literature add 10.1257/aer.20181234
+research-literature add arXiv:2401.01234
+research-literature add /workspace/papers/paper.pdf
+research-literature review
+research-literature verify
+
 research-run --name baseline -- python src/analysis.py
 quarto render paper/paper.qmd
 research-archive
@@ -45,6 +52,38 @@ research-archive
 ```bash
 research-archive --include-raw
 ```
+
+## 文献管线
+
+`research-literature` 把文献管理做成可检查的项目数据，而不是只保留聊天中的总结：
+
+```text
+DOI / arXiv / PDF
+      ↓
+sources.jsonl + references.bib
+      ↓
+literature/notes/<citation_key>.md
+      ↓
+evidence-matrix.csv
+      ↓
+review.md + paper citations
+```
+
+常用命令：
+
+```bash
+research-literature add 10.1257/aer.20181234
+research-literature add https://arxiv.org/abs/2401.01234
+research-literature add ./paper.pdf
+research-literature list
+research-literature review
+research-literature verify
+```
+
+PDF 导入时会尝试从前几页识别 DOI；识别成功且网络可用时，再通过 Crossref 补全元数据。
+本地 PDF 默认复制到 `literature/pdfs/`，但该目录中的 PDF 默认不进入 Git。
+`review` 只从 Evidence Matrix 生成可追溯证据索引，不会凭空生成论文结论。
+`verify` 会检查 BibTeX、Evidence Matrix、结构化笔记和 `paper/*.qmd` 引用的一致性，并检查原始数据是否被误提交到 Git。
 
 ## V1 设计原则
 
