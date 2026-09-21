@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -784,6 +785,38 @@ economics:
         assert "#fig-econ-baseline" in qmd
         assert "#tbl-econ-compare-main" in qmd
         assert verify(root) == 0
+
+        if shutil.which("quarto"):
+            paper_dir = root / "paper"
+            paper_dir.mkdir(exist_ok=True)
+            paper = paper_dir / "paper.qmd"
+            paper.write_text(
+                """---
+title: "Economics pipeline smoke test"
+format: html
+---
+
+# Results
+
+{{< include generated/economics-results.qmd >}}
+""",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["quarto", "render", str(paper), "--to", "html"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise EconModelError(
+                    "Quarto smoke render failed:\n"
+                    + result.stdout
+                    + "\n"
+                    + result.stderr
+                )
+            assert (paper_dir / "paper.html").is_file()
 
     print("research-econ-model self-test passed")
     return 0
