@@ -116,7 +116,7 @@ Dashboard              = replaceable UI
 
 ## 普通用户真正需要记住的工作流
 
-从 Research 0.9.0-rc.2 开始，普通用户的主要入口是 **DSH Agent**，不是 `research-*` 命令。
+从 Research 0.9.0-rc.2 开始，普通用户的主要入口是 **DSH Agent**，不是 `research-*` 命令。0.9.0-rc.3 进一步把 Adapter 做成可配置兼容层，可适配自定义 DSH profile 与非固定后端安装路径。
 
 ```text
 你
@@ -185,7 +185,7 @@ V2.0 已进入 Release Candidate 阶段。接下来不再优先横向增加 R、
 | Research Core | `:research` / `:research-<research版本>` | 一般科研、文献、数据、可复现分析与论文 |
 | Research Economics | `:research-economics` / `:research-economics-<research版本>` | 经济学、计量经济学、DiD / Event Study |
 
-Research Edition 当前版本见 `research/VERSION`；当前为 **0.9.0-rc.2**。
+Research Edition 当前版本见 `research/VERSION`；当前为 **0.9.0-rc.3**。
 
 ```
 .
@@ -768,6 +768,30 @@ files + manifests
 ```
 
 其中 `research-*` 是稳定后端接口，不是要求普通用户记忆的主要 UI。
+
+Research Adapter 默认注入 `web,headless`，但兼容层并不写死 profile：
+
+```bash
+# 增加自定义 Agent profile
+DSH_RESEARCH_ADAPTER_PROFILES=web,headless,tui dsh tui
+
+# 所有 profile 都允许注入
+DSH_RESEARCH_ADAPTER_PROFILES='*' dsh my-profile
+
+# 临时绕过 Adapter
+DSH_RESEARCH_ADAPTER_DISABLE=1 dsh web
+```
+
+后端命令也支持自定义搜索路径：
+
+```text
+DSH_RESEARCH_BIN_DIR
+DSH_RESEARCH_BIN_PATH
+/usr/local/bin
+PATH
+```
+
+因此源码开发、派生镜像和组织内部目录布局都可以复用同一 Adapter。
 
 Research Edition 的镜像层级仍然是：
 
