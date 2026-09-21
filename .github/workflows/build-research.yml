@@ -54,7 +54,10 @@ jobs:
           python research/bin/research-literature --self-test
           PYTHONPATH=research python research/bin/research-status --self-test
           PYTHONPATH=research python research/bin/research-migrate --self-test
-          grep -q '^schema: 2
+          grep -q '^schema: 2$' research/templates/default/research.yaml
+          grep -q '^schema: 2$' research/templates/packs/economics/research.yaml
+          grep -q 'status: "active"' research/templates/default/research.yaml
+          test -s research/templates/default/AGENTS.md
           test -s research/templates/default/literature/evidence-matrix.csv
 
       - name: Read Research version
