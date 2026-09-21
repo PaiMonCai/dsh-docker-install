@@ -1,11 +1,12 @@
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
 
 export const name = 'dsh-research-adapter'
 export const inject = ['tools']
 
 const WORKSPACE = resolve(process.env.DSH_RESEARCH_WORKSPACE || '/workspace')
+const WORKSPACE_REAL = existsSync(WORKSPACE) ? realpathSync(WORKSPACE) : WORKSPACE
 const BIN_DIR = process.env.DSH_RESEARCH_BIN_DIR || '/usr/local/bin'
 const MAX_CAPTURE = 64 * 1024
 
@@ -31,15 +32,30 @@ function schema(properties, required = []) {
   }
 }
 
-function withinWorkspace(path) {
-  const rel = relative(WORKSPACE, path)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+function inside(base, path) {
+  const rel = relative(base, path)
+  return rel === '' || (rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel))
+}
+
+function physicalCandidate(path) {
+  if (existsSync(path)) return realpathSync(path)
+
+  let ancestor = path
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor)
+    if (parent === ancestor) break
+    ancestor = parent
+  }
+
+  if (!existsSync(ancestor)) return path
+  const physicalAncestor = realpathSync(ancestor)
+  return resolve(physicalAncestor, relative(ancestor, path))
 }
 
 function resolveWorkspacePath(value = '.') {
   const candidate = resolve(isAbsolute(value) ? value : resolve(WORKSPACE, value))
-  if (!withinWorkspace(candidate)) {
-    throw new Error(`path must stay inside ${WORKSPACE}: ${value}`)
+  if (!inside(WORKSPACE, candidate) || !inside(WORKSPACE_REAL, physicalCandidate(candidate))) {
+    throw new Error(`path must stay physically inside ${WORKSPACE}: ${value}`)
   }
   return candidate
 }
