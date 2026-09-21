@@ -152,14 +152,14 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.7.0，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection 与增量执行。下一阶段固定为 `research-run Manifest v2` 与 `Result Registry`。
+> 当前开发状态（Research 0.8.0，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection、Run Manifest v2 与统一 Result Registry。核心对象链已经从 Dataset 闭环到 Result / Artifact / Paper；下一阶段进入 Stable JSON Interfaces 与 Research Dashboard。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 55%–60% | Phase 0–4 已完成；Phase 5–8 待继续 |
-| 完整 V2 Roadmap | 约 35%–40% | V2.1–V2.4 尚未系统展开 |
+| V2.0 Research Project Engine | 约 75%–80% | Phase 0–6 已完成；Phase 7 部分已有；Phase 8 待开发 |
+| 完整 V2 Roadmap | 约 45%–50% | V2.0 核心接近完成；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
 
@@ -169,28 +169,26 @@ Phase 1  Project Schema v2 / State    ✓
 Phase 2  Research Check Engine        ✓
 Phase 3  Data Catalog + Lineage       ✓
 Phase 4  Pipeline DAG + Stale         ✓
-Phase 5  research-run Manifest v2     ○
-Phase 6  Result Registry              ○
+Phase 5  research-run Manifest v2     ✓
+Phase 6  Result Registry              ✓
 Phase 7  Stable JSON Interfaces       △ 部分已有
 Phase 8  Research Dashboard           ○
 ```
 
-当前已经形成的核心链路：
+当前核心对象链已经闭环：
 
 ```text
-Project
-  ↓
-Schema / ProjectState
-  ↓
-Research Check
-  ↓
-Dataset Catalog / Lineage
-  ↓
-Pipeline DAG
-  ↓
-Stale Detection
-  ↓
-Incremental Execution
+Dataset
+   ↓
+Pipeline Step
+   ↓
+Run
+   ↓
+Result
+   ↓
+Artifact
+   ↓
+Paper
 ```
 
 当前主要命令：
@@ -215,6 +213,13 @@ research-pipeline graph --mermaid
 research-pipeline run
 research-pipeline run --dry-run
 
+research-run --name baseline -- python src/analysis.py
+
+research-result list
+research-result show <result>
+research-result verify
+research-result sync
+
 # 旧项目只检查是否需要迁移，不写文件
 research-migrate --check
 
@@ -224,33 +229,17 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-今天的开发停在 Research `0.7.0` / V2.0 Phase 4。后续继续时按以下顺序推进：
+当前开发停在 Research `0.8.0` / V2.0 Phase 6。后续按以下顺序推进：
 
 ```text
-Phase 5  research-run Manifest v2
-         ↓
-Phase 6  Result Registry
-         ↓
 Phase 7  Stable JSON Interfaces
          ↓
 Phase 8  Research Dashboard
+         ↓
+V2.0 RC
 ```
 
-Phase 5–6 完成后，V2.0 的核心对象链将闭环为：
-
-```text
-Dataset
-   ↓
-Pipeline Step
-   ↓
-Run
-   ↓
-Result
-   ↓
-Artifact
-   ↓
-Paper
-```
+Phase 7 的重点不再是增加新的科研对象，而是把现有 CLI 的 JSON 输出统一成稳定协议，供 Dashboard、Agent 和 CI 直接消费。Phase 8 只做这一协议之上的可替换 UI，不建立第二套科研数据库。
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
 Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
 **Research Project lifecycle**。
@@ -885,12 +874,19 @@ runs/latest
 
 #### Phase 6 — Result Registry
 
-V2 增加统一的 **Research Result** 抽象，不让 Project State 直接耦合所有计量方法。
+**Implemented in Research 0.8.0.** V2 现在拥有统一的 **Research Result** 抽象，Project State 不再需要为每一种计量方法不断增加专用字段。
+
+Registry 文件：
+
+```text
+results/registry/<result-id>.yaml
+```
 
 统一 Result 可以承接：
 
 ```text
 model
+model-comparison
 did
 rdd
 synthetic-control
@@ -900,20 +896,78 @@ table
 other
 ```
 
-每个 Result 至少记录：
+Result Registry 记录：
 
 ```text
-id
-type
-inputs
-run
-manifest
-artifacts
-hash
-status
+id / type / title
+source manifest + SHA256
+run / run manifest + SHA256
+input Dataset fingerprints
+input file fingerprints
+artifacts + SHA256
+diagnostics
+result hash
 ```
 
-于是科研对象形成统一链路：
+`status` 不写死进 manifest，而是每次根据当前文件和 fingerprint 动态推导：
+
+```text
+current
+stale
+missing
+invalid
+```
+
+因此修改源 manifest、输入 Dataset、输入文件或 artifact 后，Result 会自动变成 stale/missing；Registry 本身不依赖缓存数据库。
+
+CLI：
+
+```bash
+research-result register \
+  --id baseline \
+  --type model \
+  --manifest results/models/baseline/model.json \
+  --input-dataset panel \
+  --artifact results/tables/baseline.csv
+
+research-result list
+research-result list --json
+research-result show baseline
+research-result verify
+research-result verify baseline
+```
+
+旧 Economics 项目可以直接同步：
+
+```bash
+research-result sync
+```
+
+它会识别现有：
+
+```text
+results/models/*/model.json
+results/comparisons/*/comparison.json
+results/did/*/did.json
+```
+
+并建立统一 Registry。Economics Research Pack 在生成 model / comparison / DiD 后也会自动刷新 Registry，因此新项目不需要手工同步。
+
+`research-status` 现在统一显示：
+
+```text
+Results
+  Registered
+  Current
+  Stale
+  Missing
+  Invalid
+  By type
+```
+
+`research-check --full` 会校验 Registry 的 provenance 与 artifacts；任何已登记 Result 的 stale / missing / invalid 都会成为 ERROR。
+
+这使科研对象链正式闭环：
 
 ```text
 Dataset
@@ -929,9 +983,7 @@ Artifact
 Paper
 ```
 
-后续 RDD、Synthetic Control、DML 等方法只需要注册新的 Result 类型和 diagnostics，
-不需要不断扩张 Project State 的核心结构。
-
+以后 RDD、Synthetic Control、DML 等高级方法只需要提供自己的方法 manifest、diagnostics 和 artifacts，再注册成新的 Result type；不需要修改 ProjectState 的核心数据结构。
 #### Phase 7 — JSON Interfaces
 
 V2 核心 CLI 必须同时支持人类可读输出与稳定 JSON：
@@ -1280,7 +1332,8 @@ PR N   feat: Planner / Reviewer + replication release
 0.5.0  Project State + Check
 0.6.0  Data Catalog + Lineage
 0.7.0  Pipeline DAG + stale detection
-0.8.0  Result Registry + Dashboard preview
+0.8.0  Result Registry
+0.8.x  Stable JSON Interfaces + Dashboard preview
 0.9.0  V2 release candidate
 2.0.0  Stable V2
 ```
