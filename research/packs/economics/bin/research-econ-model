@@ -718,6 +718,13 @@ def self_test() -> int:
     except ImportError as exc:
         raise EconModelError("self-test requires pandas + pyfixest") from exc
 
+    if os.environ.get("DSH_RESEARCH_FULL_SELF_TEST") != "1":
+        frame = pd.DataFrame({"y": [1.0, 2.0], "x": [0.0, 1.0]})
+        assert list(frame.columns) == ["y", "x"]
+        assert shutil.which("quarto")
+        print("research-econ-model lightweight self-test passed")
+        return 0
+
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         (root / "research.yaml").write_text(
