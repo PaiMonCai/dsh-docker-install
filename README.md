@@ -526,7 +526,8 @@ research-init --template economics thesis "经济学本科毕业论文"
 
 正式回归可通过 `research-econ-model` 生成可校验的 model manifest、Markdown/CSV 回归表、系数图，并自动写入 Quarto 论文结果区；生成结果支持 `@tbl-econ-<name>` 与 `@fig-econ-<name>` 交叉引用。
 
-DiD / Event Study 使用 `research-econ-did`：先检查 treatment timing 和 cohort，再可选择 TWFE、DID2S、saturated 或 LP-DiD；结果会自动生成 treatment timing 图、动态效应图和 Quarto 引用片段。\n
+DiD / Event Study 使用 `research-econ-did`：先检查 treatment timing 和 cohort，再可选择 TWFE、DID2S、saturated 或 LP-DiD；结果会自动生成 treatment timing 图、动态效应图和 Quarto 引用片段。
+
 完整设计与构建说明见 `research/README.md`。
 
 ## 其他运行模式
