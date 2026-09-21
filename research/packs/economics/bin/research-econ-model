@@ -439,13 +439,24 @@ def self_test() -> int:
         processed = root / "data" / "processed"
         processed.mkdir(parents=True)
         n = 80
+        entity = [i % 20 for i in range(n)]
+        period = [i // 20 for i in range(n)]
+        treatment = [float((period[i] + (entity[i] % 3)) % 2) for i in range(n)]
+        x1 = [float((i * 7) % 17) / 10.0 for i in range(n)]
         df = pd.DataFrame(
             {
-                "y": [1.0 + 0.25 * i + 0.4 * (i % 2) + (i % 5) * 0.03 for i in range(n)],
-                "treatment": [float(i % 2) for i in range(n)],
-                "x1": [float(i) / 10.0 for i in range(n)],
-                "entity_id": [i % 20 for i in range(n)],
-                "year": [2020 + (i % 4) for i in range(n)],
+                "y": [
+                    1.0
+                    + 0.8 * treatment[i]
+                    + 0.25 * x1[i]
+                    + 0.03 * entity[i]
+                    + 0.1 * period[i]
+                    for i in range(n)
+                ],
+                "treatment": treatment,
+                "x1": x1,
+                "entity_id": entity,
+                "year": [2020 + p for p in period],
             }
         )
         data_path = processed / "analysis.csv"
