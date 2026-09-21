@@ -17,6 +17,7 @@ from dsh_research.datasets import (
     verify_catalog,
 )
 from dsh_research.errors import ResearchError
+from dsh_research.json_api import failure_json, success_json
 from dsh_research.project import ResearchProject
 
 
@@ -52,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--pipeline-step", default="")
     register.add_argument("--run-id", default="")
     register.add_argument("--force", action="store_true", help="显式更新已有 manifest")
+    register.add_argument("--json", action="store_true")
 
     list_cmd = sub.add_parser("list", help="列出 Dataset Catalog")
     list_cmd.add_argument("--json", action="store_true")
@@ -110,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         build_parser().print_help()
         return 2
 
+    json_mode = bool(getattr(args, "json", False))
+    operation = str(args.command or "unknown")
     try:
         project = ResearchProject.discover()
 
@@ -130,15 +134,30 @@ def main(argv: list[str] | None = None) -> int:
                 force=args.force,
             )
             status = dataset_status(project, args.name)
-            print(f"[ok] dataset registered: {args.name}")
-            print(f"[ok] manifest: {path.relative_to(project.root)}")
-            print(f"[ok] sha256: {status.current_sha256}")
+            if json_mode:
+                success_json(
+                    command="research-data",
+                    operation="register",
+                    data={
+                        "dataset_schema": 1,
+                        "dataset": status.as_dict(),
+                        "manifest": path.relative_to(project.root).as_posix(),
+                    },
+                )
+            else:
+                print(f"[ok] dataset registered: {args.name}")
+                print(f"[ok] manifest: {path.relative_to(project.root)}")
+                print(f"[ok] sha256: {status.current_sha256}")
             return 0
 
         if args.command == "list":
             rows = [item.as_dict() for item in verify_catalog(project)]
             if args.json:
-                print(json.dumps({"dataset_schema": 1, "datasets": rows}, ensure_ascii=False, indent=2))
+                success_json(
+                    command="research-data",
+                    operation="list",
+                    data={"dataset_schema": 1, "datasets": rows},
+                )
             elif not rows:
                 print("尚无已登记 Dataset。")
             else:
@@ -156,7 +175,11 @@ def main(argv: list[str] | None = None) -> int:
             status = status_map[args.name].as_dict()
             payload = {"manifest": manifest, "status": status}
             if args.json:
-                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                success_json(
+                    command="research-data",
+                    operation="show",
+                    data={"dataset_schema": 1, **payload},
+                )
             else:
                 import yaml
                 print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), end="")
@@ -170,17 +193,25 @@ def main(argv: list[str] | None = None) -> int:
                     raise ResearchError(f"Dataset manifest 不存在: {args.name}")
             failures = [item for item in statuses if item.status != "current"]
             if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "dataset_schema": 1,
-                            "ok": not failures,
-                            "datasets": [item.as_dict() for item in statuses],
-                        },
-                        ensure_ascii=False,
-                        indent=2,
+                payload = {
+                    "dataset_schema": 1,
+                    "datasets": [item.as_dict() for item in statuses],
+                }
+                if failures:
+                    failure_json(
+                        command="research-data",
+                        operation="verify",
+                        code="VERIFY_FAILED",
+                        message=f"{len(failures)} dataset(s) are not current",
+                        details={"failures": len(failures)},
+                        data=payload,
                     )
-                )
+                else:
+                    success_json(
+                        command="research-data",
+                        operation="verify",
+                        data=payload,
+                    )
             else:
                 for item in statuses:
                     prefix = "[ok]" if item.status == "current" else "[error]"
@@ -191,22 +222,55 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "lineage":
             tree = lineage_tree(project, args.name)
-            if args.json:
-                print(json.dumps(tree, ensure_ascii=False, indent=2))
-            else:
-                print(render_lineage(tree))
             def bad(node):
                 if node.get("status") in {"missing", "cycle", "invalid", "stale"}:
                     return True
                 return any(bad(child) for child in node.get("inputs", []))
-            return 1 if bad(tree) else 0
+            failed = bad(tree)
+            if args.json:
+                payload = {"dataset_schema": 1, "lineage": tree}
+                if failed:
+                    failure_json(
+                        command="research-data",
+                        operation="lineage",
+                        code="LINEAGE_INVALID",
+                        message=f"lineage for {args.name} contains stale, missing, invalid, or cyclic nodes",
+                        data=payload,
+                    )
+                else:
+                    success_json(
+                        command="research-data",
+                        operation="lineage",
+                        data=payload,
+                    )
+            else:
+                print(render_lineage(tree))
+            return 1 if failed else 0
 
     except ResearchError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+        if json_mode:
+            failure_json(
+                command="research-data",
+                operation=operation,
+                code="RESEARCH_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        if json_mode:
+            failure_json(
+                command="research-data",
+                operation=operation,
+                code="INTERNAL_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
