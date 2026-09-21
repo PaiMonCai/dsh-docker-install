@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.5.2"
+DSHD_VERSION="0.5.3"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -1352,6 +1352,42 @@ cmd_doctor() {
   network_report
   if docker_ready; then
     cmd_status
+    if container_running; then
+      local workspace_state
+      workspace_state="$(docker_cmd exec "$DSH_NAME" sh -c '
+        canonical=/workspace
+        legacy=/root/dsh
+        legacy_sessions="${DSH_HOME:-/root/.dsh}/sessions/--root-dsh--"
+        if [ ! -d "$canonical" ]; then
+          printf "%s\n" canonical-missing
+        elif [ -L "$legacy" ]; then
+          printf "repaired:%s\n" "$(readlink "$legacy" 2>/dev/null || true)"
+        elif [ ! -e "$legacy" ] && [ -d "$legacy_sessions" ]; then
+          printf "%s\n" stale
+        elif [ -e "$legacy" ]; then
+          printf "%s\n" legacy-present
+        else
+          printf "%s\n" ok
+        fi
+      ' 2>/dev/null || true)"
+      case "$workspace_state" in
+        canonical-missing)
+          warn "标准工作区 /workspace 不存在；请检查容器挂载。"
+          ;;
+        repaired:*)
+          ok "Workspace 自愈已生效: /root/dsh -> ${workspace_state#repaired:}"
+          ;;
+        stale)
+          warn "检测到历史会话 cwd=/root/dsh，但路径已失效；当前运行镜像可能尚未包含 Workspace 自动修复。"
+          ;;
+        legacy-present)
+          warn "检测到实体目录 /root/dsh；它若不在持久挂载中，recreate 后仍可能丢失。"
+          ;;
+        ok)
+          ok "Workspace 持久化路径正常: /workspace"
+          ;;
+      esac
+    fi
     if container_running && command -v curl >/dev/null 2>&1; then
       local code
       code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "http://127.0.0.1:${DSH_PORT}/" 2>/dev/null || true)"
