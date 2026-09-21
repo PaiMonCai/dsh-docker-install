@@ -531,9 +531,12 @@ def verify(root: Path) -> int:
 
     generated = root / "paper" / "generated" / "did-results.qmd"
     expected = build_qmd(root)
-    if not generated.is_file():
-        errors.append("paper/generated/did-results.qmd missing; run research-econ-did render")
-    elif generated.read_text(encoding="utf-8") != expected:
+    if manifests:
+        if not generated.is_file():
+            errors.append("paper/generated/did-results.qmd missing; run research-econ-did render")
+        elif generated.read_text(encoding="utf-8") != expected:
+            errors.append("paper/generated/did-results.qmd stale; run research-econ-did render")
+    elif generated.is_file() and generated.read_text(encoding="utf-8") != expected:
         errors.append("paper/generated/did-results.qmd stale; run research-econ-did render")
     for w in warns: print(f"[warn] {w}")
     if errors:
