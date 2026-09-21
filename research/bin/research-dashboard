@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import sys
+import threading
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+from dsh_research.dashboard import (
+    ASSET_ROOT,
+    DashboardError,
+    discover_project_root,
+    is_loopback_host,
+    make_server,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-dashboard",
+        description="启动 DSH Research V2 只读 Dashboard。",
+    )
+    parser.add_argument("--project", default=".", help="Research Project 内任意路径")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址，默认仅本机")
+    parser.add_argument("--port", type=int, default=8765, help="监听端口，默认 8765")
+    parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="允许绑定非 loopback 地址；请自行通过防火墙/反代控制访问",
+    )
+    parser.add_argument("--open", action="store_true", help="启动后尝试打开浏览器")
+    parser.add_argument("--quiet", action="store_true", help="关闭 HTTP access log")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    return parser
+
+
+def self_test() -> int:
+    import json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        (root / "research.yaml").write_text(
+            "schema: 2\nproject:\n  slug: dashboard-smoke\n  title: Dashboard Smoke\n  template: default\n  status: active\n",
+            encoding="utf-8",
+        )
+        (root / "pipeline.yaml").write_text("schema: 1\nsteps: {}\n", encoding="utf-8")
+        server = make_server(root, port=0, quiet=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            assert payload["api"] == {"name": "dsh-research", "version": 1}
+            assert payload["command"] == "research-status"
+            assert payload["data"]["project"]["title"] == "Dashboard Smoke"
+            assert (ASSET_ROOT / "index.html").is_file()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+    print("research-dashboard self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+
+    if not 0 <= args.port <= 65535:
+        parser.error("--port 必须在 0..65535")
+
+    if not is_loopback_host(args.host) and not args.allow_remote:
+        print(
+            "[error] 默认拒绝绑定非本机地址。若确认需要反向代理/远程访问，请显式加入 --allow-remote。",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        project = discover_project_root(args.project)
+        server = make_server(
+            project,
+            host=args.host,
+            port=args.port,
+            quiet=args.quiet,
+        )
+    except (DashboardError, OSError) as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+
+    bound_host, bound_port = server.server_address[:2]
+    browser_host = "127.0.0.1" if bound_host in {"0.0.0.0", "::"} else bound_host
+    url = f"http://{browser_host}:{bound_port}/"
+
+    print("DSH Research Dashboard")
+    print(f"Project: {project}")
+    print(f"URL:     {url}")
+    print("Mode:    read-only")
+    if not is_loopback_host(args.host):
+        print("[warning] 已允许远程绑定；Dashboard V2.0 不提供内置身份认证，请使用可信反向代理/防火墙。")
+
+    if args.open:
+        webbrowser.open(url)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nDashboard stopped.")
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
