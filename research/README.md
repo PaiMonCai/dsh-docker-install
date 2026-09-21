@@ -1,0 +1,57 @@
+# DSH Research Edition
+
+DSH Research 是在标准 DSH Docker 镜像之上的科研工作环境，目标不是“预装更多软件”，而是提供一条可复现的研究链路：
+
+```text
+Literature → Question → Data → Analysis → Results → Paper → Archive
+```
+
+## V1 核心
+
+- Python 科研环境：NumPy / pandas / Polars / SciPy / statsmodels / scikit-learn / SymPy / PyArrow / DuckDB。
+- JupyterLab / Jupytext / nbconvert。
+- Pandoc + Quarto。
+- XeLaTeX + latexmk + Noto CJK 字体。
+- PDF 工具：Poppler / qpdf。
+- Research Project 标准目录。
+- Evidence Matrix 文献证据矩阵。
+- `research-run` 可复现实验记录。
+- `research-archive` 可交付研究归档。
+
+## 构建
+
+```bash
+docker build -f research/Dockerfile \
+  --build-arg BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest \
+  -t dsh:research .
+```
+
+## 使用
+
+容器内：
+
+```bash
+cd /workspace
+research-init my-study "My Study"
+cd my-study
+
+research-run --name baseline -- python src/analysis.py
+quarto render paper/paper.qmd
+research-archive
+```
+
+默认归档不包含 `data/raw`。只有明确确认原始数据允许分发时才使用：
+
+```bash
+research-archive --include-raw
+```
+
+## V1 设计原则
+
+1. 不 fork DSH 核心，Research Edition 继承标准镜像。
+2. 原始数据默认不可变，代码输出进入 processed/results。
+3. 每次正式分析留下命令、环境、Git 状态和输入/输出 hash。
+4. 文献综述优先维护 Evidence Matrix，而不是只生成自由文本总结。
+5. 项目可独立归档，方便论文复核、复现和交付。
+
+R、Zotero 同步、领域扩展包（Economics / Finance / ML）留到后续版本。
