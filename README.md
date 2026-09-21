@@ -578,6 +578,76 @@ estimand、identification strategy、fixed effects、standard errors / clusterin
 robustness、heterogeneity、mechanism，以及 DiD 项目的 treatment timing /
 comparison group / reference period / anticipation assumptions。
 
+#### Python / R / Stata 如何选择
+
+DSH Economics 当前采用 **Python-first**。原因不是 Python 在每一种计量方法上都最强，
+而是它可以贯穿数据获取、清洗、计量、机器学习、AI、自动化和科研工程整条链路：
+
+```text
+API / 爬虫 / Excel / 数据库
+          ↓
+pandas / Polars / DuckDB
+          ↓
+pyfixest / linearmodels / statsmodels
+          ↓
+scikit-learn / LLM / NLP
+          ↓
+Quarto
+          ↓
+论文与可复现归档
+```
+
+三种工具的定位可以简单理解为：
+
+| 维度 | Python | R | Stata |
+|---|---|---|---|
+| 核心定位 | 通用编程 + 数据科学 + 科研工程 | 统计 / 科研语言 | 专业统计计量软件 |
+| 数据清洗 | 很强 | 很强 | 好 |
+| 传统计量 | 很强 | 很强 | 很强 |
+| DiD / Event Study | 已较强 | 生态非常成熟 | 很成熟 |
+| 固定效应 / IV / Panel | 很强 | 很强 | 很强 |
+| 统计方法前沿 | 强 | 通常很快 | 相对依赖命令生态 |
+| 可视化 | matplotlib / plotly | ggplot2 很强 | 可用 |
+| 机器学习 / AI | 很强 | 可用 | 不适合作为主力 |
+| API / 爬虫 / 自动化 | 很强 | 可用 | 较弱 |
+| 大数据 / 数据工程 | 很强 | 强 | 较弱 |
+| Web / Agent / 软件开发 | 很强 | 可用 | 不是主要用途 |
+| 开源 | 是 | 是 | 否 |
+
+可以把三者理解为：
+
+```text
+Stata  → “我要完成一个标准计量分析”
+R      → “我要做统计 / 经济学研究”
+Python → “我要用代码完成整个研究问题”
+```
+
+因此当前推荐的使用路线是：
+
+```text
+Python
+  ├─ 数据获取
+  ├─ 数据清洗
+  ├─ 计量分析
+  ├─ AI / ML
+  ├─ 自动化
+  └─ Quarto 论文
+       ↓
+R（后续加入）
+  └─ 高级统计 / 部分前沿计量 / fixest / did 等生态
+
+Stata
+  └─ 阅读与复现既有经济学代码、课程和导师工作流
+```
+
+对长期研究环境而言，Python 作为主语言最容易与 DSH Agent、数据工程和自动化集成。
+R 更适合作为后续补充，而不是替代现有 Python 工作流；两者未来可以共享同一个
+`data/processed/`、`results/` 和 `paper.qmd`。Stata 则更适合作为兼容和复现工具，
+不作为 DSH Research 的核心运行依赖。
+
+当前 Economics Pack 的标准数据处理语言仍是 Python。建议将清洗和变量构造逻辑写入
+`src/*.py`，保持 `data/raw/` 不可变，并把分析数据输出到 `data/processed/`。
+
 #### 经济数据
 
 ```bash
