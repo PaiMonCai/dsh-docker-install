@@ -41,6 +41,12 @@ if command -v research-econ-data >/dev/null 2>&1; then
     research-econ-data verify
   )
 fi
+if command -v research-econ-model >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-econ-model verify
+  )
+fi
 
 slug="$(basename "$root")"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
