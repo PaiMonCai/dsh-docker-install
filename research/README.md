@@ -152,14 +152,14 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.8.1，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection、Run Manifest v2、Result Registry 与 Stable JSON API v1。核心对象链与机器接口均已闭环；V2.0 只剩 Research Dashboard。
+> 当前开发状态（Research 0.8.2，更新于 2026-09-22）：V2.0 Phase 0–8 已全部落地，包括 Shared Research Engine、Project State / Check、Data Catalog / Lineage、Pipeline DAG、Run Manifest v2、Result Registry、Stable JSON API v1 与只读 Research Dashboard。V2.0 功能层已闭环，下一步进入 0.9.0 RC 硬化。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 85%–90% | Phase 0–7 已完成；Phase 8 Dashboard 待开发 |
-| 完整 V2 Roadmap | 约 50%–55% | V2.0 核心协议基本完成；V2.1–V2.4 尚未系统展开 |
+| V2.0 Research Project Engine | 约 95% | Phase 0–8 已完成；剩余为 0.9.0 RC 集成/安全/兼容性硬化 |
+| 完整 V2 Roadmap | 约 55%–60% | V2.0 功能层闭环；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
 
@@ -172,7 +172,7 @@ Phase 4  Pipeline DAG + Stale         ✓
 Phase 5  research-run Manifest v2     ✓
 Phase 6  Result Registry              ✓
 Phase 7  Stable JSON Interfaces       ✓
-Phase 8  Research Dashboard           ○
+Phase 8  Research Dashboard           ✓
 ```
 
 当前核心对象链已经闭环：
@@ -229,15 +229,15 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发停在 Research `0.8.1` / V2.0 Phase 7。后续开发节点已经收敛为：
+当前开发停在 Research `0.8.2` / V2.0 Phase 8。V2.0 功能开发已闭环，下一步是：
 
 ```text
-Phase 8  Research Dashboard
-         ↓
-V2.0 RC
+0.9.0  V2 release candidate
+       ↓
+2.0.0  V2 stable
 ```
 
-Phase 8 只消费 Stable JSON API v1，不直接解析终端文本、不直接读取内部 Python 对象，也不建立第二套科研数据库。
+RC 阶段不再扩张功能面，重点转向集成测试、升级/迁移兼容、安全边界、Release 语义与实际项目 dogfooding。
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
 Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
 **Research Project lifecycle**。
@@ -1110,19 +1110,27 @@ research-run child stdout/stderr isolation
 ```
 #### Phase 8 — Research Dashboard
 
-Dashboard 是 V2.0 的最后一层，而不是最先开发的部分。
+**Implemented in Research 0.8.2 (Dashboard Preview).** Dashboard 是 V2.0 最后一层，只消费 Stable JSON API v1，不拥有独立科研数据库。
+
+架构保持：
 
 ```text
-DSH Research UI plugin
-        ↓
-Research CLI / JSON
-        ↓
+Browser
+   ↓
+Research Dashboard HTTP bridge
+   ↓
+research-status / check / data / pipeline / result --json
+   ↓
+Stable JSON API v1
+   ↓
 Research Engine
-        ↓
+   ↓
 Files + manifests
 ```
 
-建议页面：
+Dashboard server **不会 import ProjectState / Dataset / Pipeline / Result / Check 内部对象**；它只调用公开 CLI JSON 接口。删除 Dashboard 后，项目仍可完全通过 CLI 恢复、验证和执行。
+
+页面：
 
 ```text
 Overview
@@ -1135,9 +1143,119 @@ Paper
 Release
 ```
 
-Dashboard 只展示和触发同一份 Project State，不拥有独立科研数据库；
-删除 UI plugin 后，所有项目仍可通过 CLI 完整恢复、执行和验证。
+Overview 汇总 Project / Check / Dataset / Pipeline / Run / Result / Paper / Git 状态；Data、Pipeline、Results 可点击查看对应 Stable JSON 详情；Release 页面可运行只读的 release check。
 
+容器内直接启动：
+
+```bash
+cd /workspace/my-study
+research-dashboard
+```
+
+默认：
+
+```text
+host = 127.0.0.1
+port = 8765
+mode = read-only
+```
+
+如果明确需要绑定非 loopback 地址，必须显式确认：
+
+```bash
+research-dashboard --host 0.0.0.0 --port 8765 --allow-remote
+```
+
+Dashboard Preview 不提供内置身份认证，因此不应直接裸露到公网。
+
+### dshd Dashboard sidecar
+
+对于常规 Docker 安装，推荐由宿主机 `dshd` 启动独立 sidecar，而不是修改主 DSH 容器：
+
+```bash
+# workspace 本身就是 Research Project
+dshd dashboard start
+
+# 项目位于 /opt/dsh/workspace/my-study
+dshd dashboard start my-study
+
+dshd dashboard status
+dshd dashboard logs
+dshd dashboard stop
+```
+
+sidecar 使用当前 Research 镜像，并以只读方式挂载：
+
+```text
+宿主机 DSH_WORKSPACE
+        ↓ :ro
+sidecar /workspace
+```
+
+宿主机端口固定绑定回环地址：
+
+```text
+127.0.0.1:8765 -> dashboard sidecar:8765
+```
+
+可修改宿主机端口：
+
+```bash
+dshd dashboard port 9876
+```
+
+远程服务器推荐 SSH tunnel：
+
+```bash
+ssh -L 8765:127.0.0.1:8765 user@server
+```
+
+然后本机访问：
+
+```text
+http://127.0.0.1:8765/
+```
+
+也可以让 Nginx/OpenResty 反代宿主机 `127.0.0.1:8765`，由反代层负责 HTTPS 与认证。
+
+### Dashboard 安全边界
+
+V2.0 Dashboard Preview 明确保持只读：
+
+```text
+GET / HEAD only
+no arbitrary shell endpoint
+no model-run button
+no data mutation
+no second database
+workspace mounted read-only in dshd sidecar
+default host exposure = 127.0.0.1 only
+```
+
+HTTP 层同时设置 CSP、`X-Content-Type-Options`、`X-Frame-Options` 与 `Referrer-Policy`。
+
+自动化测试覆盖：
+
+```text
+Dashboard project discovery
+Stable JSON API bridge
+static UI assets
+CSP/security headers
+read-only 405 behavior
+invalid argument responses
+dshd sidecar path validation
+dshd Dashboard port persistence
+JavaScript syntax check
+image self-test
+```
+
+因此 Phase 8 完成后，V2.0 已具备完整三层结构：
+
+```text
+Files / manifests      ← source of truth
+Research CLI / JSON    ← stable protocol
+Dashboard              ← replaceable UI shell
+```
 ### V2.1 — R Runtime + 统一执行环境
 
 Economics Pack 保持 Python-first，同时增加可选 R runtime。为避免普通 Economics 镜像过重，
@@ -1444,7 +1562,7 @@ PR N   feat: Planner / Reviewer + replication release
 0.7.0  Pipeline DAG + stale detection
 0.8.0  Result Registry
 0.8.1  Stable JSON API v1
-0.8.x  Dashboard preview
+0.8.2  Dashboard preview
 0.9.0  V2 release candidate
 2.0.0  Stable V2
 ```
