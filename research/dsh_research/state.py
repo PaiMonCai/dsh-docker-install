@@ -14,6 +14,7 @@ from .datasets import verify_catalog
 from .manifests import read_jsonl
 from .pipeline import load_pipeline, step_statuses
 from .project import ResearchProject
+from .results import result_type_counts, verify_registry
 from .schema import infer_template, validate_project_schema
 from .vcs import git_state
 
@@ -149,6 +150,12 @@ def build_project_state(project: ResearchProject) -> ProjectState:
         except Exception as exc:
             pipeline_info["error"] = f"{type(exc).__name__}: {exc}"
 
+    result_statuses = verify_registry(project)
+    result_counts = {
+        key: sum(1 for item in result_statuses if item.status == key)
+        for key in ("current", "stale", "missing", "invalid")
+    }
+
     vcs = git_state(root).as_dict()
     return ProjectState(
         state_schema=2,
@@ -190,11 +197,19 @@ def build_project_state(project: ResearchProject) -> ProjectState:
             "failed": failed_runs,
         },
         results={
-            "models": _glob_count(root / "results" / "models", "*/model.json"),
-            "comparisons": _glob_count(root / "results" / "comparisons", "*/comparison.json"),
-            "did": _glob_count(root / "results" / "did", "*/did.json"),
-            "tables": _count_files(root / "results" / "tables", ignore_names={"README.md"}),
-            "figures": _count_files(root / "results" / "figures", ignore_names={"README.md"}),
+            "registered": len(result_statuses),
+            "current": result_counts["current"],
+            "stale": result_counts["stale"],
+            "missing": result_counts["missing"],
+            "invalid": result_counts["invalid"],
+            "by_type": result_type_counts(result_statuses),
+            "legacy": {
+                "models": _glob_count(root / "results" / "models", "*/model.json"),
+                "comparisons": _glob_count(root / "results" / "comparisons", "*/comparison.json"),
+                "did": _glob_count(root / "results" / "did", "*/did.json"),
+                "tables": _count_files(root / "results" / "tables", ignore_names={"README.md"}),
+                "figures": _count_files(root / "results" / "figures", ignore_names={"README.md"}),
+            },
         },
         paper={
             "source": str(paper_source.relative_to(root)) if paper_source.is_relative_to(root) else str(paper_source),
@@ -277,11 +292,15 @@ def render_project_state(state: ProjectState) -> str:
         f"  Failed                 {d['runs']['failed']}",
         "",
         "Results",
-        f"  Models                 {d['results']['models']}",
-        f"  Comparisons            {d['results']['comparisons']}",
-        f"  DiD                    {d['results']['did']}",
-        f"  Tables                 {d['results']['tables']}",
-        f"  Figures                {d['results']['figures']}",
+        f"  Registered             {d['results']['registered']}",
+        f"  Current                {d['results']['current']}",
+        f"  Stale                  {d['results']['stale']}",
+        f"  Missing                {d['results']['missing']}",
+        f"  Invalid                {d['results']['invalid']}",
+        f"  By type                {d['results']['by_type'] or {}}",
+        f"  Legacy models          {d['results']['legacy']['models']}",
+        f"  Legacy comparisons     {d['results']['legacy']['comparisons']}",
+        f"  Legacy DiD             {d['results']['legacy']['did']}",
         "",
         "Paper",
         f"  Source                 {'✓' if d['paper']['source_exists'] else '—'}",
