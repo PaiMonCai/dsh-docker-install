@@ -834,6 +834,11 @@ format: html
                     + result.stderr
                 )
             assert (paper_dir / "paper.html").is_file()
+        elif skip_quarto_smoke:
+            print(
+                "research-econ-model: Quarto smoke render skipped "
+                "by DSH_RESEARCH_SKIP_QUARTO_SMOKE"
+            )
 
     print("research-econ-model self-test passed")
     return 0
