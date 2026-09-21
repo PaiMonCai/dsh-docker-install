@@ -1472,6 +1472,10 @@ cmd_env() {
     printf "Docker CLI: "; docker --version 2>/dev/null || echo missing
     printf "Compose: "; docker compose version 2>/dev/null || echo missing
     printf "Chromium: "; chromium --version 2>/dev/null || echo missing
+    printf "Jupyter: "; jupyter --version 2>/dev/null | head -1 || echo missing
+    printf "Quarto: "; quarto --version 2>/dev/null || echo missing
+    printf "Pandoc: "; pandoc --version 2>/dev/null | head -1 || echo missing
+    printf "XeLaTeX: "; xelatex --version 2>/dev/null | head -1 || echo missing
   '
 }
 
@@ -1718,6 +1722,9 @@ dshd - DeepSeek Harness Docker 管理器
   dshd update              拉取最新镜像并重建
   dshd recreate            按当前配置重建
   dshd config              修改完整配置
+  dshd edition             查看当前 Standard / Research 版本
+  dshd edition research    切换到一般科研版
+  dshd edition standard    切换回通用开发版
   dshd api                 配置 DeepSeek API / Base URL
   dshd api show            查看 API 配置
   dshd api official        切换 DeepSeek 官方 API
