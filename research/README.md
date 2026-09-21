@@ -152,9 +152,48 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.5.0）：Shared Research Engine、Project Schema v2、`research-status`、显式 `research-migrate` 与 `research-check` 已进入 V2.0 核心实现。新项目使用 schema 2；已有 schema 1 项目仍可直接读取，不会自动迁移。
+> 当前开发状态（Research 0.7.0，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection 与增量执行。下一阶段固定为 `research-run Manifest v2` 与 `Result Registry`。
 
-当前状态命令：
+### V2 当前进度
+
+| 范围 | 当前进度 | 状态 |
+|---|---:|---|
+| V2.0 Research Project Engine | 约 55%–60% | Phase 0–4 已完成；Phase 5–8 待继续 |
+| 完整 V2 Roadmap | 约 35%–40% | V2.1–V2.4 尚未系统展开 |
+
+V2.0 当前实施状态：
+
+```text
+Phase 0  Shared Research Engine        ✓
+Phase 1  Project Schema v2 / State    ✓
+Phase 2  Research Check Engine        ✓
+Phase 3  Data Catalog + Lineage       ✓
+Phase 4  Pipeline DAG + Stale         ✓
+Phase 5  research-run Manifest v2     ○
+Phase 6  Result Registry              ○
+Phase 7  Stable JSON Interfaces       △ 部分已有
+Phase 8  Research Dashboard           ○
+```
+
+当前已经形成的核心链路：
+
+```text
+Project
+  ↓
+Schema / ProjectState
+  ↓
+Research Check
+  ↓
+Dataset Catalog / Lineage
+  ↓
+Pipeline DAG
+  ↓
+Stale Detection
+  ↓
+Incremental Execution
+```
+
+当前主要命令：
 
 ```bash
 research-status
@@ -165,6 +204,17 @@ research-check --quick
 research-check --release
 research-check --json
 
+research-data list
+research-data show <dataset>
+research-data verify
+research-data lineage <dataset>
+
+research-pipeline status
+research-pipeline explain <step>
+research-pipeline graph --mermaid
+research-pipeline run
+research-pipeline run --dry-run
+
 # 旧项目只检查是否需要迁移，不写文件
 research-migrate --check
 
@@ -172,6 +222,35 @@ research-migrate --check
 research-migrate --to 2
 ```
 
+### 下一开发节点
+
+今天的开发停在 Research `0.7.0` / V2.0 Phase 4。后续继续时按以下顺序推进：
+
+```text
+Phase 5  research-run Manifest v2
+         ↓
+Phase 6  Result Registry
+         ↓
+Phase 7  Stable JSON Interfaces
+         ↓
+Phase 8  Research Dashboard
+```
+
+Phase 5–6 完成后，V2.0 的核心对象链将闭环为：
+
+```text
+Dataset
+   ↓
+Pipeline Step
+   ↓
+Run
+   ↓
+Result
+   ↓
+Artifact
+   ↓
+Paper
+```
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
 Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
 **Research Project lifecycle**。
