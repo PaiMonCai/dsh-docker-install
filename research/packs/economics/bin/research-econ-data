@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SERIES_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+ECONOMY_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+class EconDataError(RuntimeError):
+    pass
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def stamp(dt: datetime | None = None) -> str:
+    return (dt or now_utc()).strftime("%Y%m%dT%H%M%SZ")
+
+
+def iso_now(dt: datetime | None = None) -> str:
+    return (dt or now_utc()).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def find_root(start: Path | None = None) -> Path:
+    current = (start or Path.cwd()).resolve()
+    while True:
+        if (current / "research.yaml").is_file():
+            return current
+        if current.parent == current:
+            raise EconDataError("未找到 research.yaml；请在 Research Project 内运行。")
+        current = current.parent
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def safe_name(value: str) -> str:
+    value = value.strip()
+    if not SERIES_RE.fullmatch(value):
+        raise EconDataError(f"非法 series/indicator 标识: {value}")
+    return value
+
+
+def safe_economies(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        for token in value.split(","):
+            token = token.strip().upper()
+            if not token:
+                continue
+            if not ECONOMY_RE.fullmatch(token):
+                raise EconDataError(f"非法 economy 标识: {token}")
+            if token not in result:
+                result.append(token)
+    return result
+
+
+def snapshot_dir(root: Path, provider: str, series: str, when: datetime | None = None) -> Path:
+    path = root / "data" / "raw" / "external" / provider / safe_name(series) / stamp(when)
+    if path.exists():
+        raise EconDataError(f"快照目录已存在，拒绝覆盖原始数据: {path}")
+    path.mkdir(parents=True)
+    return path
+
+
+def write_snapshot(
+    out_dir: Path,
+    frame,
+    metadata: dict[str, Any],
+) -> tuple[Path, Path]:
+    csv_path = out_dir / "data.csv"
+    meta_path = out_dir / "metadata.json"
+
+    frame.to_csv(csv_path, index=False)
+    metadata = dict(metadata)
+    metadata["schema"] = 1
+    metadata["data_file"] = "data.csv"
+    metadata["sha256"] = sha256_file(csv_path)
+    metadata["rows"] = int(len(frame))
+    metadata["columns"] = [str(x) for x in frame.columns]
+
+    meta_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return csv_path, meta_path
+
+
+def fetch_worldbank(args, root: Path) -> tuple[Path, Path]:
+    try:
+        import pandas as pd
+        import wbgapi as wb
+    except ImportError as exc:
+        raise EconDataError("Economics Research Pack 缺少 wbgapi/pandas。") from exc
+
+    indicator = safe_name(args.indicator)
+    economies = safe_economies(args.economy or [])
+    if not economies:
+        economies = ["all"]
+
+    times = None
+    if args.start is not None or args.end is not None:
+        if args.start is None or args.end is None:
+            raise EconDataError("World Bank 时间范围需要同时提供 --start 和 --end。")
+        if args.start > args.end:
+            raise EconDataError("--start 不能晚于 --end。")
+        times = range(args.start, args.end + 1)
+
+    economy_arg: Any = economies
+    frame = wb.data.DataFrame(
+        indicator,
+        economy=economy_arg,
+        time=times,
+        labels=True,
+        columns="series",
+    )
+    if frame is None or frame.empty:
+        raise EconDataError("World Bank 返回空数据。")
+
+    frame = frame.reset_index()
+    frame.columns = [str(c) for c in frame.columns]
+
+    fetched = now_utc()
+    out = snapshot_dir(root, "worldbank", indicator, fetched)
+    metadata = {
+        "provider": "World Bank",
+        "provider_client": "wbgapi",
+        "indicator": indicator,
+        "economies": economies,
+        "start_year": args.start,
+        "end_year": args.end,
+        "fetched_at": iso_now(fetched),
+        "frequency": "provider-defined",
+        "units": "verify against World Bank indicator metadata",
+        "seasonal_adjustment": "verify against series metadata",
+        "transformation": "none",
+        "note": "Raw API snapshot. Do not edit in place; transform into data/processed.",
+    }
+    return write_snapshot(out, frame, metadata)
+
+
+def fetch_fred(args, root: Path) -> tuple[Path, Path]:
+    try:
+        import pandas_datareader.data as web
+    except ImportError as exc:
+        raise EconDataError("Economics Research Pack 缺少 pandas-datareader。") from exc
+
+    series = safe_name(args.series)
+    frame = web.DataReader(series, "fred", start=args.start, end=args.end)
+    if frame is None or frame.empty:
+        raise EconDataError("FRED 返回空数据。")
+
+    frame = frame.reset_index()
+    frame.columns = [str(c) for c in frame.columns]
+
+    fetched = now_utc()
+    out = snapshot_dir(root, "fred", series, fetched)
+    metadata = {
+        "provider": "Federal Reserve Economic Data (FRED)",
+        "provider_client": "pandas-datareader",
+        "series_id": series,
+        "start": args.start,
+        "end": args.end,
+        "fetched_at": iso_now(fetched),
+        "frequency": "verify against FRED series metadata",
+        "units": "verify against FRED series metadata",
+        "seasonal_adjustment": "verify against FRED series metadata",
+        "transformation": "none",
+        "vintage_note": (
+            "This records retrieval time, not an ALFRED real-time vintage. "
+            "Use a dedicated vintage source when historical releases matter."
+        ),
+        "note": "Raw API snapshot. Do not edit in place; transform into data/processed.",
+    }
+    return write_snapshot(out, frame, metadata)
+
+
+def list_snapshots(root: Path) -> None:
+    base = root / "data" / "raw" / "external"
+    if not base.is_dir():
+        print("尚无外部经济数据快照。")
+        return
+    found = False
+    for meta_path in sorted(base.glob("*/*/*/metadata.json")):
+        found = True
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            print(f"[warn] unreadable metadata: {meta_path}")
+            continue
+        rel = meta_path.parent.relative_to(root)
+        identifier = meta.get("series_id") or meta.get("indicator") or ""
+        print(
+            f"{str(meta.get('provider','')):34} "
+            f"{str(identifier):20} "
+            f"{str(meta.get('fetched_at','')):20} "
+            f"{rel}"
+        )
+    if not found:
+        print("尚无外部经济数据快照。")
+
+
+def verify_snapshots(root: Path) -> int:
+    base = root / "data" / "raw" / "external"
+    if not base.is_dir():
+        print("[ok] no external economic data snapshots")
+        return 0
+
+    errors = 0
+    count = 0
+    for meta_path in sorted(base.glob("*/*/*/metadata.json")):
+        count += 1
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            data_path = meta_path.parent / str(meta.get("data_file", "data.csv"))
+            expected = str(meta.get("sha256", ""))
+            if not data_path.is_file():
+                print(f"[error] missing data: {data_path}")
+                errors += 1
+                continue
+            actual = sha256_file(data_path)
+            if expected and actual != expected:
+                print(f"[error] hash changed: {data_path}")
+                errors += 1
+        except Exception as exc:
+            print(f"[error] invalid snapshot {meta_path}: {exc}")
+            errors += 1
+
+    if errors:
+        print(f"[error] economics data verify failed: {errors} issue(s)")
+        return 1
+    print(f"[ok] economics data verify passed ({count} snapshot(s))")
+    return 0
+
+
+def self_test() -> int:
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise EconDataError("self-test requires pandas") from exc
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "research.yaml").write_text("schema: 1\n", encoding="utf-8")
+        when = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        out = snapshot_dir(root, "fred", "TEST.SERIES", when)
+        frame = pd.DataFrame({"DATE": ["2026-01-01"], "TEST.SERIES": [1.25]})
+        csv_path, meta_path = write_snapshot(
+            out,
+            frame,
+            {
+                "provider": "self-test",
+                "series_id": "TEST.SERIES",
+                "fetched_at": iso_now(when),
+            },
+        )
+        assert csv_path.is_file()
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert meta["rows"] == 1
+        assert meta["sha256"] == sha256_file(csv_path)
+        assert verify_snapshots(root) == 0
+    print("research-econ-data self-test passed")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-econ-data",
+        description="DSH Economics Research Pack 的可追溯经济数据快照工具。",
+    )
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    wb = sub.add_parser("worldbank", help="从 World Bank API 下载指标快照")
+    wb.add_argument("indicator", help="例如 NY.GDP.MKTP.CD")
+    wb.add_argument(
+        "--economy",
+        action="append",
+        default=[],
+        help="经济体代码，可重复或逗号分隔，例如 CHN,USA",
+    )
+    wb.add_argument("--start", type=int, help="起始年份")
+    wb.add_argument("--end", type=int, help="结束年份")
+
+    fred = sub.add_parser("fred", help="从 FRED 下载序列快照")
+    fred.add_argument("series", help="例如 FEDFUNDS / CPIAUCSL")
+    fred.add_argument("--start", default=None, help="起始日期 YYYY-MM-DD")
+    fred.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD")
+
+    sub.add_parser("list", help="列出已保存的数据快照")
+    sub.add_parser("verify", help="校验数据快照 SHA256")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    try:
+        root = find_root()
+        if args.command == "worldbank":
+            csv_path, meta_path = fetch_worldbank(args, root)
+        elif args.command == "fred":
+            csv_path, meta_path = fetch_fred(args, root)
+        elif args.command == "list":
+            list_snapshots(root)
+            return 0
+        elif args.command == "verify":
+            return verify_snapshots(root)
+        else:
+            parser.error(f"unknown command: {args.command}")
+            return 2
+
+        print(f"[ok] data: {csv_path}")
+        print(f"[ok] metadata: {meta_path}")
+        print(f"[ok] sha256: {sha256_file(csv_path)}")
+        return 0
+    except EconDataError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
