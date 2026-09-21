@@ -1753,6 +1753,11 @@ cmd_storage() {
       if ! mkdir -p "$target" 2>/dev/null; then
         as_root mkdir -p "$target"
       fi
+      if [[ "$DSH_STORAGE_MODE" == "volume" ]] \
+        && docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 \
+        && [[ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+        die "目标目录为空。若要从旧 volume 迁移数据，请使用: dshd storage migrate $target"
+      fi
       DSH_STORAGE_MODE="bind"
       DSH_DATA_DIR="$target"
       save_config
@@ -1806,6 +1811,10 @@ cmd_storage() {
     volume)
       local volume_name="${1:-$DSH_VOLUME}"
       [[ -n "$volume_name" ]] || die "volume 名称不能为空。"
+      if [[ "$DSH_STORAGE_MODE" == "bind" ]] && ! docker_cmd volume inspect "$volume_name" >/dev/null 2>&1; then
+        warn "目标 named volume 尚不存在；此命令不会自动复制 bind 目录数据。"
+        confirm "仍然创建空 volume 并切换？" N || return 0
+      fi
       DSH_STORAGE_MODE="volume"
       DSH_VOLUME="$volume_name"
       ensure_storage
