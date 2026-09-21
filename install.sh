@@ -23,10 +23,11 @@ trap 'rm -f "$TMP"' EXIT
 
 download() {
   local url="$1"
+  # 由 shell 负责写入：curl/wget 只输出到 stdout，避免各平台对临时路径解析的差异。
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 8 --max-time 30 "$url" -o "$TMP"
+    curl -fsSL --connect-timeout 8 --max-time 30 "$url" >"$TMP"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --timeout=30 -O "$TMP" "$url"
+    wget -q --timeout=30 -O - "$url" >"$TMP"
   else
     return 127
   fi

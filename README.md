@@ -78,7 +78,38 @@ dshd backup          # 备份 dsh 数据卷
 dshd restore         # 恢复备份
 dshd doctor          # Docker / 网络 / 容器诊断
 dshd recreate        # 按当前配置重建
+dshd self-update     # 立即检查并更新 dshd 脚本自身
 dshd uninstall       # 交互卸载
+```
+
+### dshd 自动更新
+
+`dshd` 每次运行都会先检查脚本自身有没有新版本（仅 `help` / `version` 除外），
+发现新版就自动替换当前脚本，并用新脚本继续执行你原本要执行的命令 ——
+不用再重新跑一遍 `install.sh`。
+
+- 更新源与 `install.sh` 一致：优先 GitHub Raw，失败时自动回退 jsDelivr；
+- 下载结果先校验（非空、含 shebang、`bash -n` 语法通过）才允许覆盖，
+  校验不通过直接放弃，绝不破坏当前可用版本；
+- 网络不通时静默降级到本地版本，并在 5 分钟内不再重试；
+- 脚本装在 `/usr/local/bin/dshd` 时，普通用户自更新需要 sudo 权限；
+  权限不足会提示手动执行 `sudo dshd self-update`；
+- 通过 `curl ... | bash` 管道方式执行时不做自更新（本身就是最新下载）。
+
+```bash
+dshd self-update     # 立即检查并更新（忽略节流）
+```
+
+关闭自动更新：
+
+```bash
+export DSHD_NO_SELF_UPDATE=1
+```
+
+自定义更新源（例如内网镜像）：
+
+```bash
+export DSHD_UPDATE_URL=https://example.com/dshd
 ```
 
 配置默认保存在 `/etc/dshd/config.env`（非 root 用户保存在
@@ -302,6 +333,9 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
 | `DSH_DOCKER_SOCKET` | 自动检测 | 宿主机 Docker Socket 路径 |
+| `DSHD_NO_SELF_UPDATE` | — | 设为 `1` 关闭 dshd 运行时的脚本自更新 |
+| `DSHD_UPDATE_URL` | — | 自定义 dshd 自更新源（默认 GitHub Raw → jsDelivr） |
+| `DSHD_SELF_UPDATE_RETRY_DELAY` | `300` | 自更新失败后的退避秒数，`0` 表示不节流 |
 | `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
 
 ## 自动构建与更新（GitHub Actions）

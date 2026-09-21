@@ -3,9 +3,14 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.4.0"
+DSHD_VERSION="0.5.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
+CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
+# 自身脚本路径；通过管道（curl | bash）执行时为空，此时跳过自更新。
+SELF_PATH="${BASH_SOURCE[0]:-}"
+# 自更新拉取失败后的退避秒数，避免网络不通时每次启动都卡住。
+SELF_UPDATE_RETRY_DELAY="${DSHD_SELF_UPDATE_RETRY_DELAY:-300}"
 DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
 MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:latest"
 DEFAULT_NAME="dsh"
@@ -619,6 +624,216 @@ interactive_config() {
   fi
 }
 
+# ---------- 脚本自更新 ----------
+# 每次运行 dshd 时检查上游是否有新脚本，有则替换自身并用新脚本重新执行同一命令。
+# 关闭: DSHD_NO_SELF_UPDATE=1 ；自定义源: DSHD_UPDATE_URL=<url> ；调退避: DSHD_SELF_UPDATE_RETRY_DELAY=<秒>
+
+self_update_enabled() {
+  case "${DSHD_NO_SELF_UPDATE:-0}" in
+    1|true|yes|on) return 1 ;;
+  esac
+  return 0
+}
+
+# 输出自身脚本的绝对路径；通过管道执行（BASH_SOURCE 为空）时返回失败。
+resolve_self_path() {
+  local path="$SELF_PATH" dir base
+  [[ -n "$path" && -f "$path" ]] || return 1
+  dir="$(cd "$(dirname "$path")" 2>/dev/null && pwd)" || return 1
+  base="$(basename "$path")"
+  [[ -n "$dir" && -n "$base" ]] || return 1
+  printf '%s/%s' "$dir" "$base"
+}
+
+fetch_url_to() {
+  local url="$1" dest="$2"
+  # 由 shell 负责写入：curl/wget 只输出到 stdout，避免各平台对 -o 路径解析的差异。
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 4 --max-time 20 "$url" >"$dest"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --timeout=20 -O - "$url" >"$dest"
+  else
+    return 127
+  fi
+}
+
+script_version_of() {
+  local file="$1" line=""
+  line="$(grep -m1 '^DSHD_VERSION=' "$file" 2>/dev/null || true)"
+  line="${line#DSHD_VERSION=}"
+  line="${line%\"}"
+  line="${line#\"}"
+  printf '%s' "$line"
+}
+
+# 把 x.y.z 折算成可比较的整数（预发布后缀忽略，如 1.2.3-rc.1 -> 1.2.3）。
+version_score() {
+  local v="${1%%-*}" score=0 count=0 p
+  local IFS='.'
+  local -a parts
+  read -r -a parts <<<"$v"
+  for p in "${parts[@]}"; do
+    [[ "$p" =~ ^[0-9]+$ ]] || p=0
+    score=$(( score * 1000 + 10#$p ))
+    count=$(( count + 1 ))
+    if (( count >= 3 )); then
+      break
+    fi
+  done
+  while (( count < 3 )); do
+    score=$(( score * 1000 ))
+    count=$(( count + 1 ))
+  done
+  printf '%s' "$score"
+}
+
+# 下载结果必须像一份完整的 dshd，才允许覆盖当前脚本。
+validate_self_script() {
+  local file="$1" first_line=""
+  [[ -s "$file" ]] || return 1
+  IFS= read -r first_line <"$file" || true
+  [[ "$first_line" == *bash* ]] || return 1
+  grep -q '^DSHD_VERSION=' "$file" 2>/dev/null || return 1
+  bash -n "$file" 2>/dev/null || return 1
+  return 0
+}
+
+self_update_sources() {
+  if [[ -n "${DSHD_UPDATE_URL:-}" ]]; then
+    printf '%s\n' "$DSHD_UPDATE_URL"
+    return 0
+  fi
+  printf '%s\n' "${RAW_BASE}/dshd"
+  printf '%s\n' "${CDN_BASE}/dshd"
+}
+
+update_backoff_active() {
+  local marker="$STATE_DIR/.self-update-failed" last now
+  [[ -f "$marker" ]] || return 1
+  [[ "$SELF_UPDATE_RETRY_DELAY" =~ ^[0-9]+$ ]] || return 1
+  [[ "$SELF_UPDATE_RETRY_DELAY" -gt 0 ]] || return 1
+  last="$(head -n 1 "$marker" 2>/dev/null || true)"
+  [[ "$last" =~ ^[0-9]+$ ]] || return 1
+  now="$(date +%s)"
+  [[ $((now - last)) -lt "$SELF_UPDATE_RETRY_DELAY" ]]
+}
+
+write_update_marker() {
+  local file="$1" value="$2"
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
+  printf '%s\n' "$value" >"$file" 2>/dev/null || true
+}
+
+install_new_self() {
+  local src="$1" dest="$2"
+  local sudo_args=(-n)
+  if [[ -w "$dest" ]]; then
+    mv "$src" "$dest"
+    return 0
+  fi
+  command -v sudo >/dev/null 2>&1 || return 1
+  if is_tty; then
+    sudo_args=()
+  fi
+  sudo "${sudo_args[@]}" install -m 0755 "$src" "$dest" 2>/dev/null
+}
+
+self_update() {
+  local mode="${1:-auto}" self failmark tmpdir tmp url ok=0 newver retry_hint
+  shift || true
+  local force=0
+  if [[ "$mode" == "force" ]]; then
+    force=1
+  fi
+
+  # 本次进程已被自更新重新拉起，不再重复检查。
+  [[ "${DSHD_SELF_UPDATED:-0}" == "1" ]] && return 0
+  if [[ "$force" -ne 1 ]] && ! self_update_enabled; then
+    return 0
+  fi
+
+  self="$(resolve_self_path)" || return 0
+  if [[ "$force" -ne 1 ]] && update_backoff_active; then
+    return 0
+  fi
+
+  failmark="$STATE_DIR/.self-update-failed"
+  tmpdir="$(mktemp -d 2>/dev/null)" || return 0
+  tmp="$tmpdir/dshd.new"
+
+  while IFS= read -r url; do
+    [[ -n "$url" ]] || continue
+    if fetch_url_to "$url" "$tmp" && validate_self_script "$tmp"; then
+      ok=1
+      break
+    fi
+    rm -f "$tmp"
+  done < <(self_update_sources)
+
+  if [[ "$ok" -ne 1 ]]; then
+    rm -rf "$tmpdir"
+    write_update_marker "$failmark" "$(date +%s)"
+    if [[ "$SELF_UPDATE_RETRY_DELAY" =~ ^[0-9]+$ ]] && [[ "$SELF_UPDATE_RETRY_DELAY" -gt 0 ]]; then
+      retry_hint="（${SELF_UPDATE_RETRY_DELAY}s 后重试）"
+    fi
+    warn "自更新检查失败，继续使用本地 dshd $DSHD_VERSION${retry_hint}"
+    return 0
+  fi
+
+  if cmp -s "$tmp" "$self"; then
+    rm -rf "$tmpdir"
+    rm -f "$failmark" 2>/dev/null || true
+    if [[ "$force" -eq 1 ]]; then
+      ok "dshd 已是最新版本 $DSHD_VERSION"
+    fi
+    return 0
+  fi
+
+  newver="$(script_version_of "$tmp")"
+
+  # 自动模式下不做降级：上游版本低于本地时保持现状（本地可能是更新的开发版本）。
+  if [[ "$force" -ne 1 ]]; then
+    local remote_score local_score
+    if [[ -z "$newver" ]]; then
+      rm -rf "$tmpdir"
+      return 0
+    fi
+    remote_score="$(version_score "$newver")"
+    local_score="$(version_score "$DSHD_VERSION")"
+    if (( remote_score < local_score )); then
+      rm -rf "$tmpdir"
+      return 0
+    fi
+  fi
+
+  chmod 0755 "$tmp" 2>/dev/null || true
+
+  if ! install_new_self "$tmp" "$self"; then
+    rm -rf "$tmpdir"
+    warn "发现新版本 ${newver:-未知}，但无权限写入 $self。"
+    warn "请用 root 运行 dshd，或手动执行: sudo dshd self-update"
+    return 0
+  fi
+
+  rm -rf "$tmpdir"
+  rm -f "$failmark" 2>/dev/null || true
+  ok "dshd 已更新: $DSHD_VERSION → ${newver:-未知}"
+
+  if [[ "${DSHD_LIB_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  # 用新脚本重新执行同一命令：bash 可能仍在读取旧文件，必须换进程。
+  DSHD_SELF_UPDATED=1
+  export DSHD_SELF_UPDATED
+  exec "$self" "$@"
+}
+
+cmd_self_update() {
+  # 更新成功时 self_update 会 exec 成新版 `dshd version`，直接显示新版本号。
+  self_update force version
+  ok "dshd 当前版本 $DSHD_VERSION"
+}
+
 install_self() {
   local source="${BASH_SOURCE[0]}" target="/usr/local/bin/dshd"
   [[ "$source" == "$target" ]] && return 0
@@ -1072,8 +1287,16 @@ dshd - DeepSeek Harness Docker 管理器
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复数据卷备份
   dshd doctor              环境/网络/容器诊断
+  dshd self-update         立即检查并更新 dshd 脚本自身
   dshd uninstall           交互卸载
   dshd version             显示版本
+
+说明:
+  除 help / version 外，dshd 每次运行都会先检查脚本自身是否有新版本，
+  有则自动替换并用新脚本继续执行原命令（网络不可用时静默降级，不影响使用）。
+  关闭自动更新:   export DSHD_NO_SELF_UPDATE=1
+  自定义更新源:   export DSHD_UPDATE_URL=https://example.com/dshd
+  调整失败退避:   export DSHD_SELF_UPDATE_RETRY_DELAY=600
 EOF
 }
 
@@ -1104,7 +1327,8 @@ menu() {
  16) 恢复数据
  17) 环境诊断
  18) 按当前配置重建
- 19) 卸载
+ 19) 检查更新 dshd 自身
+ 20) 卸载
 
   0) 退出
 EOF
@@ -1130,7 +1354,8 @@ EOF
       16) cmd_restore ;;
       17) cmd_doctor ;;
       18) cmd_recreate ;;
-      19) cmd_uninstall ;;
+      19) cmd_self_update ;;
+      20) cmd_uninstall ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -1143,6 +1368,13 @@ EOF
 
 main() {
   local cmd="${1:-menu}"
+
+  # 除 help/version 这类纯本地命令外，每次调用都先检查脚本自身是否有新版本。
+  case "$cmd" in
+    help|-h|--help|version|-v|--version) ;;
+    *) self_update auto "$@" ;;
+  esac
+
   case "$cmd" in
     menu) menu ;;
     install) cmd_install ;;
@@ -1163,6 +1395,7 @@ main() {
     backup) cmd_backup ;;
     restore) shift; cmd_restore "${1:-}" ;;
     doctor|check) cmd_doctor ;;
+    self-update|selfupdate) cmd_self_update ;;
     uninstall|remove) cmd_uninstall ;;
     version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;;
     help|-h|--help) print_help ;;
@@ -1170,4 +1403,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${DSHD_LIB_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi
