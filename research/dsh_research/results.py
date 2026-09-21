@@ -12,7 +12,7 @@ from typing import Any, Iterable
 
 from .config import load_yaml, write_yaml
 from .datasets import verify_catalog
-from .errors import ManifestError, ResearchError
+from .errors import ResearchError
 from .hashing import sha256_file
 from .manifests import load_json
 from .project import ResearchProject
@@ -111,11 +111,17 @@ def _canonical_hash(payload: Any) -> str:
 
 
 def _provenance_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    result = manifest.get("result") if isinstance(manifest.get("result"), dict) else {}
     return {
+        "result": {
+            "id": result.get("id"),
+            "type": result.get("type"),
+        },
         "source": manifest.get("source"),
         "run": manifest.get("run"),
         "inputs": manifest.get("inputs"),
         "artifacts": manifest.get("artifacts"),
+        "diagnostics": manifest.get("diagnostics"),
     }
 
 
