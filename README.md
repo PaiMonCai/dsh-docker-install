@@ -472,6 +472,7 @@ ghcr.io/paimoncai/dsh-docker-install:research
 ```bash
 dshd edition research
 dshd edition show
+dshd research-pack show
 dshd env
 ```
 
@@ -500,6 +501,28 @@ research-archive
 `literature/evidence-matrix.csv` 用于维护“文献—数据—方法—结论—局限”的证据矩阵；
 `research-run` 会记录 Git 状态、运行环境、输入/输出 hash 与日志；
 `research-archive` 默认不打包 `data/raw`，避免误发布敏感或受许可限制的数据。
+
+
+经济学 / 计量研究可以切换独立的 Economics Pack：
+
+```bash
+dshd research-pack economics
+```
+
+对应镜像：
+
+```text
+ghcr.io/paimoncai/dsh-docker-install:research-economics
+```
+
+进入 Economics 镜像后可创建专用项目模板：
+
+```bash
+research-init --template economics thesis "经济学本科毕业论文"
+```
+
+它额外提供 pyfixest、linearmodels、arch、World Bank / DataReader 工具，并要求在
+`research.yaml` 明确 estimand、识别策略、固定效应、标准误/聚类层级和稳健性计划。
 
 完整设计与构建说明见 `research/README.md`。
 
