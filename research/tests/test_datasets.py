@@ -131,6 +131,30 @@ class DatasetCatalogTests(unittest.TestCase):
             self.assertEqual(statuses["panel"].status, "stale")
             self.assertIn("upstream dataset SHA256 changed", statuses["panel"].message)
 
+    def test_transitive_upstream_change_marks_all_downstream_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self.make_project(root)
+            (root / "data" / "raw").mkdir(parents=True)
+            (root / "data" / "processed").mkdir(parents=True)
+            source = root / "data" / "raw" / "source.csv"
+            panel = root / "data" / "processed" / "panel.csv"
+            analysis = root / "data" / "processed" / "analysis.csv"
+            source.write_text("id,x\n1,2\n", encoding="utf-8")
+            panel.write_text("id,y\n1,3\n", encoding="utf-8")
+            analysis.write_text("id,z\n1,4\n", encoding="utf-8")
+
+            register_dataset(project, dataset_id="source", path=source, kind="raw")
+            register_dataset(project, dataset_id="panel", path=panel, kind="processed", inputs=["source"])
+            register_dataset(project, dataset_id="analysis", path=analysis, kind="processed", inputs=["panel"])
+
+            source.write_text("id,x\n1,99\n", encoding="utf-8")
+            register_dataset(project, dataset_id="source", path=source, kind="raw", force=True)
+
+            statuses = {x.dataset_id: x for x in verify_catalog(project)}
+            self.assertEqual(statuses["panel"].status, "stale")
+            self.assertEqual(statuses["analysis"].status, "stale")
+
     def test_code_change_marks_dataset_stale(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
