@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -103,6 +103,17 @@ try {
     }, exec),
     /inside/,
   )
+
+  const outside = await mkdtemp(join(tmpdir(), 'dsh-research-adapter-outside-'))
+  await symlink(outside, join(workspace, 'escape-link'))
+  await assert.rejects(
+    definitions.get('research_project').execute({
+      action: 'status',
+      project: 'escape-link',
+    }, exec),
+    /physically inside/,
+  )
+  await rm(outside, { recursive: true, force: true })
 
   console.log('[✓] DSH-native Research Adapter contract passed')
 } finally {
