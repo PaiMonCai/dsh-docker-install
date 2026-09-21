@@ -45,7 +45,7 @@ jobs:
           PYTHONPATH=research python -m py_compile research/bin/research-run
           bash -n research/bin/research-archive
           python -m py_compile research/bin/research-literature
-          PYTHONPATH=research python -m py_compile research/bin/research-status research/bin/research-migrate research/bin/research-check research/bin/research-data research/bin/research-pipeline research/bin/research-result
+          PYTHONPATH=research python -m py_compile research/bin/research-status research/bin/research-migrate research/bin/research-check research/bin/research-data research/bin/research-pipeline research/bin/research-result research/bin/research-dashboard
           PYTHONPATH=research python -m compileall -q research/dsh_research
           PYTHONPATH=research python -m unittest discover -s research/tests -p 'test_*.py' -v
           python -m py_compile research/packs/economics/bin/research-econ-data
@@ -59,6 +59,8 @@ jobs:
           PYTHONPATH=research python research/bin/research-data --self-test
           PYTHONPATH=research python research/bin/research-pipeline --self-test
           PYTHONPATH=research python research/bin/research-result --self-test
+          PYTHONPATH=research python research/bin/research-dashboard --self-test
+          node --check research/dsh_research/dashboard_assets/app.js
           grep -q '^schema: 2$' research/templates/default/research.yaml
           grep -q '^schema: 2$' research/templates/packs/economics/research.yaml
           grep -q 'status: "active"' research/templates/default/research.yaml

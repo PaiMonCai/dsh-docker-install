@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DSH Research Dashboard</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">DR</div>
+        <div>
+          <strong>DSH Research</strong>
+          <span>Dashboard · API v1</span>
+        </div>
+      </div>
+      <nav>
+        <a href="#overview" class="active">Overview</a>
+        <a href="#design">Research Design</a>
+        <a href="#literature">Literature</a>
+        <a href="#data">Data</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#results">Results</a>
+        <a href="#paper">Paper</a>
+        <a href="#release">Release</a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="dot"></span>
+        Read-only V2.0
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">RESEARCH PROJECT</p>
+          <h1 id="project-title">Loading project…</h1>
+          <p id="project-meta" class="muted">Reading Stable JSON API v1</p>
+        </div>
+        <div class="top-actions">
+          <span id="global-status" class="pill neutral">Loading</span>
+          <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner hidden"></div>
+
+      <section id="overview">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PROJECT HEALTH</p>
+            <h2>Overview</h2>
+          </div>
+          <span id="last-updated" class="muted"></span>
+        </div>
+        <div id="overview-cards" class="metric-grid"></div>
+        <div class="two-col">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Research Check</h3>
+              <span id="check-pill" class="pill neutral">—</span>
+            </div>
+            <div id="check-summary" class="stack"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Repository</h3>
+              <span id="git-pill" class="pill neutral">—</span>
+            </div>
+            <div id="repo-summary" class="stack"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="design">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">QUESTION → IDENTIFICATION</p>
+            <h2>Research Design</h2>
+          </div>
+        </div>
+        <article class="panel">
+          <div id="design-grid" class="detail-grid"></div>
+        </article>
+      </section>
+
+      <section id="literature">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">EVIDENCE BASE</p>
+            <h2>Literature</h2>
+          </div>
+        </div>
+        <div id="literature-cards" class="metric-grid compact"></div>
+      </section>
+
+      <section id="data">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CATALOG + LINEAGE</p>
+            <h2>Data</h2>
+          </div>
+          <span id="data-count" class="muted"></span>
+        </div>
+        <article class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Dataset</th><th>Status</th><th>Path</th><th>SHA256</th></tr></thead>
+              <tbody id="data-table"></tbody>
+            </table>
+          </div>
+          <p id="data-empty" class="empty hidden">No registered datasets yet.</p>
+        </article>
+      </section>
+
+      <section id="pipeline">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">DAG + STALE DETECTION</p>
+            <h2>Pipeline</h2>
+          </div>
+          <span id="pipeline-count" class="muted"></span>
+        </div>
+        <article class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Step</th><th>Status</th><th>Signature</th><th>Latest run</th><th>Reason</th></tr></thead>
+              <tbody id="pipeline-table"></tbody>
+            </table>
+          </div>
+          <p id="pipeline-empty" class="empty hidden">No pipeline steps yet.</p>
+        </article>
+      </section>
+
+      <section id="results">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">UNIFIED RESULT REGISTRY</p>
+            <h2>Results</h2>
+          </div>
+          <span id="result-count" class="muted"></span>
+        </div>
+        <article class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Result</th><th>Type</th><th>Status</th><th>Artifacts</th><th>Run</th></tr></thead>
+              <tbody id="results-table"></tbody>
+            </table>
+          </div>
+          <p id="results-empty" class="empty hidden">No registered results yet.</p>
+        </article>
+      </section>
+
+      <section id="paper">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">WRITING OUTPUT</p>
+            <h2>Paper</h2>
+          </div>
+        </div>
+        <div id="paper-grid" class="metric-grid compact"></div>
+      </section>
+
+      <section id="release">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">REPLICATION READINESS</p>
+            <h2>Release</h2>
+          </div>
+          <button id="release-check-btn" type="button" class="secondary">Run release check</button>
+        </div>
+        <article class="panel">
+          <div id="release-summary" class="stack"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="detail-dialog">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">DETAIL</p>
+        <h3 id="detail-title">Detail</h3>
+      </div>
+      <button id="detail-close" type="button" class="icon-btn" aria-label="Close">×</button>
+    </div>
+    <pre id="detail-json"></pre>
+  </dialog>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

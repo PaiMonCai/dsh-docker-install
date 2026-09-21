@@ -7,6 +7,7 @@ and manifest protocol instead of reimplementing it independently.
 
 from .checks import CheckReport, CheckResult, run_checks
 from .config import load_research_config, load_yaml, write_yaml
+from .dashboard import DASHBOARD_API_VERSION, DashboardError, make_server
 from .datasets import (
     DATASET_SCHEMA,
     DatasetStatus,
@@ -49,6 +50,8 @@ from .vcs import GitState, git_state
 __all__ = [
     "CheckReport",
     "CheckResult",
+    "DASHBOARD_API_VERSION",
+    "DashboardError",
     "DATASET_SCHEMA",
     "DatasetStatus",
     "FileFingerprint",
@@ -83,6 +86,7 @@ __all__ = [
     "load_research_config",
     "load_yaml",
     "migrate_config",
+    "make_server",
     "migrate_project",
     "read_jsonl",
     "record_run",

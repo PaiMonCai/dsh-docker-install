@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.18
-ARG RESEARCH_VERSION=0.8.1
+ARG RESEARCH_VERSION=0.8.2
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \
@@ -82,6 +82,7 @@ RUN chmod 0755 \
       /usr/local/bin/research-data \
       /usr/local/bin/research-pipeline \
       /usr/local/bin/research-result \
+      /usr/local/bin/research-dashboard \
  && python -c "import dsh_research; from dsh_research.project import ResearchProject; print('Research engine import passed')" \
  && research-init --self-test \
  && research-run --self-test \
@@ -93,6 +94,7 @@ RUN chmod 0755 \
  && research-data --self-test \
  && research-pipeline --self-test \
  && research-result --self-test \
+ && research-dashboard --self-test \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \

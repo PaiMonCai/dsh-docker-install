@@ -55,6 +55,8 @@ jobs:
           bash -n install.sh
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
+          bash -n tests/test-dshd-dashboard.sh
+          bash tests/test-dshd-dashboard.sh
           bash -n docker/entrypoint.sh
           sh -n docker/cn-mirror.sh
           node --check docker/patch-remote-settings.js
