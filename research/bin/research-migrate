@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import sys
+
+from dsh_research.config import load_research_config
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+from dsh_research.schema import CURRENT_PROJECT_SCHEMA, migrate_project, validate_project_schema
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-migrate",
+        description="显式迁移 research.yaml schema；不会自动修改项目。",
+    )
+    parser.add_argument("--to", type=int, default=CURRENT_PROJECT_SCHEMA, help="目标 schema")
+    parser.add_argument("--check", action="store_true", help="只检查，不写文件")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+    from pathlib import Path
+    from dsh_research.config import load_yaml, write_yaml
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        write_yaml(root / "research.yaml", {"schema": 1, "project": {"slug": "x", "title": "X"}, "research": {"field": ""}})
+        before, after, backup = migrate_project(ResearchProject(root), target=2)
+        assert (before, after) == (1, 2)
+        assert backup is not None and backup.is_file()
+        cfg = load_yaml(root / "research.yaml")
+        assert cfg["schema"] == 2
+        assert cfg["project"]["template"] == "default"
+        assert cfg["project"]["status"] == "active"
+    print("research-migrate self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.self_test:
+        return self_test()
+    try:
+        project = ResearchProject.discover()
+        current = validate_project_schema(load_research_config(project))
+        if args.check:
+            if current == args.to:
+                print(f"[ok] research.yaml schema already {current}")
+            elif current < args.to:
+                print(f"[info] migration available: schema {current} -> {args.to}")
+            else:
+                print(f"[error] project schema {current} is newer than target {args.to}", file=sys.stderr)
+                return 1
+            return 0
+
+        before, after, backup = migrate_project(project, target=args.to)
+        if before == after:
+            print(f"[ok] research.yaml schema already {after}; no changes")
+        else:
+            print(f"[ok] research.yaml migrated: {before} -> {after}")
+            print(f"[ok] backup: {backup}")
+        return 0
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
