@@ -254,13 +254,13 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.9.0-rc.2，更新于 2026-09-22）：真实 dogfooding 暴露出 RC1 的关键产品问题——Research 能力虽然完整，但用户仍需绕开 DSH 手敲 `research-*`。RC2 增加 DSH-native Research Adapter，把现有 Engine/CLI 作为 Agent 的稳定后端工具层，而不是另造研究逻辑。
+> 当前开发状态（Research 0.9.0-rc.3，更新于 2026-09-22）：RC2 已完成 DSH-native Research Adapter；RC3 专门硬化兼容层通用性，包括任意 profile 书写形式、可配置 profile allowlist、patch 去重/顺序保持、后端命令多路径发现和自定义镜像/源码环境适配。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 99% | 0.9.0-rc.2：DSH-native Adapter 接入；进入真实 Agent dogfooding |
+| V2.0 Research Project Engine | 约 99% | 0.9.0-rc.3：Adapter compatibility hardening；继续真实 Agent dogfooding |
 | 完整 V2 Roadmap | 约 55%–60% | V2.0 接近稳定；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
@@ -1785,8 +1785,10 @@ PR N   feat: Planner / Reviewer + replication release
 0.7.0  Pipeline DAG + stale detection
 0.8.0  Result Registry
 0.8.1  Stable JSON API v1
-0.8.2  Dashboard preview
+0.8.2       Dashboard preview
 0.9.0-rc.1  V2 release candidate gate
+0.9.0-rc.2  DSH-native Research Adapter
+0.9.0-rc.3  Adapter compatibility hardening
 0.9.0-rc.N  RC blocker fixes only
 2.0.0       Stable V2
 ```
