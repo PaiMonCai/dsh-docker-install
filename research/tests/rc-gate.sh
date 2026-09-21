@@ -7,5 +7,7 @@ cd "$ROOT"
 export PYTHONPATH="$ROOT/research${PYTHONPATH:+:$PYTHONPATH}"
 
 printf '%s\n' '==> DSH Research V2 RC integration gate'
+node research/tests/test-adapter.mjs
+bash research/tests/test-adapter-wrapper.sh
 python research/tests/test_rc_integration.py -v
 printf '%s\n' '[✓] V2 RC integration gate passed'
