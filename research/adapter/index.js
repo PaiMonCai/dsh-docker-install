@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 
 export const name = 'dsh-research-adapter'
-export const inject = ['tools']
+export const inject = ['tools', 'systemPrompt']
 
 const WORKSPACE = resolve(process.env.DSH_RESEARCH_WORKSPACE || '/workspace')
 const WORKSPACE_REAL = existsSync(WORKSPACE) ? realpathSync(WORKSPACE) : WORKSPACE
@@ -198,6 +198,21 @@ function register(ctx, definition) {
 }
 
 export function apply(ctx) {
+  ctx.systemPrompt.section({
+    name: 'research:native-adapter-guidance',
+    order: 160,
+    interpolate: false,
+    text: [
+      'DSH Research Edition is available through native Research tools.',
+      'Prefer research_project, research_data, research_pipeline, and research_results over manually constructing research-* shell commands.',
+      'When Economics tools are available, prefer economics_did and economics_model over manually constructing research-econ-* commands.',
+      'Treat research-* CLI commands as backend/debugging interfaces unless the user explicitly asks for CLI instructions.',
+      'Inspect the research question, design, project status, data lineage, and stale/current state before executing analysis.',
+      'Do not fabricate datasets, citations, coefficients, p-values, robustness results, or completed runs.',
+      'A real pipeline run or econometric estimate should follow the user\'s research intent; inspection and dry-run are preferred before execution when scope is unclear.',
+    ].join(' '),
+  })
+
   register(ctx, {
     name: 'research_project',
     description:
