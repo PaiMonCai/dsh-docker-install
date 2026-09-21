@@ -110,8 +110,7 @@ def fetch_worldbank(args, root: Path) -> tuple[Path, Path]:
 
     indicator = safe_name(args.indicator)
     economies = safe_economies(args.economy or [])
-    if not economies:
-        economies = ["all"]
+    economy_arg: Any = economies if economies else "all"
 
     times = None
     if args.start is not None or args.end is not None:
@@ -121,7 +120,6 @@ def fetch_worldbank(args, root: Path) -> tuple[Path, Path]:
             raise EconDataError("--start 不能晚于 --end。")
         times = range(args.start, args.end + 1)
 
-    economy_arg: Any = economies
     frame = wb.data.DataFrame(
         indicator,
         economy=economy_arg,
@@ -141,7 +139,7 @@ def fetch_worldbank(args, root: Path) -> tuple[Path, Path]:
         "provider": "World Bank",
         "provider_client": "wbgapi",
         "indicator": indicator,
-        "economies": economies,
+        "economies": economies or ["all"],
         "start_year": args.start,
         "end_year": args.end,
         "fetched_at": iso_now(fetched),
