@@ -70,6 +70,11 @@ jobs:
           test -s research/templates/default/pipeline.yaml
           test -s research/templates/default/results/registry/README.md
 
+      - name: V2 RC integration gate
+        run: |
+          bash -n research/tests/rc-gate.sh
+          bash research/tests/rc-gate.sh
+
       - name: Read Research version
         id: ver
         run: echo "version=$(cat research/VERSION)" >> "$GITHUB_OUTPUT"

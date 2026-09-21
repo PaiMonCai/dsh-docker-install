@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.18
-ARG RESEARCH_VERSION=0.8.2
+ARG RESEARCH_VERSION=0.9.0-rc.1
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \

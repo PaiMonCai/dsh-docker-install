@@ -22,6 +22,8 @@ from .vcs import git_state
 
 _BIB_KEY_RE = re.compile(r"@\w+\s*\{\s*([^,\s]+)\s*,", re.I)
 _PAPER_CITE_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9_.:+-]+)")
+RELEASE_GATE_POLICY_VERSION = 1
+
 _QUARTO_CROSSREF_PREFIXES = (
     "fig-", "tbl-", "eq-", "sec-", "lst-",
     "thm-", "lem-", "cor-", "prp-", "cnj-", "def-", "exm-", "exr-",
@@ -63,7 +65,7 @@ class CheckReport:
         return self.error_count == 0
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "check_schema": 1,
             "mode": self.mode,
             "ok": self.ok,
@@ -75,6 +77,14 @@ class CheckReport:
             },
             "results": [r.as_dict() for r in self.results],
         }
+        if self.mode == "release":
+            payload["release_gate"] = {
+                "policy_version": RELEASE_GATE_POLICY_VERSION,
+                "ready": self.ok,
+                "blocking_errors": self.error_count,
+                "warnings": self.warning_count,
+            }
+        return payload
 
 
 def _pass(check_id: str, message: str, *, severity: str = "INFO", path: str | None = None) -> CheckResult:

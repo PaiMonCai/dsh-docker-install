@@ -5,7 +5,7 @@ contains reusable implementation details so those commands share one project
 and manifest protocol instead of reimplementing it independently.
 """
 
-from .checks import CheckReport, CheckResult, run_checks
+from .checks import RELEASE_GATE_POLICY_VERSION, CheckReport, CheckResult, run_checks
 from .config import load_research_config, load_yaml, write_yaml
 from .dashboard import DASHBOARD_API_VERSION, DashboardError, make_server
 from .datasets import (
@@ -61,6 +61,7 @@ __all__ = [
     "ResearchProject",
     "RUN_MANIFEST_SCHEMA",
     "RESULT_SCHEMA",
+    "RELEASE_GATE_POLICY_VERSION",
     "ResultStatus",
     "RunResult",
     "ProjectState",
