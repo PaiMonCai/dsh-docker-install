@@ -35,14 +35,12 @@ system_python="/usr/bin/python3"
 base_python="$base_venv/bin/python"
 
 needs_recreate=0
+system_python_version="$("$system_python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 if [[ ! -x "$runtime_venv/bin/python" ]]; then
   needs_recreate=1
-elif ! "$runtime_venv/bin/python" - <<'PY' >/dev/null 2>&1
-import sys
-assert sys.version_info[:2] == (3, 11)
-PY
-then
-  needs_recreate=1
+else
+  runtime_python_version="$("$runtime_venv/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+  [[ "$runtime_python_version" == "$system_python_version" ]] || needs_recreate=1
 fi
 
 if [[ "$needs_recreate" == "1" ]]; then
