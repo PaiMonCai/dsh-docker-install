@@ -97,6 +97,62 @@ class DatasetCatalogTests(unittest.TestCase):
             self.assertEqual(len(failures), 1)
             self.assertEqual(failures[0].status, "invalid")
 
+    def test_upstream_change_marks_downstream_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self.make_project(root)
+            (root / "data" / "raw").mkdir(parents=True)
+            (root / "data" / "processed").mkdir(parents=True)
+            source = root / "data" / "raw" / "source.csv"
+            panel = root / "data" / "processed" / "panel.csv"
+            source.write_text("id,x\n1,2\n", encoding="utf-8")
+            panel.write_text("id,y\n1,3\n", encoding="utf-8")
+
+            register_dataset(project, dataset_id="source", path=source, kind="raw")
+            register_dataset(
+                project,
+                dataset_id="panel",
+                path=panel,
+                kind="processed",
+                inputs=["source"],
+            )
+            self.assertTrue(all(x.status == "current" for x in verify_catalog(project)))
+
+            source.write_text("id,x\n1,99\n", encoding="utf-8")
+            register_dataset(
+                project,
+                dataset_id="source",
+                path=source,
+                kind="raw",
+                force=True,
+            )
+            statuses = {x.dataset_id: x for x in verify_catalog(project)}
+            self.assertEqual(statuses["source"].status, "current")
+            self.assertEqual(statuses["panel"].status, "stale")
+            self.assertIn("upstream dataset SHA256 changed", statuses["panel"].message)
+
+    def test_code_change_marks_dataset_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self.make_project(root)
+            (root / "data" / "processed").mkdir(parents=True)
+            (root / "src").mkdir()
+            data = root / "data" / "processed" / "panel.csv"
+            code = root / "src" / "clean.py"
+            data.write_text("id,y\n1,3\n", encoding="utf-8")
+            code.write_text("print('v1')\n", encoding="utf-8")
+            register_dataset(
+                project,
+                dataset_id="panel",
+                path=data,
+                kind="processed",
+                code=["src/clean.py"],
+            )
+            code.write_text("print('v2')\n", encoding="utf-8")
+            status = {x.dataset_id: x for x in verify_catalog(project)}["panel"]
+            self.assertEqual(status.status, "stale")
+            self.assertIn("lineage code SHA256 changed", status.message)
+
     def test_force_required_to_update_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
