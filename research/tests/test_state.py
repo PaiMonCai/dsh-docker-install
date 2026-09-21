@@ -45,8 +45,31 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(infer_template({"schema": 1, "economics": {}}), "economics")
         self.assertEqual(infer_template({"schema": 1, "research": {"field": ""}}), "default")
 
+    def test_migration_is_idempotent(self) -> None:
+        current = {
+            "schema": 2,
+            "project": {"slug": "x", "title": "X", "template": "default", "status": "active"},
+        }
+        self.assertEqual(migrate_config(current, 2), current)
+
 
 class ProjectStateTests(unittest.TestCase):
+    def test_state_reads_schema1_without_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            write_yaml(
+                root / "research.yaml",
+                {
+                    "schema": 1,
+                    "project": {"slug": "legacy", "title": "Legacy"},
+                    "research": {"field": "", "question": "", "hypotheses": []},
+                },
+            )
+            state = build_project_state(ResearchProject(root))
+            self.assertEqual(state.project["config_schema"], 1)
+            self.assertEqual(state.project["template"], "default")
+            self.assertEqual(load_yaml(root / "research.yaml")["schema"], 1)
+
     def test_state_aggregates_existing_v1_objects(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td).resolve()
