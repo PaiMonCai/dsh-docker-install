@@ -454,8 +454,22 @@ network_report() {
   fi
 }
 
-pull_best_image() {
-  local candidates=() img
+image_contract_ok() {
+  local img="$1" probe
+
+  if [[ "$DSH_EDITION" != "research" ]]; then
+    return 0
+  fi
+
+  probe='command -v research-init >/dev/null && command -v research-run >/dev/null && command -v quarto >/dev/null'
+  if [[ "$DSH_RESEARCH_PACK" == "economics" ]]; then
+    probe="$probe && test \"\${DSH_RESEARCH_PACK:-}\" = economics && command -v research-econ-data >/dev/null && command -v research-econ-model >/dev/null && command -v research-econ-did >/dev/null"
+  fi
+
+  docker_cmd run --rm --entrypoint sh "$img" -c "$probe" >/dev/null 2>&1
+}
+
+pull_best_image() {  local candidates=() img
   local official="" mirror=""
 
   if [[ "$DSH_EDITION" == "research" ]]; then
@@ -494,9 +508,13 @@ pull_best_image() {
   for img in "${candidates[@]}"; do
     info "尝试: $img"
     if docker_cmd pull "$img"; then
-      DSH_IMAGE="$img"
-      ok "镜像可用: $DSH_IMAGE"
-      return 0
+      if image_contract_ok "$img"; then
+        DSH_IMAGE="$img"
+        ok "镜像可用: $DSH_IMAGE"
+        return 0
+      fi
+      warn "镜像已拉取，但不满足当前 edition / Research Pack 的运行契约: $img"
+      continue
     fi
     warn "拉取失败: $img"
   done
@@ -505,9 +523,12 @@ pull_best_image() {
     local custom
     read -r -p "请输入自定义镜像地址（留空退出）: " custom || true
     if [[ -n "$custom" ]] && docker_cmd pull "$custom"; then
-      DSH_IMAGE="$custom"
-      ok "镜像可用: $DSH_IMAGE"
-      return 0
+      if image_contract_ok "$custom"; then
+        DSH_IMAGE="$custom"
+        ok "镜像可用: $DSH_IMAGE"
+        return 0
+      fi
+      warn "自定义镜像不满足当前 edition / Research Pack 的运行契约: $custom"
     fi
   fi
 
