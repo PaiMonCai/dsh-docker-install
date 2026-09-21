@@ -88,6 +88,19 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     quarto --version
 
+# Quarto can reuse Playwright's bundled Chrome Headless Shell. Expose a stable
+# path because Quarto does not discover Playwright's cache location itself.
+RUN set -eux; \
+    shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name headless_shell -print -quit 2>/dev/null || true)"; \
+    if [ -z "$shell" ]; then \
+      npx playwright install --only-shell chromium; \
+      shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name headless_shell -print -quit)"; \
+    fi; \
+    test -n "$shell"; \
+    test -x "$shell"; \
+    ln -sf "$shell" /usr/local/bin/chrome-headless-shell; \
+    chrome-headless-shell --version
+
 COPY research/python-requirements.txt /opt/dsh-research/python-requirements.txt
 
 RUN uv venv --seed /opt/dsh-research/venv \
@@ -102,8 +115,10 @@ COPY research/bin/ /usr/local/bin/
 COPY research/templates/ /opt/dsh-research/templates/
 COPY research/adapter/ /opt/dsh-research/adapter/
 COPY research/adapter/dsh-wrapper /opt/dsh-research/venv/bin/dsh
+COPY research/entrypoint.sh /usr/local/bin/dsh-research-entrypoint
 
 RUN chmod 0755 \
+      /usr/local/bin/dsh-research-entrypoint \
       /opt/dsh-research/venv/bin/dsh \
       /opt/dsh-research/adapter/smoke-web.sh \
       /usr/local/bin/research-init \
@@ -141,6 +156,10 @@ RUN chmod 0755 \
  && /opt/dsh-research/adapter/smoke-web.sh \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
+ && lualatex --version | head -1 \
+ && luaotfload-tool --version | head -1 \
+ && Rscript -e 'stopifnot(requireNamespace("knitr", quietly=TRUE)); stopifnot(requireNamespace("rmarkdown", quietly=TRUE))' \
+ && chrome-headless-shell --version \
  && latexmk -v | head -1 \
  && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
       printf '%s\n' \
@@ -196,6 +215,12 @@ RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-mo
 
 WORKDIR /workspace
 
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dsh-research-entrypoint"]
+CMD ["web"]
+
 # 默认本地构建仍得到通用 Research 版；CI 可显式 --target research-economics。
 FROM research-core AS research-final
 WORKDIR /workspace
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dsh-research-entrypoint"]
+CMD ["web"]
