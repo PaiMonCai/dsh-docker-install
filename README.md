@@ -524,6 +524,8 @@ research-init --template economics thesis "经济学本科毕业论文"
 它额外提供 pyfixest、linearmodels、arch、World Bank / DataReader 工具，并要求在
 `research.yaml` 明确 estimand、识别策略、固定效应、标准误/聚类层级和稳健性计划。
 
+正式回归可通过 `research-econ-model` 生成可校验的 model manifest、Markdown/CSV 回归表、系数图，并自动写入 Quarto 论文结果区；生成结果支持 `@tbl-econ-<name>` 与 `@fig-econ-<name>` 交叉引用。
+
 完整设计与构建说明见 `research/README.md`。
 
 ## 其他运行模式
