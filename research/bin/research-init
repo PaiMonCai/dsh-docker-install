@@ -1,27 +1,59 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-TEMPLATE_ROOT="${DSH_RESEARCH_HOME:-/opt/dsh-research}/templates/default"
+RESEARCH_HOME="${DSH_RESEARCH_HOME:-/opt/dsh-research}"
+DEFAULT_TEMPLATE="$RESEARCH_HOME/templates/default"
+PACK_TEMPLATE_ROOT="$RESEARCH_HOME/templates/packs"
 
 usage() {
   cat <<'EOF'
 用法:
-  research-init <project-slug> [title] [destination]
+  research-init [--template default|economics] <project-slug> [title] [destination]
+  research-init --list-templates
 
 示例:
   research-init ai-productivity "AI 与生产率"
-  research-init thesis "本科毕业论文" /workspace/thesis
+  research-init --template economics minimum-wage "最低工资与就业"
+  research-init --template economics thesis "本科毕业论文" /workspace/thesis
 EOF
 }
 
+list_templates() {
+  printf 'default\n'
+  if [[ -d "$PACK_TEMPLATE_ROOT" ]]; then
+    find "$PACK_TEMPLATE_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  fi
+}
+
 if [[ "${1:-}" == "--self-test" ]]; then
-  [[ -d "$TEMPLATE_ROOT" ]] || { echo "missing template: $TEMPLATE_ROOT" >&2; exit 1; }
-  [[ -f "$TEMPLATE_ROOT/research.yaml" ]] || exit 1
+  [[ -d "$DEFAULT_TEMPLATE" ]] || { echo "missing template: $DEFAULT_TEMPLATE" >&2; exit 1; }
+  [[ -f "$DEFAULT_TEMPLATE/research.yaml" ]] || exit 1
+  [[ -f "$DEFAULT_TEMPLATE/AGENTS.md" ]] || exit 1
+  if [[ -d "$PACK_TEMPLATE_ROOT/economics" ]]; then
+    [[ -f "$PACK_TEMPLATE_ROOT/economics/research.yaml" ]] || exit 1
+    [[ -f "$PACK_TEMPLATE_ROOT/economics/AGENT_APPEND.md" ]] || exit 1
+  fi
   echo "research-init self-test passed"
   exit 0
 fi
 
+if [[ "${1:-}" == "--list-templates" ]]; then
+  list_templates
+  exit 0
+fi
+
 [[ "${1:-}" != "-h" && "${1:-}" != "--help" ]] || { usage; exit 0; }
+
+template="default"
+if [[ "${1:-}" == "--template" ]]; then
+  [[ $# -ge 3 ]] || { usage >&2; exit 2; }
+  template="$2"
+  shift 2
+elif [[ "${1:-}" == --template=* ]]; then
+  template="${1#--template=}"
+  shift
+fi
+
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 
 slug="$1"
@@ -33,16 +65,53 @@ destination="${3:-$PWD/$slug}"
   exit 2
 }
 
+case "$template" in
+  default)
+    ;;
+  economics)
+    if [[ ! -d "$PACK_TEMPLATE_ROOT/economics" ]]; then
+      echo "Economics 项目模板未安装。" >&2
+      exit 1
+    fi
+    if ! python -c 'import pyfixest, linearmodels, arch' >/dev/null 2>&1; then
+      cat >&2 <<'EOF'
+Economics 模板需要 Economics Research Pack。
+请先在宿主机执行:
+  dshd research-pack economics
+然后重建/切换到 Economics 镜像。
+EOF
+      exit 1
+    fi
+    ;;
+  *)
+    echo "未知模板: $template" >&2
+    echo "可用模板:" >&2
+    list_templates >&2
+    exit 2
+    ;;
+esac
+
 if [[ -e "$destination" ]] && [[ -n "$(find "$destination" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
   echo "目标目录已存在且非空: $destination" >&2
   exit 1
 fi
 
 mkdir -p "$destination"
-cp -a "$TEMPLATE_ROOT/." "$destination/"
+cp -a "$DEFAULT_TEMPLATE/." "$destination/"
+
+if [[ "$template" != "default" ]]; then
+  pack_root="$PACK_TEMPLATE_ROOT/$template"
+  cp -a "$pack_root/." "$destination/"
+
+  if [[ -f "$destination/AGENT_APPEND.md" ]]; then
+    printf '\n' >>"$destination/AGENTS.md"
+    cat "$destination/AGENT_APPEND.md" >>"$destination/AGENTS.md"
+    rm -f "$destination/AGENT_APPEND.md"
+  fi
+fi
 
 created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-python - "$destination" "$slug" "$title" "$created_at" <<'PY'
+python - "$destination" "$slug" "$title" "$created_at" "$template" <<'PY'
 from pathlib import Path
 import sys
 
@@ -51,6 +120,7 @@ values = {
     "__PROJECT_SLUG__": sys.argv[2],
     "__PROJECT_TITLE__": sys.argv[3],
     "__CREATED_AT__": sys.argv[4],
+    "__PROJECT_TEMPLATE__": sys.argv[5],
 }
 for path in root.rglob("*"):
     if not path.is_file():
@@ -71,4 +141,5 @@ if ! git -C "$destination" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 printf 'Research project created: %s\n' "$destination"
+printf 'Template: %s\n' "$template"
 printf 'Next: cd %q && edit research.yaml\n' "$destination"
