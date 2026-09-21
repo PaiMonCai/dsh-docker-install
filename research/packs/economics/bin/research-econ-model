@@ -270,7 +270,7 @@ def qmd_from_manifests(root: Path) -> str:
 
     if not manifests and not comparisons:
         lines += [
-            "_暂无已登记的经济学模型结果。运行 \`research-econ-model feols ...\` 后本节会自动更新。_",
+            "_暂无已登记的经济学模型结果。运行 `research-econ-model feols ...` 后本节会自动更新。_",
             "",
         ]
         return "\n".join(lines)
@@ -313,9 +313,9 @@ def qmd_from_manifests(root: Path) -> str:
             lines += [
                 f"### {title}",
                 "",
-                f"**Specification:** \`{formula}\`  ",
+                f"**Specification:** `{formula}`  ",
                 f"**Inference:** {inference}  ",
-                f"**Data:** \`{data_info.get('path','')}\`; SHA256 \`{data_info.get('sha256','')}\`  ",
+                f"**Data:** `{data_info.get('path','')}`; SHA256 `{data_info.get('sha256','')}`  ",
                 f"**Input rows:** {data_info.get('input_rows','')}  ",
                 f"**Estimation observations:** {(data.get('estimation') or {}).get('nobs','')}  ",
                 "",
