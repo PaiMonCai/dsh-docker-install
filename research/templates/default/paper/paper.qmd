@@ -1,0 +1,46 @@
+---
+title: "__PROJECT_TITLE__"
+author: ""
+lang: zh-CN
+bibliography: ../literature/references.bib
+format:
+  html:
+    toc: true
+  pdf:
+    pdf-engine: xelatex
+    toc: true
+    mainfont: "Noto Serif CJK SC"
+    sansfont: "Noto Sans CJK SC"
+execute:
+  echo: false
+  warning: false
+  freeze: auto
+---
+
+# 摘要
+
+在这里写摘要。
+
+# 研究问题
+
+在这里定义研究问题与可检验假设。
+
+# 文献综述
+
+文献引用示例：[@citation_key]。
+
+# 数据与方法
+
+说明数据来源、样本、变量和识别/实验策略。
+
+# 结果
+
+从 `../results/` 引用由代码生成的表格和图形。
+
+# 稳健性与局限
+
+说明稳健性检验、潜在偏误和研究边界。
+
+# 结论
+
+总结发现，并区分证据、解释与推测。
