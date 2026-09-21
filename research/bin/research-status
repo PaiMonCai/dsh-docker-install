@@ -6,6 +6,7 @@ import json
 import sys
 
 from dsh_research.errors import ResearchError
+from dsh_research.json_api import failure_json, success_json
 from dsh_research.project import ResearchProject
 from dsh_research.state import build_project_state, render_project_state
 
@@ -49,16 +50,38 @@ def main(argv: list[str] | None = None) -> int:
     try:
         state = build_project_state(ResearchProject.discover())
         if args.json:
-            print(json.dumps(state.as_dict(), ensure_ascii=False, indent=2))
+            success_json(
+                command="research-status",
+                operation="status",
+                data=state.as_dict(),
+            )
         else:
             print(render_project_state(state))
         return 0
     except ResearchError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+        if args.json:
+            failure_json(
+                command="research-status",
+                operation="status",
+                code="RESEARCH_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        if args.json:
+            failure_json(
+                command="research-status",
+                operation="status",
+                code="INTERNAL_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
