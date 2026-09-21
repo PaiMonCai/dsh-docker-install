@@ -255,6 +255,14 @@ def source_uid(metadata: dict[str, Any]) -> str:
     return f"{metadata.get('source_type','source')}:{metadata.get('identifier','')}"
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def load_registry(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -353,9 +361,11 @@ def ensure_layout(root: Path) -> dict[str, Path]:
         "registry": literature / "sources.jsonl",
         "notes": literature / "notes",
         "pdfs": literature / "pdfs",
+        "extracted": literature / "extracted",
     }
     paths["notes"].mkdir(parents=True, exist_ok=True)
     paths["pdfs"].mkdir(parents=True, exist_ok=True)
+    paths["extracted"].mkdir(parents=True, exist_ok=True)
     if not paths["bib"].exists():
         paths["bib"].write_text("% Managed by DSH Research.\n", encoding="utf-8")
     if not paths["matrix"].exists():
@@ -427,7 +437,13 @@ def upsert_evidence(path: Path, metadata: dict[str, Any], key: str) -> None:
         writer.writerows(rows)
 
 
-def make_note(path: Path, metadata: dict[str, Any], key: str, project_pdf: str) -> bool:
+def make_note(
+    path: Path,
+    metadata: dict[str, Any],
+    key: str,
+    project_pdf: str,
+    pdf_sha256: str = "",
+) -> bool:
     if path.exists():
         return False
     authors = "; ".join(metadata.get("authors") or [])
@@ -442,6 +458,7 @@ def make_note(path: Path, metadata: dict[str, Any], key: str, project_pdf: str) 
 - arXiv: {metadata.get('arxiv_id') or ''}
 - URL: {metadata.get('url') or ''}
 - Local PDF: {project_pdf}
+- PDF SHA256: {pdf_sha256}
 - Imported: {utc_now()}
 - Metadata provider: {metadata.get('metadata_provider') or ''}
 
@@ -497,6 +514,7 @@ def ingest(
 ) -> dict[str, Any]:
     paths = ensure_layout(root)
     project_pdf = ""
+    pdf_sha256 = ""
     raw_bib = None
 
     if kind == "doi":
@@ -573,14 +591,18 @@ def ingest(
         if source != dest:
             shutil.copy2(source, dest)
         project_pdf = str(dest.relative_to(root))
+        pdf_sha256 = sha256_file(dest)
         metadata["project_pdf"] = project_pdf
+        metadata["project_pdf_sha256"] = pdf_sha256
+    elif kind == "pdf":
+        pdf_sha256 = sha256_file(Path(value).expanduser().resolve())
 
     bib_entry = rekey_bibtex(raw_bib, key) if raw_bib else manual_bibtex(metadata, key)
     bib_added = upsert_bib(paths["bib"], key, bib_entry)
     upsert_evidence(paths["matrix"], metadata, key)
 
     note_path = paths["notes"] / f"{key}.md"
-    note_added = make_note(note_path, metadata, key, project_pdf)
+    note_added = make_note(note_path, metadata, key, project_pdf, pdf_sha256)
 
     record = {
         "schema": 1,
@@ -595,6 +617,7 @@ def ingest(
         "arxiv_id": metadata.get("arxiv_id", ""),
         "url": metadata.get("url", ""),
         "project_pdf": project_pdf or metadata.get("project_pdf", ""),
+        "pdf_sha256": pdf_sha256,
         "metadata_provider": metadata.get("metadata_provider", ""),
         "imported_at": utc_now(),
     }
@@ -703,6 +726,24 @@ def verify(root: Path, quiet: bool = False) -> tuple[list[str], list[str]]:
         key = str(record.get("citation_key") or "")
         if key and key not in key_set:
             errors.append(f"sources.jsonl 的 {key} 不存在于 references.bib。")
+        project_pdf = str(record.get("project_pdf") or "")
+        expected_hash = str(record.get("pdf_sha256") or "")
+        if project_pdf:
+            pdf_path = root / project_pdf
+            if not pdf_path.is_file():
+                errors.append(f"{key} 登记的本地 PDF 不存在: {project_pdf}")
+            elif expected_hash:
+                actual_hash = sha256_file(pdf_path)
+                if actual_hash != expected_hash:
+                    errors.append(f"{key} 的 PDF SHA256 已变化: {project_pdf}")
+        extracted_text = str(record.get("extracted_text") or "")
+        extracted_hash = str(record.get("extracted_sha256") or "")
+        if extracted_text:
+            extracted_path = root / extracted_text
+            if not extracted_path.is_file():
+                warnings.append(f"{key} 登记的提取文本不存在: {extracted_text}")
+            elif extracted_hash and sha256_file(extracted_path) != extracted_hash:
+                warnings.append(f"{key} 的提取文本已变化: {extracted_text}")
 
     paper_dir = root / "paper"
     cited: set[str] = set()
@@ -736,6 +777,60 @@ def verify(root: Path, quiet: bool = False) -> tuple[list[str], list[str]]:
         if not errors:
             print(f"[ok] literature verify passed ({len(rows)} evidence rows, {len(key_set)} bib entries)")
     return errors, warnings
+
+
+def extract_pdf(root: Path, citation_key: str, force: bool = False) -> Path:
+    paths = ensure_layout(root)
+    records = load_registry(paths["registry"])
+    record = next((r for r in records if r.get("citation_key") == citation_key), None)
+    if record is None:
+        raise LiteratureError(f"未找到 citation key: {citation_key}")
+
+    pdf_value = str(record.get("project_pdf") or "")
+    pdf_path = root / pdf_value if pdf_value else Path(str(record.get("identifier") or "")).expanduser()
+    if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf":
+        raise LiteratureError(
+            f"{citation_key} 没有可读取的本地 PDF；重新用 research-literature add <pdf> 导入。"
+        )
+
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise LiteratureError("Research 环境缺少 pypdf。") from exc
+
+    output = paths["extracted"] / f"{citation_key}.txt"
+    if output.exists() and not force:
+        return output
+
+    pdf_hash = sha256_file(pdf_path)
+    reader = PdfReader(str(pdf_path))
+    parts = [
+        f"# citation_key: {citation_key}",
+        f"# pdf: {pdf_value or pdf_path}",
+        f"# pdf_sha256: {pdf_hash}",
+        f"# extracted_at: {utc_now()}",
+        "",
+    ]
+    for number, page in enumerate(reader.pages, start=1):
+        try:
+            page_text = page.extract_text() or ""
+        except Exception as exc:
+            page_text = f"[page extraction failed: {type(exc).__name__}: {exc}]"
+        parts.extend(
+            [
+                f"===== PAGE {number} =====",
+                page_text.rstrip(),
+                "",
+            ]
+        )
+    output.write_text("\n".join(parts), encoding="utf-8")
+
+    record["pdf_sha256"] = pdf_hash
+    record["extracted_text"] = str(output.relative_to(root))
+    record["extracted_sha256"] = sha256_file(output)
+    record["extracted_at"] = utc_now()
+    upsert_registry(paths["registry"], record)
+    return output
 
 
 def list_sources(root: Path) -> None:
@@ -815,6 +910,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list", help="列出已导入来源")
 
+    extract = sub.add_parser("extract", help="把已导入 PDF 提取为带页码标记的本地文本")
+    extract.add_argument("citation_key", help="要提取的 citation key")
+    extract.add_argument("--force", action="store_true", help="覆盖已有提取文本")
+
     review = sub.add_parser("review", help="从 Evidence Matrix 生成可追溯证据综述索引")
     review.add_argument("--output", default="", help="输出 Markdown 路径")
 
@@ -853,6 +952,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "list":
             list_sources(root)
+            return 0
+        if args.command == "extract":
+            output = extract_pdf(root, args.citation_key, force=args.force)
+            print(f"[ok] extracted: {output}")
             return 0
         if args.command == "review":
             output = Path(args.output).expanduser() if args.output else None
