@@ -1,0 +1,30 @@
+schema: 1
+
+# DSH Research Pipeline.
+#
+# Keep steps explicit: dependencies, inputs, outputs and relevant research config
+# are used to compute deterministic step signatures.
+#
+# Example:
+#
+# steps:
+#   clean:
+#     command: [python, src/clean.py]
+#     inputs:
+#       datasets: [raw-source]
+#       files: [src/clean.py]
+#     outputs:
+#       datasets: [panel]
+#
+#   paper:
+#     depends_on: [clean]
+#     command: [quarto, render, paper/paper.qmd]
+#     inputs:
+#       files:
+#         - paper/**/*.qmd
+#         - literature/references.bib
+#     outputs:
+#       files:
+#         - paper/paper.html
+
+steps: {}
