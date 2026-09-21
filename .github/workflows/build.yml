@@ -83,6 +83,95 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Build amd64 audit image
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          build-args: |
+            DSH_VERSION=${{ steps.ver.outputs.version }}
+          tags: dsh-ci:pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify runtime development capabilities
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          docker run --rm --entrypoint bash dsh-ci:pr -lc '
+            set -euo pipefail
+            node --version
+            npm --version
+            pnpm --version
+            python3 --version
+            python3 -m pip --version
+            uv --version
+            tmp_venv="$(mktemp -d)/venv"
+            python3 -m venv "$tmp_venv"
+            "$tmp_venv/bin/python" --version
+            go version
+            tmp_go="$(mktemp -d)"
+            cat >"$tmp_go/main.go" <<'"'"'EOF'"'"'
+          package main
+          import "fmt"
+          func main() { fmt.Println("go toolchain ok") }
+          EOF
+            (cd "$tmp_go" && go build -o hello main.go && ./hello)
+            docker --version
+            docker buildx version
+            docker compose version
+            chromium --version
+            playwright --version
+            dsh --version
+            test ! -e /usr/local/go/api
+            test ! -e /usr/local/go/doc
+            test ! -e /usr/local/go/misc
+            test ! -e /usr/local/go/test
+            test ! -e /usr/local/bin/cn-mirror
+            test ! -e /usr/local/bin/patch-remote-settings.js
+          '
+
+      - name: Report image footprint
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          bytes="$(docker image inspect dsh-ci:pr --format '{{.Size}}')"
+          mib="$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
+          echo "DSH audit image size: ${mib} MiB (${bytes} bytes)"
+
+          docker run --rm --entrypoint bash dsh-ci:pr -lc \
+            'du -sh /usr/local/go /usr/local/lib/node_modules /ms-playwright /usr/lib /usr/bin 2>/dev/null || true' \
+            | tee /tmp/dsh-footprint.txt
+
+          baseline=""
+          if docker pull "${{ steps.img.outputs.name }}:latest" >/dev/null 2>&1; then
+            baseline_bytes="$(docker image inspect "${{ steps.img.outputs.name }}:latest" --format '{{.Size}}')"
+            baseline_mib="$(awk -v b="$baseline_bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
+            baseline="- Current published latest (local uncompressed): **${baseline_mib} MiB** (${baseline_bytes} bytes)"
+          fi
+
+          {
+            echo "### DSH image footprint"
+            echo
+            echo "- PR audit image (local uncompressed): **${mib} MiB** (${bytes} bytes)"
+            if [ -n "$baseline" ]; then
+              echo "$baseline"
+            fi
+            echo
+            echo "#### Major runtime paths"
+            echo '~~~text'
+            cat /tmp/dsh-footprint.txt
+            echo '~~~'
+            echo
+            echo "#### Docker layers"
+            echo '~~~text'
+            docker history dsh-ci:pr --format '{{.Size}}\t{{.CreatedBy}}'
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
