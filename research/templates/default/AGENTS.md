@@ -12,9 +12,11 @@ You are working inside a reproducible research project. Optimize for traceabilit
 
 ## Literature
 
+- Prefer `research-literature add <DOI|arXiv|PDF>` to register papers instead of inventing metadata by hand.
 - Maintain `literature/evidence-matrix.csv` for papers that materially support the project.
 - Record at least the paper identity, research question, data, method, key finding, limitation, and relevance.
-- Put BibTeX entries in `literature/references.bib`.
+- Put BibTeX entries in `literature/references.bib`; keep structured paper notes under `literature/notes/`.
+- Run `research-literature verify` before finalizing a literature review or paper.
 - A literature summary should be traceable to specific papers; do not treat model-generated prose as evidence.
 
 ## Data
