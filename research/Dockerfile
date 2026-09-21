@@ -55,7 +55,7 @@ RUN set -eux; \
 
 COPY research/python-requirements.txt /opt/dsh-research/python-requirements.txt
 
-RUN uv venv /opt/dsh-research/venv \
+RUN uv venv --seed /opt/dsh-research/venv \
  && uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/python-requirements.txt \
  && python --version \
