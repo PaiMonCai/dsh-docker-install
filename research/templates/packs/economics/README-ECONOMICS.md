@@ -97,8 +97,26 @@ Quarto 交叉引用：
 
 ```bash
 research-econ-model list
+
+# 把多个已登记模型并成一张论文回归表：
+research-econ-model compare \
+  --name main \
+  --title "主回归结果" \
+  --model baseline \
+  --model controls \
+  --term treatment
+
 research-econ-model render
 research-econ-model verify
 ```
 
-如果分析数据、表格或系数图在登记后被手动改动，`verify` 会报 SHA256 不一致。
+`compare` 不会重新估计模型，而是读取各模型 manifest；如果任一底层模型后来被重新估计，
+comparison manifest 的模型 SHA256 会失效，`verify` 会要求重新生成比较表。
+
+生成的并列表可以在 Quarto 中引用：
+
+```text
+@tbl-econ-compare-main
+```
+
+如果分析数据、表格、系数图或比较表在登记后被手动改动，`verify` 会报 SHA256 不一致。
