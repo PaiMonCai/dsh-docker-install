@@ -14,6 +14,7 @@ from .config import load_research_config
 from .datasets import verify_catalog
 from .hashing import sha256_file
 from .manifests import read_jsonl
+from .pipeline import load_pipeline, step_statuses
 from .project import ResearchProject
 from .schema import CURRENT_PROJECT_SCHEMA, infer_template, validate_project_schema
 from .vcs import git_state
@@ -369,6 +370,53 @@ def run_checks(project: ResearchProject, mode: str = "full") -> CheckReport:
                     path="data/catalog",
                 )
             )
+
+    pipeline_path = root / "pipeline.yaml"
+    if pipeline_path.is_file():
+        try:
+            pipeline = load_pipeline(project)
+            pipeline_status = step_statuses(project, pipeline)
+            stale_steps = [
+                item.as_dict()
+                for item in pipeline_status.values()
+                if item.status != "current"
+            ]
+            if stale_steps:
+                results.append(
+                    _fail(
+                        "pipeline.state",
+                        "ERROR" if mode == "release" else "WARN",
+                        f"{len(stale_steps)} pipeline step(s) are stale.",
+                        path="pipeline.yaml",
+                        details={"steps": stale_steps},
+                    )
+                )
+            else:
+                results.append(
+                    _pass(
+                        "pipeline.state",
+                        f"{len(pipeline_status)} pipeline step(s) are current.",
+                        path="pipeline.yaml",
+                    )
+                )
+        except Exception as exc:
+            results.append(
+                _fail(
+                    "pipeline.definition",
+                    "ERROR",
+                    f"Invalid pipeline.yaml: {type(exc).__name__}: {exc}",
+                    path="pipeline.yaml",
+                )
+            )
+    else:
+        results.append(
+            _skip(
+                "pipeline.definition",
+                "pipeline.yaml is not present; pipeline checks skipped.",
+                severity="INFO",
+                path="pipeline.yaml",
+            )
+        )
 
     literature = root / "literature"
     bib_path = literature / "references.bib"

@@ -19,6 +19,16 @@ from .datasets import (
 )
 from .hashing import FileFingerprint, fingerprint_file, sha256_file, tree_digest
 from .manifests import load_json, read_jsonl, write_json, write_jsonl
+from .pipeline import (
+    PIPELINE_SCHEMA,
+    PipelineDefinition,
+    PipelineStep,
+    StepStatus,
+    execute_pipeline,
+    load_pipeline,
+    step_statuses,
+    topological_order,
+)
 from .project import ResearchProject, find_project_root
 from .schema import CURRENT_PROJECT_SCHEMA, migrate_config, migrate_project, validate_project_schema
 from .state import ProjectState, build_project_state
@@ -33,16 +43,22 @@ __all__ = [
     "GitState",
     "ResearchProject",
     "ProjectState",
+    "PIPELINE_SCHEMA",
+    "PipelineDefinition",
+    "PipelineStep",
+    "StepStatus",
     "CURRENT_PROJECT_SCHEMA",
     "all_dataset_statuses",
     "build_project_state",
     "dataset_status",
+    "execute_pipeline",
     "find_project_root",
     "fingerprint_file",
     "git_state",
     "lineage_tree",
     "load_dataset_manifest",
     "load_json",
+    "load_pipeline",
     "load_research_config",
     "load_yaml",
     "migrate_config",
@@ -52,6 +68,8 @@ __all__ = [
     "run_checks",
     "sha256_file",
     "tree_digest",
+    "step_statuses",
+    "topological_order",
     "write_json",
     "write_jsonl",
     "validate_project_schema",

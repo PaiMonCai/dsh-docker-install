@@ -12,6 +12,7 @@ from typing import Any
 from .config import load_research_config
 from .datasets import verify_catalog
 from .manifests import read_jsonl
+from .pipeline import load_pipeline, step_statuses
 from .project import ResearchProject
 from .schema import infer_template, validate_project_schema
 from .vcs import git_state
@@ -53,6 +54,7 @@ class ProjectState:
     design: dict[str, Any]
     literature: dict[str, Any]
     data: dict[str, Any]
+    pipeline: dict[str, Any]
     runs: dict[str, Any]
     results: dict[str, Any]
     paper: dict[str, Any]
@@ -125,9 +127,31 @@ def build_project_state(project: ResearchProject) -> ProjectState:
         for key in ("current", "stale", "missing", "invalid")
     }
 
+    pipeline_info: dict[str, Any] = {
+        "available": False,
+        "steps": 0,
+        "current": 0,
+        "stale": 0,
+        "error": None,
+    }
+    if (root / "pipeline.yaml").is_file():
+        pipeline_info["available"] = True
+        try:
+            pipeline = load_pipeline(project)
+            pipeline_status = step_statuses(project, pipeline)
+            pipeline_info["steps"] = len(pipeline_status)
+            pipeline_info["current"] = sum(
+                1 for item in pipeline_status.values() if item.status == "current"
+            )
+            pipeline_info["stale"] = sum(
+                1 for item in pipeline_status.values() if item.status == "stale"
+            )
+        except Exception as exc:
+            pipeline_info["error"] = f"{type(exc).__name__}: {exc}"
+
     vcs = git_state(root).as_dict()
     return ProjectState(
-        state_schema=1,
+        state_schema=2,
         project={
             "root": str(root),
             "slug": str(project_cfg.get("slug") or root.name),
@@ -160,6 +184,7 @@ def build_project_state(project: ResearchProject) -> ProjectState:
             "raw_files": _count_files(raw_path, ignore_names={"README.md"}),
             "processed_files": _count_files(processed_path, ignore_names={"README.md"}),
         },
+        pipeline=pipeline_info,
         runs={
             "total": run_count,
             "failed": failed_runs,
@@ -239,6 +264,13 @@ def render_project_state(state: ProjectState) -> str:
         f"  Invalid                {d['data']['invalid']}",
         f"  Raw files              {d['data']['raw_files']}",
         f"  Processed files        {d['data']['processed_files']}",
+        "",
+        "Pipeline",
+        f"  Available              {'✓' if d['pipeline']['available'] else '—'}",
+        f"  Steps                  {d['pipeline']['steps']}",
+        f"  Current                {d['pipeline']['current']}",
+        f"  Stale                  {d['pipeline']['stale']}",
+        f"  Error                  {d['pipeline']['error'] or '—'}",
         "",
         "Runs",
         f"  Total                  {d['runs']['total']}",

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+from dsh_research.errors import ResearchError
+from dsh_research.pipeline import (
+    PipelineError,
+    execute_pipeline,
+    explain_step,
+    graph_edges,
+    load_pipeline,
+    step_statuses,
+    topological_order,
+)
+from dsh_research.project import ResearchProject
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-pipeline",
+        description="DSH Research Pipeline DAG、stale detection 与增量执行。",
+    )
+    parser.add_argument("--file", default="pipeline.yaml", help="Pipeline YAML 路径")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    status = sub.add_parser("status", help="显示所有 step 的 current/stale 状态")
+    status.add_argument("--json", action="store_true")
+
+    list_cmd = sub.add_parser("list", help="按拓扑顺序列出 step")
+    list_cmd.add_argument("--json", action="store_true")
+
+    graph = sub.add_parser("graph", help="显示 Pipeline DAG")
+    graph.add_argument("--mermaid", action="store_true")
+    graph.add_argument("--json", action="store_true")
+
+    explain = sub.add_parser("explain", help="解释 step 为什么 stale/current")
+    explain.add_argument("step")
+    explain.add_argument("--json", action="store_true")
+
+    run = sub.add_parser("run", help="增量执行 Pipeline 或指定 target")
+    run.add_argument("step", nargs="?")
+    run.add_argument("--force", action="store_true")
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--json", action="store_true")
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        (root / "research.yaml").write_text(
+            "schema: 2\nproject:\n  slug: smoke\n  title: Smoke\n  template: default\n  status: active\n",
+            encoding="utf-8",
+        )
+        (root / "input.txt").write_text("x\n", encoding="utf-8")
+        (root / "pipeline.yaml").write_text(
+            """schema: 1
+steps:
+  copy:
+    command:
+      - python
+      - -c
+      - "from pathlib import Path; Path('output.txt').write_text(Path('input.txt').read_text())"
+    inputs:
+      files: [input.txt]
+    outputs:
+      files: [output.txt]
+""",
+            encoding="utf-8",
+        )
+        project = ResearchProject(root)
+        pipeline = load_pipeline(project)
+        first = execute_pipeline(project, pipeline)
+        second = execute_pipeline(project, pipeline)
+        assert first[0]["action"] == "RUN"
+        assert second[0]["action"] == "SKIP"
+    print("research-pipeline self-test passed")
+    return 0
+
+
+def _print_status(rows) -> None:
+    for item in rows:
+        reason = f" — {item.reasons[0]}" if item.reasons else ""
+        print(f"{item.step:24} {item.status:8}{reason}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    try:
+        project = ResearchProject.discover()
+        pipeline = load_pipeline(project, args.file)
+
+        if args.command == "status":
+            rows = [step_statuses(project, pipeline)[name] for name in topological_order(pipeline)]
+            if args.json:
+                print(json.dumps(
+                    {"pipeline_schema": 1, "steps": [item.as_dict() for item in rows]},
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            else:
+                _print_status(rows)
+            return 0
+
+        if args.command == "list":
+            statuses = step_statuses(project, pipeline)
+            order = topological_order(pipeline)
+            if args.json:
+                print(json.dumps(
+                    {
+                        "pipeline_schema": 1,
+                        "steps": [
+                            {
+                                "name": name,
+                                "depends_on": list(pipeline.steps[name].depends_on),
+                                "status": statuses[name].status,
+                            }
+                            for name in order
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            else:
+                for name in order:
+                    deps = ", ".join(pipeline.steps[name].depends_on) or "-"
+                    print(f"{name:24} {statuses[name].status:8} depends_on={deps}")
+            return 0
+
+        if args.command == "graph":
+            edges = graph_edges(pipeline)
+            if args.json:
+                print(json.dumps(
+                    {"pipeline_schema": 1, "edges": [{"from": a, "to": b} for a, b in edges]},
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            elif args.mermaid:
+                print("graph TD")
+                for name in pipeline.steps:
+                    print(f"  {name}[{name}]")
+                for source, target in edges:
+                    print(f"  {source} --> {target}")
+            else:
+                if not edges:
+                    for name in pipeline.steps:
+                        print(name)
+                else:
+                    for source, target in edges:
+                        print(f"{source} -> {target}")
+            return 0
+
+        if args.command == "explain":
+            status = explain_step(project, pipeline, args.step)
+            if args.json:
+                print(json.dumps(status.as_dict(), ensure_ascii=False, indent=2))
+            else:
+                print(f"{status.step}: {status.status}")
+                print(f"signature: {status.signature}")
+                if status.latest_run:
+                    print(f"latest successful run: {status.latest_run}")
+                if status.reasons:
+                    for reason in status.reasons:
+                        print(f"- {reason}")
+                else:
+                    print("- no stale reasons")
+            return 0
+
+        if args.command == "run":
+            decisions = execute_pipeline(
+                project,
+                pipeline,
+                target=args.step,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+            if args.json:
+                print(json.dumps(
+                    {"pipeline_schema": 1, "dry_run": args.dry_run, "decisions": decisions},
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            else:
+                for item in decisions:
+                    print(f"[{item['action'].lower()}] {item['step']}")
+            return 0
+
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -179,6 +179,36 @@ class CheckEngineTests(unittest.TestCase):
             self.assertEqual(model.status, "fail")
             self.assertEqual(model.severity, "ERROR")
 
+    def test_stale_pipeline_is_warning_full_and_error_release(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            make_project(root)
+            write_yaml(
+                root / "pipeline.yaml",
+                {
+                    "schema": 1,
+                    "steps": {
+                        "paper": {
+                            "command": ["python", "-c", "from pathlib import Path; Path('paper/out.txt').write_text('x')"],
+                            "inputs": {"files": ["paper/paper.qmd"]},
+                            "outputs": {"files": ["paper/out.txt"]},
+                        }
+                    },
+                },
+            )
+            project = ResearchProject(root)
+            full = run_checks(project, "full")
+            full_result = next(r for r in full.results if r.id == "pipeline.state")
+            self.assertEqual(full_result.status, "fail")
+            self.assertEqual(full_result.severity, "WARN")
+            self.assertTrue(full.ok)
+
+            release = run_checks(project, "release")
+            release_result = next(r for r in release.results if r.id == "pipeline.state")
+            self.assertEqual(release_result.status, "fail")
+            self.assertEqual(release_result.severity, "ERROR")
+            self.assertFalse(release.ok)
+
     def test_release_requires_clean_git_and_rendered_paper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td).resolve()
