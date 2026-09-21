@@ -25,6 +25,8 @@ LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/root/.dsh \
+    TZ=Asia/Shanghai \
+    NPM_CONFIG_CACHE=/tmp/npm-cache \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
@@ -59,6 +61,7 @@ RUN chmod +x /usr/local/bin/cn-mirror \
       python3-pip \
       python3-venv \
       tini \
+      tzdata \
       unzip \
       wget \
       zip \

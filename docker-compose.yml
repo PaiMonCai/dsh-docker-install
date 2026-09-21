@@ -14,6 +14,8 @@ services:
     image: dsh:latest
     container_name: dsh
     restart: unless-stopped
+    # Chromium/Playwright 默认 64M /dev/shm 容易触发 Target closed/SIGBUS。
+    shm_size: "${DSH_SHM_SIZE:-1g}"
     # 只映射到宿主机回环：浏览器访问 http://127.0.0.1:3080 时 Host 是回环，天然受信任。
     # 需要从外网/局域网访问时，推荐在前面放 Nginx/Caddy 反向代理，
     # 并用 DSH_TRUSTED_HOSTS 声明对外域名。
@@ -26,10 +28,17 @@ services:
       # DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL}"
       # 逗号分隔的对外域名/authority，例如 "dsh.example.com,dsh.internal:3080"
       DSH_TRUSTED_HOSTS: "${DSH_TRUSTED_HOSTS:-}"
+      # 默认使用中国标准时间；可在 .env 覆盖。
+      TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"
+      # Landlock 沙箱下 /root/.npm 不可写，默认把 npm cache 放到 /tmp。
+      NPM_CONFIG_CACHE: "${DSH_NPM_CACHE:-/tmp/npm-cache}"
       # 需要换端口时同步改这里和 ports、healthcheck。
       # DSH_PORT: "3080"
       # 内核若无法提供 bubblewrap/Landlock，文件沙箱不可用，可临时关闭（见 README）。
       # DSH_PERMISSION_MODE: "danger-full-access"
+    # 可选内存限制请按机器资源取消注释，例如：
+    # mem_limit: "1536m"
+    # memswap_limit: "2g"   # RAM + swap 总上限，不是额外 swap
     volumes:
       - dsh-home:/root/.dsh
       # 宿主机项目目录 → 容器的 workspace（默认工作目录）

@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.5.3"
+DSHD_VERSION="0.5.4"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -17,6 +17,11 @@ DEFAULT_NAME="dsh"
 DEFAULT_PORT="3080"
 DEFAULT_BIND_ADDR="127.0.0.1"
 DEFAULT_VOLUME="dsh-home"
+DEFAULT_SHM_SIZE="1g"
+DEFAULT_TIMEZONE="Asia/Shanghai"
+DEFAULT_NPM_CACHE="/tmp/npm-cache"
+DEFAULT_MEMORY_LIMIT=""
+DEFAULT_MEMORY_SWAP=""
 
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
   STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
@@ -93,6 +98,27 @@ validate_port() {
   [[ "$1" =~ ^[0-9]+$ ]] && (( 1 <= 10#$1 && 10#$1 <= 65535 ))
 }
 
+validate_docker_size() {
+  [[ "$1" =~ ^[1-9][0-9]*([kKmMgG][bB]?)?$ ]]
+}
+
+docker_size_bytes() {
+  local raw="${1,,}" number suffix factor=1
+  [[ "$raw" =~ ^([1-9][0-9]*)([kmg]b?)?$ ]] || return 1
+  number="${BASH_REMATCH[1]}"
+  suffix="${BASH_REMATCH[2]:-}"
+  case "$suffix" in
+    k|kb) factor=1024 ;;
+    m|mb) factor=$((1024 * 1024)) ;;
+    g|gb) factor=$((1024 * 1024 * 1024)) ;;
+  esac
+  printf '%s' "$((number * factor))"
+}
+
+validate_timezone() {
+  [[ "$1" =~ ^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$ ]]
+}
+
 port_in_use() {
   local port="$1"
   if command -v ss >/dev/null 2>&1; then
@@ -137,6 +163,11 @@ load_config() {
   DSH_BIND_ADDR="${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
   DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
   DSH_VOLUME="${DSH_VOLUME:-$DEFAULT_VOLUME}"
+  DSH_SHM_SIZE="${DSH_SHM_SIZE:-$DEFAULT_SHM_SIZE}"
+  DSH_TIMEZONE="${DSH_TIMEZONE:-$DEFAULT_TIMEZONE}"
+  DSH_NPM_CACHE="${DSH_NPM_CACHE:-$DEFAULT_NPM_CACHE}"
+  DSH_MEMORY_LIMIT="${DSH_MEMORY_LIMIT:-$DEFAULT_MEMORY_LIMIT}"
+  DSH_MEMORY_SWAP="${DSH_MEMORY_SWAP:-$DEFAULT_MEMORY_SWAP}"
   DSH_TRUSTED_HOSTS="${DSH_TRUSTED_HOSTS:-}"
   DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-}"
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
@@ -161,6 +192,11 @@ save_config() {
     printf 'DSH_BIND_ADDR=%q\n' "$DSH_BIND_ADDR"
     printf 'DSH_WORKSPACE=%q\n' "$DSH_WORKSPACE"
     printf 'DSH_VOLUME=%q\n' "$DSH_VOLUME"
+    printf 'DSH_SHM_SIZE=%q\n' "$DSH_SHM_SIZE"
+    printf 'DSH_TIMEZONE=%q\n' "$DSH_TIMEZONE"
+    printf 'DSH_NPM_CACHE=%q\n' "$DSH_NPM_CACHE"
+    printf 'DSH_MEMORY_LIMIT=%q\n' "$DSH_MEMORY_LIMIT"
+    printf 'DSH_MEMORY_SWAP=%q\n' "$DSH_MEMORY_SWAP"
     printf 'DSH_TRUSTED_HOSTS=%q\n' "$DSH_TRUSTED_HOSTS"
     printf 'DEEPSEEK_BASE_URL=%q\n' "$DEEPSEEK_BASE_URL"
     printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
@@ -377,8 +413,11 @@ create_container() {
     run -d
     --name "$DSH_NAME"
     --restart unless-stopped
+    --shm-size "$DSH_SHM_SIZE"
     -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
+    -e "TZ=${DSH_TIMEZONE}"
+    -e "NPM_CONFIG_CACHE=${DSH_NPM_CACHE}"
     -v "${DSH_VOLUME}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
@@ -386,6 +425,15 @@ create_container() {
 
   [[ -n "$DEEPSEEK_API_KEY" ]] && args+=(-e "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY")
   [[ -n "$DEEPSEEK_BASE_URL" ]] && args+=(-e "DEEPSEEK_BASE_URL=$DEEPSEEK_BASE_URL")
+
+  [[ -n "$DSH_MEMORY_LIMIT" ]] && args+=(--memory "$DSH_MEMORY_LIMIT")
+  if [[ -n "$DSH_MEMORY_SWAP" ]]; then
+    if [[ -z "$DSH_MEMORY_LIMIT" ]]; then
+      warn "已配置 DSH_MEMORY_SWAP=$DSH_MEMORY_SWAP，但未配置 DSH_MEMORY_LIMIT；忽略 memory-swap。"
+    else
+      args+=(--memory-swap "$DSH_MEMORY_SWAP")
+    fi
+  fi
 
   if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
     # 同一目录额外挂到容器内相同绝对路径，并切换 cwd。
@@ -609,6 +657,40 @@ interactive_config() {
   prompt_value DSH_WORKSPACE "项目工作区目录" "$DSH_WORKSPACE"
   prompt_value DSH_VOLUME "Docker 数据卷" "$DSH_VOLUME"
   prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
+
+  heading "容器运行资源"
+  while true; do
+    prompt_value DSH_SHM_SIZE "共享内存 /dev/shm（Chromium 推荐 1g）" "${DSH_SHM_SIZE:-$DEFAULT_SHM_SIZE}"
+    validate_docker_size "$DSH_SHM_SIZE" && break
+    warn "请输入 Docker 大小格式，例如 512m、1g。"
+  done
+
+  while true; do
+    prompt_value DSH_TIMEZONE "容器时区" "${DSH_TIMEZONE:-$DEFAULT_TIMEZONE}"
+    validate_timezone "$DSH_TIMEZONE" && break
+    warn "时区格式不合法，例如 Asia/Shanghai、UTC。"
+  done
+
+  prompt_value DSH_NPM_CACHE "npm cache 路径（建议放在沙箱可写目录）" "${DSH_NPM_CACHE:-$DEFAULT_NPM_CACHE}"
+  [[ "$DSH_NPM_CACHE" == /* ]] || die "npm cache 必须使用绝对路径。"
+
+  local memory_default="${DSH_MEMORY_LIMIT:-off}" swap_default="${DSH_MEMORY_SWAP:-off}"
+  prompt_value DSH_MEMORY_LIMIT "容器内存上限（off=不限制，例如 1536m/2g）" "$memory_default"
+  [[ "$DSH_MEMORY_LIMIT" == "off" || "$DSH_MEMORY_LIMIT" == "none" || "$DSH_MEMORY_LIMIT" == "0" ]] && DSH_MEMORY_LIMIT=""
+  [[ -z "$DSH_MEMORY_LIMIT" ]] || validate_docker_size "$DSH_MEMORY_LIMIT" || die "内存上限格式不合法，例如 1536m、2g 或 off。"
+
+  prompt_value DSH_MEMORY_SWAP "RAM+Swap 总上限（off=Docker 默认；需先设置内存上限）" "$swap_default"
+  [[ "$DSH_MEMORY_SWAP" == "off" || "$DSH_MEMORY_SWAP" == "none" || "$DSH_MEMORY_SWAP" == "0" ]] && DSH_MEMORY_SWAP=""
+  [[ -z "$DSH_MEMORY_SWAP" ]] || validate_docker_size "$DSH_MEMORY_SWAP" || die "memory-swap 格式不合法，例如 2g、3g 或 off。"
+  if [[ -n "$DSH_MEMORY_SWAP" && -z "$DSH_MEMORY_LIMIT" ]]; then
+    warn "未设置内存上限，memory-swap 将被清空。"
+    DSH_MEMORY_SWAP=""
+  elif [[ -n "$DSH_MEMORY_SWAP" && -n "$DSH_MEMORY_LIMIT" ]]; then
+    local memory_bytes swap_bytes
+    memory_bytes="$(docker_size_bytes "$DSH_MEMORY_LIMIT")"
+    swap_bytes="$(docker_size_bytes "$DSH_MEMORY_SWAP")"
+    (( swap_bytes >= memory_bytes )) || die "RAM+Swap 总上限不能小于内存上限。"
+  fi
 
   interactive_api_config "$mode"
 
@@ -896,6 +978,11 @@ cmd_status() {
   printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
   printf '工作区:    %s\n' "$DSH_WORKSPACE"
   printf '数据卷:         %s\n' "$DSH_VOLUME"
+  printf '共享内存:       %s\n' "$DSH_SHM_SIZE"
+  printf '容器时区:       %s\n' "$DSH_TIMEZONE"
+  printf 'npm cache:      %s\n' "$DSH_NPM_CACHE"
+  printf '内存上限:       %s\n' "${DSH_MEMORY_LIMIT:-不限制}"
+  printf 'RAM+Swap 上限:  %s\n' "${DSH_MEMORY_SWAP:-Docker 默认}"
   printf 'Trusted Hosts:  %s\n' "${DSH_TRUSTED_HOSTS:-（未配置）}"
   printf 'API 模式:       %s\n' "$(api_mode_label)"
   printf 'Base URL:       %s\n' "${DEEPSEEK_BASE_URL:-DeepSeek 官方默认}"
@@ -1388,6 +1475,75 @@ cmd_doctor() {
           ;;
       esac
     fi
+    if container_running; then
+      local shm_bytes runtime_tz runtime_npm_cache sensitive_env_count mutable_git_deps
+      shm_bytes="$(docker_cmd inspect -f '{{.HostConfig.ShmSize}}' "$DSH_NAME" 2>/dev/null || true)"
+      [[ "$shm_bytes" =~ ^[0-9]+$ ]] || shm_bytes=0
+      if (( shm_bytes >= 536870912 )); then
+        ok "共享内存充足: $((shm_bytes / 1024 / 1024)) MiB"
+      else
+        warn "共享内存偏小: $((shm_bytes / 1024 / 1024)) MiB；Chromium/Playwright 建议至少 512 MiB（默认配置 1g）。"
+      fi
+
+      runtime_tz="$(docker_cmd exec "$DSH_NAME" sh -c 'printf "%s" "${TZ:-}"' 2>/dev/null || true)"
+      if [[ "$runtime_tz" == "$DSH_TIMEZONE" ]]; then
+        ok "容器时区正常: $runtime_tz"
+      else
+        warn "容器时区未应用：期望 $DSH_TIMEZONE，实际 ${runtime_tz:-未设置}；执行 dshd recreate。"
+      fi
+
+      runtime_npm_cache="$(docker_cmd exec "$DSH_NAME" npm config get cache 2>/dev/null | tail -1 || true)"
+      if [[ "$runtime_npm_cache" == "$DSH_NPM_CACHE" ]]; then
+        ok "npm cache 位于沙箱可写路径: $runtime_npm_cache"
+      else
+        warn "npm cache 与配置不一致：期望 $DSH_NPM_CACHE，实际 ${runtime_npm_cache:-未知}。"
+      fi
+
+      mutable_git_deps="$(docker_cmd exec "$DSH_NAME" sh -c '
+        count=0
+        for f in "${DSH_HOME:-/root/.dsh}"/profiles/*/package.json; do
+          [ -f "$f" ] || continue
+          n="$(grep -Ec '"'"'"[^"]+"[[:space:]]*:[[:space:]]*"github:[^"#]+"'"'"' "$f" 2>/dev/null || true)"
+          count=$((count + n))
+        done
+        printf "%s" "$count"
+      ' 2>/dev/null || echo 0)"
+      [[ "$mutable_git_deps" =~ ^[0-9]+$ ]] || mutable_git_deps=0
+      if (( mutable_git_deps > 0 )); then
+        warn "检测到 $mutable_git_deps 个未固定 commit/tag 的 github: 依赖；重装时可能随上游分支漂移，建议使用 #<commit> 固定。"
+      fi
+
+      if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
+        sensitive_env_count="$(docker_cmd inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$DSH_NAME" 2>/dev/null \
+          | awk -F= 'toupper($1) ~ /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/ {n++} END {print n+0}')"
+        if [[ "$sensitive_env_count" =~ ^[0-9]+$ ]] && (( sensitive_env_count > 0 )); then
+          warn "Docker 管理模式已开启，且容器中检测到 $sensitive_env_count 个敏感命名环境变量。"
+          warn "Docker Socket 可通过 docker inspect 读取容器环境；DSH 的子进程密钥过滤不构成秘密隔离。"
+        else
+          warn "Docker 管理模式已开启：Docker Socket 基本等价于宿主机 root 权限。"
+        fi
+      fi
+    fi
+
+    local host_mem_total_kb host_mem_available_kb host_swap_total_kb host_swap_free_kb host_swap_used_kb runtime_mem_limit
+    host_mem_total_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    host_mem_available_kb="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    host_swap_total_kb="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    host_swap_free_kb="$(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    [[ "$host_mem_total_kb" =~ ^[0-9]+$ ]] || host_mem_total_kb=0
+    [[ "$host_mem_available_kb" =~ ^[0-9]+$ ]] || host_mem_available_kb=0
+    [[ "$host_swap_total_kb" =~ ^[0-9]+$ ]] || host_swap_total_kb=0
+    [[ "$host_swap_free_kb" =~ ^[0-9]+$ ]] || host_swap_free_kb=0
+    host_swap_used_kb=$((host_swap_total_kb - host_swap_free_kb))
+    if (( host_mem_total_kb > 0 )); then
+      info "宿主资源: RAM $((host_mem_total_kb / 1024)) MiB，总可用约 $((host_mem_available_kb / 1024)) MiB；Swap 已用 $((host_swap_used_kb / 1024)) / $((host_swap_total_kb / 1024)) MiB"
+    fi
+    runtime_mem_limit="$(container_exists && docker_cmd inspect -f '{{.HostConfig.Memory}}' "$DSH_NAME" 2>/dev/null || echo 0)"
+    [[ "$runtime_mem_limit" =~ ^[0-9]+$ ]] || runtime_mem_limit=0
+    if (( host_mem_total_kb > 0 && host_mem_total_kb <= 6291456 && runtime_mem_limit == 0 )); then
+      warn "宿主机内存不超过 6 GiB，且 DSH 当前无内存上限；Chromium/大型构建可能挤压其他服务。可在 dshd config 设置 DSH_MEMORY_LIMIT。"
+    fi
+
     if container_running && command -v curl >/dev/null 2>&1; then
       local code
       code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "http://127.0.0.1:${DSH_PORT}/" 2>/dev/null || true)"

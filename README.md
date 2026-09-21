@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 - **首次安装强制明确填写 Docker 容器名和 Web UI 宿主机端口**（不再直接回车使用默认值）；
 - 交互配置监听地址、工作区、数据卷、Trusted Hosts，并选择 DeepSeek 官方 API 或自定义 Base URL，再配置 API Key；
 - 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
-- 创建持久卷和工作区，启动容器并等待 Web UI；
+- 创建持久卷和工作区，默认设置 `Asia/Shanghai` 时区、`1g` 共享内存与沙箱可写的 npm cache，启动容器并等待 Web UI；
 - 询问是否开启 **Docker 项目管理模式**；开启后 DSH 可通过宿主机 Docker Socket 构建、部署和测试 Docker 应用；
 - 将管理器安装为 `/usr/local/bin/dshd`，以后直接输入 `dshd` 管理。
 
@@ -166,6 +166,18 @@ dshd env remove HTTP_PROXY
 
 `/etc/dshd/config.env` 仍只保存 dshd 管理配置，不会整体传入容器，避免意外泄露管理器内部配置。
 
+### 容器资源与运行时默认值
+
+针对内置 Chromium、Landlock 沙箱与长期运行场景，`dshd` 默认采用：
+
+- `DSH_SHM_SIZE=1g`：避免 Docker 默认 64M `/dev/shm` 导致 Chromium/Playwright 随机 `Target closed` / SIGBUS；
+- `DSH_TIMEZONE=Asia/Shanghai`：容器日志和命令默认使用中国标准时间；
+- `DSH_NPM_CACHE=/tmp/npm-cache`：避免 Landlock 下默认 `/root/.npm` 不可写导致 `npm install` 失败；
+- `DSH_MEMORY_LIMIT` / `DSH_MEMORY_SWAP` 默认留空，不强制限制；小内存宿主机可在 `dshd config` 中设置，例如 `1536m` / `2g`。其中 memory-swap 是 **RAM + swap 总上限**。
+
+这些值由 `/etc/dshd/config.env`（非 root 用户为 `~/.config/dshd/config.env`）管理，修改后重建容器生效。
+`dshd status` 会显示配置值，`dshd doctor` 会核对实际 `/dev/shm`、时区、npm cache、宿主资源余量与未固定的 Git 依赖。
+
 ### DeepSeek API / Base URL 配置
 
 首次安装时会选择 API 接入方式：
@@ -202,7 +214,10 @@ docker build --build-arg DSH_VERSION=0.1.6-alpha.2 -t dsh:latest .
 
 ```bash
 docker run -d --name dsh \
+  --shm-size 1g \
   -p 127.0.0.1:3080:3080 \
+  -e TZ=Asia/Shanghai \
+  -e NPM_CONFIG_CACHE=/tmp/npm-cache \
   -e DEEPSEEK_API_KEY=sk-xxx \
   -v dsh-home:/root/.dsh \
   -v "$PWD:/workspace" \
@@ -375,7 +390,8 @@ dshd docker on
 容器内使用**相同绝对路径**。
 
 > **安全提醒：** 能访问宿主机 Docker Socket 基本等价于拥有宿主机 root 级控制能力，
-> 因此此模式默认关闭，并且开启时需要明确确认。
+> 因此此模式默认关闭，并且开启时需要明确确认。即使 DSH 对普通子进程剥离了 API Key/Token，
+> 开启 Docker Socket 后仍可通过 `docker inspect` 读取容器的 `Config.Env`，所以环境变量过滤不能作为秘密隔离边界。
 
 关闭：
 
@@ -398,8 +414,10 @@ dshd docker off
 | 内容 | 境外源 | 国内自动切换为 |
 |---|---|---|
 | apt 软件包 | deb.debian.org | mirrors.aliyun.com |
-| npm 包 | registry.npmjs.org | registry.npmmirror.com（全局生效，运行时装插件同样走镜像） |
+| npm 包 | registry.npmjs.org | registry.npmmirror.com（仅构建时检测为国内网络时写入镜像） |
 | Playwright 浏览器 | playwright CDN | npmmirror.com/mirrors/playwright |
+
+GitHub Actions 在境外构建时通常保留官方 `registry.npmjs.org`；这是预期行为。运行时网络若访问 npmjs 已足够快无需切换，需要时可通过 `dshd env set NPM_CONFIG_REGISTRY https://registry.npmmirror.com` 覆盖。
 
 手动控制：
 
@@ -441,12 +459,19 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
+| `DSH_SHM_SIZE` | `1g` | 容器 `/dev/shm` 大小；为 Chromium/Playwright 预留足够共享内存 |
+| `DSH_TIMEZONE` | `Asia/Shanghai` | dshd 注入容器的时区；镜像默认同样为中国标准时间 |
+| `DSH_NPM_CACHE` | `/tmp/npm-cache` | npm cache 路径，默认位于 Landlock 可写目录 |
+| `DSH_MEMORY_LIMIT` | — | 可选容器内存上限，例如 `1536m` / `2g` |
+| `DSH_MEMORY_SWAP` | — | 可选 RAM+swap 总上限；仅在设置 `DSH_MEMORY_LIMIT` 时使用 |
 | `DSH_DOCKER_SOCKET` | 自动检测 | 宿主机 Docker Socket 路径 |
 | `DSHD_NO_SELF_UPDATE` | — | 设为 `1` 关闭 dshd 运行时的脚本自更新 |
 | `DSHD_UPDATE_URL` | — | 自定义 dshd 自更新源（默认 GitHub Raw → jsDelivr） |
 | `DSHD_CONTAINER_ENV_FILE` | 自动选择 | 自定义容器环境变量文件路径 |
 | `DSHD_SELF_UPDATE_RETRY_DELAY` | `300` | 自更新失败后的退避秒数，`0` 表示不节流 |
 | `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
+| `TZ` | `Asia/Shanghai` | 容器运行时实际时区（dshd 由 `DSH_TIMEZONE` 注入） |
+| `NPM_CONFIG_CACHE` | `/tmp/npm-cache` | npm 实际 cache 路径（dshd 由 `DSH_NPM_CACHE` 注入） |
 
 ## 自动构建与更新（GitHub Actions）
 
