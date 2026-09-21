@@ -104,12 +104,14 @@ LABEL io.caicailo.dsh.edition="research" \
 
 COPY research/packs/economics/python-requirements.txt /opt/dsh-research/economics-requirements.txt
 COPY research/packs/economics/bin/research-econ-data /usr/local/bin/research-econ-data
+COPY research/packs/economics/bin/research-econ-model /usr/local/bin/research-econ-model
 
-RUN chmod 0755 /usr/local/bin/research-econ-data \
+RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-model \
  && uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/economics-requirements.txt \
  && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')" \
  && research-econ-data --self-test \
+ && research-econ-model --self-test \
  && tmp="$(mktemp -d)" \
  && research-init --template economics economics-smoke "Economics Smoke Test" "$tmp/project" \
  && grep -q 'template: "economics"' "$tmp/project/research.yaml" \
