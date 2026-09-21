@@ -42,7 +42,7 @@ jobs:
       - name: Validate Research scripts
         run: |
           bash -n research/bin/research-init
-          bash -n research/bin/research-run
+          PYTHONPATH=research python -m py_compile research/bin/research-run
           bash -n research/bin/research-archive
           python -m py_compile research/bin/research-literature
           PYTHONPATH=research python -m py_compile research/bin/research-status research/bin/research-migrate research/bin/research-check research/bin/research-data research/bin/research-pipeline
@@ -51,6 +51,7 @@ jobs:
           python -m py_compile research/packs/economics/bin/research-econ-data
           python -m py_compile research/packs/economics/bin/research-econ-model
           python -m py_compile research/packs/economics/bin/research-econ-did
+          PYTHONPATH=research python research/bin/research-run --self-test
           python research/bin/research-literature --self-test
           PYTHONPATH=research python research/bin/research-status --self-test
           PYTHONPATH=research python research/bin/research-migrate --self-test

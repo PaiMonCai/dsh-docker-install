@@ -723,38 +723,86 @@ step command 成功后仍会校验声明的 output；output 缺失或 Dataset �
 
 #### Phase 5 — research-run Manifest v2
 
-V1 `research-run` 已经记录 command、Git commit、Git dirty、Python/uv/Quarto/Pandoc、
-pip freeze、输入输出 hash、stdout/stderr 和 exit code。V2 不推翻这一能力，而是把它升级为
-Pipeline 与 Result 的标准运行记录。
+**Implemented in Research 0.7.1.** `research-run` 保留原有 CLI 与 run 目录习惯，但内部迁移为共享 Python Run Recorder，`metadata.json` 升级为 schema 2。
 
-Run Manifest v2 至少包含：
+原有写法保持兼容：
+
+```bash
+research-run --name baseline -- python src/analysis.py
+```
+
+同时可以显式声明需要精确追踪的输入/输出：
+
+```bash
+research-run --name baseline \
+  --input-dataset panel \
+  --input-file src/analysis.py \
+  --output-file results/tables/baseline.csv \
+  -- python src/analysis.py
+```
+
+Run Manifest v2 记录：
+
+```text
+id / label
+pipeline_step / pipeline_run_id
+command
+started_at / finished_at
+input Dataset fingerprints
+explicit input file fingerprints
+data/raw + data/processed tree digests
+explicit output file fingerprints
+results + paper tree digests
+Python / uv / Quarto / Pandoc / R
+Research version / pack / image digest
+Git commit / branch / dirty
+exit_code / success
+```
+
+示例核心结构：
 
 ```json
 {
   "schema": 2,
-  "id": "20260921T120301Z-baseline",
+  "kind": "research-run",
+  "id": "20260921T120301000000Z-baseline",
   "pipeline_step": "baseline",
-  "command": [],
-  "inputs": [
-    {"dataset": "panel", "sha256": "..."}
-  ],
-  "outputs": [
-    {"result": "baseline", "sha256": "..."}
-  ],
+  "command": ["python", "src/analysis.py"],
+  "inputs": {
+    "datasets": [{"dataset": "panel", "sha256": "..."}],
+    "files": [{"path": "src/analysis.py", "sha256": "..."}]
+  },
+  "outputs": {
+    "files": [{"path": "results/tables/baseline.csv", "sha256": "..."}]
+  },
   "environment": {
     "python": "...",
     "r": null,
-    "image_digest": "..."
+    "image_digest": null
   },
   "git": {
     "commit": "...",
+    "branch": "main",
     "dirty": false
   },
-  "exit_code": 0
+  "exit_code": 0,
+  "success": true
 }
 ```
 
-Pipeline 必须能够根据 Run Manifest 判断：上一次运行到底基于什么数据、代码和环境。
+兼容文件仍然保留：
+
+```text
+runs/<run-id>/command.sh
+runs/<run-id>/stdout.log
+runs/<run-id>/stderr.log
+runs/<run-id>/environment/
+runs/<run-id>/metadata.json
+runs/latest
+```
+
+因此 `research-archive` 仍可继续使用已有的 `runs/*/command.sh` 复现命令。
+失败命令也会完整留下 manifest 和日志，不会因为 exit code 非 0 而丢失运行证据。
 
 #### Phase 6 — Result Registry
 
