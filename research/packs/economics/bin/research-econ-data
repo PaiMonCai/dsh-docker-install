@@ -126,6 +126,8 @@ def fetch_worldbank(args, root: Path) -> tuple[Path, Path]:
         time=times,
         labels=True,
         columns="series",
+        numericTimeKeys=True,
+        skipBlanks=True,
     )
     if frame is None or frame.empty:
         raise EconDataError("World Bank 返回空数据。")
