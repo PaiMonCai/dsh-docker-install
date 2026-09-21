@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.7.0"
+DSHD_VERSION="0.8.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -21,6 +21,7 @@ DEFAULT_NAME="dsh"
 DEFAULT_PORT="3080"
 DEFAULT_BIND_ADDR="127.0.0.1"
 DEFAULT_VOLUME="dsh-home"
+DEFAULT_STORAGE_MODE="bind"
 DEFAULT_SHM_SIZE="1g"
 DEFAULT_TIMEZONE="Asia/Shanghai"
 DEFAULT_NPM_CACHE="/tmp/npm-cache"
@@ -31,10 +32,12 @@ if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
   STATE_DIR="${DSHD_STATE_DIR:-/etc/dshd}"
   BASE_WORKSPACE="/opt/dsh/workspaces"
   DEFAULT_WORKSPACE="/opt/dsh/workspace"
+  DEFAULT_DATA_DIR="/opt/dsh/data"
 else
   STATE_DIR="${DSHD_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dshd}"
-  BASE_WORKSPACE="$HOME/dsh-workspaces"
-  DEFAULT_WORKSPACE="$HOME/dsh-workspace"
+  BASE_WORKSPACE="$HOME/dsh/workspaces"
+  DEFAULT_WORKSPACE="$HOME/dsh/workspace"
+  DEFAULT_DATA_DIR="$HOME/dsh/data"
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
 CONTAINER_ENV_FILE="${DSHD_CONTAINER_ENV_FILE:-$STATE_DIR/container.env}"
@@ -161,6 +164,7 @@ detect_docker_socket() {
 }
 
 load_config() {
+  local legacy_storage=false requested_volume="${DSH_VOLUME:-}" requested_data_dir="${DSH_DATA_DIR:-}"
   DSH_EDITION="${DSH_EDITION:-}"
   DSH_RESEARCH_PACK="${DSH_RESEARCH_PACK:-}"
   DSH_IMAGE="${DSH_IMAGE:-$DEFAULT_IMAGE}"
@@ -168,6 +172,8 @@ load_config() {
   DSH_PORT="${DSH_PORT:-$DEFAULT_PORT}"
   DSH_BIND_ADDR="${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
   DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
+  DSH_STORAGE_MODE="${DSH_STORAGE_MODE:-}"
+  DSH_DATA_DIR="${DSH_DATA_DIR:-}"
   DSH_VOLUME="${DSH_VOLUME:-$DEFAULT_VOLUME}"
   DSH_SHM_SIZE="${DSH_SHM_SIZE:-$DEFAULT_SHM_SIZE}"
   DSH_TIMEZONE="${DSH_TIMEZONE:-$DEFAULT_TIMEZONE}"
@@ -182,8 +188,33 @@ load_config() {
 
   if [[ -f "$CONFIG_FILE" ]]; then
     # config.env 仅由 dshd 自己写入，权限默认为 600。
+    if ! grep -q '^DSH_STORAGE_MODE=' "$CONFIG_FILE" 2>/dev/null; then
+      legacy_storage=true
+    fi
     source "$CONFIG_FILE"
   fi
+
+  # 兼容旧安装：历史 config.env 只有 DSH_VOLUME，没有存储模式。
+  # 此时继续使用 named volume，不做静默迁移。
+  if [[ -z "$DSH_STORAGE_MODE" ]]; then
+    if [[ "$legacy_storage" == "true" || ( -n "$requested_volume" && -z "$requested_data_dir" ) ]]; then
+      DSH_STORAGE_MODE="volume"
+    else
+      DSH_STORAGE_MODE="$DEFAULT_STORAGE_MODE"
+    fi
+  fi
+  [[ -n "$DSH_DATA_DIR" ]] || DSH_DATA_DIR="$DEFAULT_DATA_DIR"
+  case "$DSH_STORAGE_MODE" in
+    bind)
+      [[ "$DSH_DATA_DIR" == /* ]] || die "DSH_DATA_DIR 必须是绝对路径: $DSH_DATA_DIR"
+      ;;
+    volume)
+      [[ -n "$DSH_VOLUME" ]] || die "DSH_VOLUME 不能为空。"
+      ;;
+    *)
+      die "未知 DSH_STORAGE_MODE=$DSH_STORAGE_MODE（仅支持 bind/volume）。"
+      ;;
+  esac
 
   # 兼容旧配置：没有 DSH_EDITION / DSH_RESEARCH_PACK 时根据镜像推断。
   if [[ -z "$DSH_EDITION" ]]; then
@@ -222,6 +253,8 @@ save_config() {
     printf 'DSH_PORT=%q\n' "$DSH_PORT"
     printf 'DSH_BIND_ADDR=%q\n' "$DSH_BIND_ADDR"
     printf 'DSH_WORKSPACE=%q\n' "$DSH_WORKSPACE"
+    printf 'DSH_STORAGE_MODE=%q\n' "$DSH_STORAGE_MODE"
+    printf 'DSH_DATA_DIR=%q\n' "$DSH_DATA_DIR"
     printf 'DSH_VOLUME=%q\n' "$DSH_VOLUME"
     printf 'DSH_SHM_SIZE=%q\n' "$DSH_SHM_SIZE"
     printf 'DSH_TIMEZONE=%q\n' "$DSH_TIMEZONE"
@@ -236,6 +269,35 @@ save_config() {
   } >"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$CONFIG_FILE"
+}
+
+storage_source() {
+  case "$DSH_STORAGE_MODE" in
+    bind) printf '%s' "$DSH_DATA_DIR" ;;
+    volume) printf '%s' "$DSH_VOLUME" ;;
+    *) return 1 ;;
+  esac
+}
+
+storage_label() {
+  case "$DSH_STORAGE_MODE" in
+    bind) printf 'bind:%s' "$DSH_DATA_DIR" ;;
+    volume) printf 'volume:%s' "$DSH_VOLUME" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+ensure_storage() {
+  case "$DSH_STORAGE_MODE" in
+    bind)
+      if ! mkdir -p "$DSH_DATA_DIR" 2>/dev/null; then
+        as_root mkdir -p "$DSH_DATA_DIR"
+      fi
+      ;;
+    volume)
+      docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 || docker_cmd volume create "$DSH_VOLUME" >/dev/null
+      ;;
+  esac
 }
 
 docker_cmd() {
@@ -466,9 +528,13 @@ create_container() {
   if ! mkdir -p "$DSH_WORKSPACE" 2>/dev/null; then
     as_root mkdir -p "$DSH_WORKSPACE"
   fi
+  ensure_storage
+
+  local data_source
+  data_source="$(storage_source)"
 
   if container_exists; then
-    info "移除旧容器 $DSH_NAME（数据卷 $DSH_VOLUME 保留）..."
+    info "移除旧容器 $DSH_NAME（持久化数据保留: $(storage_label)）..."
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
@@ -481,7 +547,7 @@ create_container() {
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
     -e "TZ=${DSH_TIMEZONE}"
     -e "NPM_CONFIG_CACHE=${DSH_NPM_CACHE}"
-    -v "${DSH_VOLUME}:/root/.dsh"
+    -v "${data_source}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
   )
@@ -762,7 +828,9 @@ EOF
       confirm "确认由 dshd 接管并替换这个同名容器？" N || die "请重新安装并选择其他容器名称。"
     fi
 
-    DSH_WORKSPACE="$BASE_WORKSPACE/$DSH_NAME"
+    DSH_WORKSPACE="$DEFAULT_WORKSPACE"
+    DSH_STORAGE_MODE="bind"
+    DSH_DATA_DIR="$DEFAULT_DATA_DIR"
     DSH_VOLUME="${DSH_NAME}-home"
   else
     prompt_value DSH_NAME "容器名称" "$DSH_NAME"
@@ -772,8 +840,26 @@ EOF
   fi
 
   prompt_value DSH_BIND_ADDR "监听地址（127.0.0.1 推荐；0.0.0.0 可供局域网/反代访问）" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
-  prompt_value DSH_WORKSPACE "项目工作区目录" "$DSH_WORKSPACE"
-  prompt_value DSH_VOLUME "Docker 数据卷" "$DSH_VOLUME"
+
+  heading "持久化目录"
+  prompt_value DSH_WORKSPACE "项目工作区目录（宿主机 → /workspace）" "$DSH_WORKSPACE"
+  [[ "$DSH_WORKSPACE" == /* ]] || die "工作区目录必须使用绝对路径。"
+
+  while true; do
+    prompt_value DSH_STORAGE_MODE "DSH 数据存储模式（bind=宿主机目录，volume=Docker 数据卷）" "${DSH_STORAGE_MODE:-$DEFAULT_STORAGE_MODE}"
+    case "$DSH_STORAGE_MODE" in
+      bind|volume) break ;;
+      *) warn "请输入 bind 或 volume。" ;;
+    esac
+  done
+  if [[ "$DSH_STORAGE_MODE" == "bind" ]]; then
+    prompt_value DSH_DATA_DIR "DSH 数据目录（宿主机 → /root/.dsh）" "${DSH_DATA_DIR:-$DEFAULT_DATA_DIR}"
+    [[ "$DSH_DATA_DIR" == /* ]] || die "DSH 数据目录必须使用绝对路径。"
+  else
+    prompt_value DSH_VOLUME "Docker 数据卷" "$DSH_VOLUME"
+    [[ -n "$DSH_VOLUME" ]] || die "Docker 数据卷名称不能为空。"
+  fi
+
   prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
 
   heading "容器运行资源"
@@ -1096,8 +1182,13 @@ cmd_status() {
   printf 'Research Pack: %s\n' "$DSH_RESEARCH_PACK"
   printf '镜像:      %s\n' "$DSH_IMAGE"
   printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
-  printf '工作区:    %s\n' "$DSH_WORKSPACE"
-  printf '数据卷:         %s\n' "$DSH_VOLUME"
+  printf '工作区:         %s -> /workspace\n' "$DSH_WORKSPACE"
+  printf '数据存储模式:   %s\n' "$DSH_STORAGE_MODE"
+  if [[ "$DSH_STORAGE_MODE" == "bind" ]]; then
+    printf '数据目录:       %s -> /root/.dsh\n' "$DSH_DATA_DIR"
+  else
+    printf '数据卷:         %s -> /root/.dsh\n' "$DSH_VOLUME"
+  fi
   printf '共享内存:       %s\n' "$DSH_SHM_SIZE"
   printf '容器时区:       %s\n' "$DSH_TIMEZONE"
   printf 'npm cache:      %s\n' "$DSH_NPM_CACHE"
