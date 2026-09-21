@@ -6,6 +6,7 @@ import json
 import sys
 
 from dsh_research.errors import ResearchError
+from dsh_research.json_api import failure_json, success_json
 from dsh_research.pipeline import (
     PipelineError,
     execute_pipeline,
@@ -100,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
 
+    json_mode = bool(getattr(args, "json", False))
+    operation = str(args.command or "unknown")
     try:
         project = ResearchProject.discover()
         pipeline = load_pipeline(project, args.file)
@@ -107,11 +110,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             rows = [step_statuses(project, pipeline)[name] for name in topological_order(pipeline)]
             if args.json:
-                print(json.dumps(
-                    {"pipeline_schema": 1, "steps": [item.as_dict() for item in rows]},
-                    ensure_ascii=False,
-                    indent=2,
-                ))
+                success_json(
+                    command="research-pipeline",
+                    operation="status",
+                    data={"pipeline_schema": 1, "steps": [item.as_dict() for item in rows]},
+                )
             else:
                 _print_status(rows)
             return 0
@@ -120,8 +123,10 @@ def main(argv: list[str] | None = None) -> int:
             statuses = step_statuses(project, pipeline)
             order = topological_order(pipeline)
             if args.json:
-                print(json.dumps(
-                    {
+                success_json(
+                    command="research-pipeline",
+                    operation="list",
+                    data={
                         "pipeline_schema": 1,
                         "steps": [
                             {
@@ -132,9 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                             for name in order
                         ],
                     },
-                    ensure_ascii=False,
-                    indent=2,
-                ))
+                )
             else:
                 for name in order:
                     deps = ", ".join(pipeline.steps[name].depends_on) or "-"
@@ -144,11 +147,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "graph":
             edges = graph_edges(pipeline)
             if args.json:
-                print(json.dumps(
-                    {"pipeline_schema": 1, "edges": [{"from": a, "to": b} for a, b in edges]},
-                    ensure_ascii=False,
-                    indent=2,
-                ))
+                success_json(
+                    command="research-pipeline",
+                    operation="graph",
+                    data={
+                        "pipeline_schema": 1,
+                        "edges": [{"from": a, "to": b} for a, b in edges],
+                    },
+                )
             elif args.mermaid:
                 print("graph TD")
                 for name in pipeline.steps:
@@ -167,7 +173,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "explain":
             status = explain_step(project, pipeline, args.step)
             if args.json:
-                print(json.dumps(status.as_dict(), ensure_ascii=False, indent=2))
+                success_json(
+                    command="research-pipeline",
+                    operation="explain",
+                    data={
+                        "pipeline_schema": 1,
+                        "step": status.as_dict(),
+                    },
+                )
             else:
                 print(f"{status.step}: {status.status}")
                 print(f"signature: {status.signature}")
@@ -189,22 +202,57 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
             )
             if args.json:
-                print(json.dumps(
-                    {"pipeline_schema": 1, "dry_run": args.dry_run, "decisions": decisions},
-                    ensure_ascii=False,
-                    indent=2,
-                ))
+                success_json(
+                    command="research-pipeline",
+                    operation="run",
+                    data={
+                        "pipeline_schema": 1,
+                        "dry_run": args.dry_run,
+                        "decisions": decisions,
+                    },
+                )
             else:
                 for item in decisions:
                     print(f"[{item['action'].lower()}] {item['step']}")
             return 0
 
+    except PipelineError as exc:
+        exit_code = 1 if operation == "run" else 2
+        if json_mode:
+            failure_json(
+                command="research-pipeline",
+                operation=operation,
+                code="PIPELINE_RUN_FAILED" if operation == "run" else "PIPELINE_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
+        return exit_code
     except ResearchError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+        if json_mode:
+            failure_json(
+                command="research-pipeline",
+                operation=operation,
+                code="RESEARCH_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        if json_mode:
+            failure_json(
+                command="research-pipeline",
+                operation=operation,
+                code="INTERNAL_ERROR",
+                message=str(exc),
+                error_type=type(exc).__name__,
+            )
+        else:
+            print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
