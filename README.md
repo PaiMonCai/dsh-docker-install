@@ -481,14 +481,20 @@ dshd env
 dshd edition standard
 ```
 
-Research 容器内提供三个基础命令：
+Research 容器内提供四个基础工作流命令：
 
 ```bash
 research-init my-study "研究标题"
 cd my-study
+research-literature add 10.1257/aer.20181234
+research-literature verify
 research-run --name baseline -- python src/analysis.py
 research-archive
 ```
+
+`research-literature` 支持 DOI、arXiv ID/URL 和本地 PDF。它会维护
+`references.bib`、`sources.jsonl`、结构化阅读笔记和 Evidence Matrix；
+`research-literature review` 可生成可追溯证据索引，`verify` 用于检查论文引用和证据链的一致性。
 
 项目采用 `literature / data / notebooks / src / results / paper / runs` 结构。
 `literature/evidence-matrix.csv` 用于维护“文献—数据—方法—结论—局限”的证据矩阵；
