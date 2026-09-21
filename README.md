@@ -1,11 +1,183 @@
-# DeepSeek Harness (dsh) 自定义 Docker 镜像
+# DSH Docker — Deploy DSH. Do Reproducible Research.
+
+本项目最初解决的是一个很简单的问题：**把 DeepSeek Harness（`dsh`）稳定地装进 Docker，并让它容易安装、更新、持久化和管理。**
+
+随着实际使用，项目增加了一个可选方向：**Research Edition**。它不是另一个独立科研平台，而是在 DSH Docker 基础上增加“可复现研究”能力，让一次研究从数据、代码、运行、结果到论文都能被追踪和检查。
+
+> **一句话定位：DSH Docker 是 DSH 的 Docker 发行与管理项目；Research Edition 是它的可选科研工作层。**
 
 DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方 npm 包
 [`@deepseek-ai/dsh`](https://github.com/deepseek-ai/deepseek-harness) 构建自定义镜像，
 只调用 DeepSeek API，不跑本地模型。镜像内置 Chromium 浏览器（Playwright 管理），
 供 agent 的浏览器类工具/插件使用。
 
-项目现在提供三层镜像：
+## 这个项目到底是做什么的？
+
+整个项目只需要理解成三层：
+
+```text
+DSH Docker
+│
+├── Standard
+│   └── 安装 / 更新 / 持久化 / Web UI / Docker 运维
+│
+└── Research
+    │
+    ├── Core
+    │   └── 通用可复现研究
+    │
+    └── Economics
+        └── 经济学 / 计量经济学工具
+```
+
+### 1. Standard：项目的根
+
+Standard 负责把 DSH 可靠地运行起来：
+
+```text
+服务器
+  ↓
+dshd install
+  ↓
+Docker
+  ↓
+DSH
+```
+
+它负责安装、启动、停止、更新、工作区映射、数据持久化、备份、诊断和卸载。  
+如果你只是想使用 DSH，**到这一层就够了**。
+
+### 2. Research：让科研过程可追踪、可复现
+
+Research Edition 只解决一个核心问题：
+
+> **这张表、这个回归结果、这篇论文，到底是由哪份数据、哪段代码、哪次运行生成的？**
+
+它把研究过程组织成：
+
+```text
+Dataset
+   ↓
+Pipeline
+   ↓
+Run
+   ↓
+Result
+   ↓
+Artifact
+   ↓
+Paper
+```
+
+内部的 Dataset Catalog、Lineage、Pipeline DAG、Run Manifest、Result Registry、
+Research Check、Stable JSON API 和 Dashboard 都只是为了服务这条链路。
+
+### 3. Economics：Research 上的经济学工具包
+
+Economics Pack 不改变 Research 的基本结构，只增加经济学常用能力，例如：
+
+```text
+OLS / Fixed Effects / IV
+DiD / Event Study
+Panel data
+Clustered standard errors
+Economic data tools
+```
+
+因此它们的关系始终是：
+
+```text
+DSH
+ ↓
+Research
+ ↓
+Economics
+```
+
+## 这个项目不是什么
+
+本项目目前**不打算**变成：
+
+- 自动替你完成论文的“科研机器人”；
+- 覆盖所有统计方法的超大型计量软件；
+- 替代 R / Stata / Python 的新编程语言；
+- 需要第二套数据库才能运行的科研 SaaS；
+- DSH Core 的 fork。
+
+Research Edition 的原则仍然是：
+
+```text
+Files / manifests      = source of truth
+CLI / JSON API         = stable protocol
+Dashboard              = replaceable UI
+```
+
+删除 Dashboard 后项目仍然可以工作；删除缓存后仍可以从文件恢复；Research 层也不会修改 DSH Core。
+
+## 普通用户真正需要记住的工作流
+
+作为使用者，不需要理解所有 V2 内部模块。真正需要记住的是：
+
+```text
+安装 DSH
+  ↓
+创建 Research Project
+  ↓
+放入 / 登记数据
+  ↓
+运行 Pipeline
+  ↓
+检查 Result / Dashboard
+  ↓
+写 Paper
+  ↓
+research-check --release
+```
+
+典型 Economics 项目：
+
+```bash
+dshd edition research
+dshd research-pack economics
+
+research-init --template economics thesis "经济学研究"
+cd thesis
+
+# 数据放入 data/raw 后登记
+research-data register data/raw/example.csv --name raw-example --kind raw
+
+# 按 pipeline.yaml 执行
+research-pipeline run
+
+# 看项目状态
+research-status
+research-result list
+
+# 可选 Dashboard
+dshd dashboard start thesis
+
+# 最终检查
+research-check --release
+```
+
+## V2 之后的开发原则
+
+V2.0 已进入 Release Candidate 阶段。接下来不再优先横向增加 R、Zotero、Agent、
+更多计量模型等功能，而是先用真实研究项目反复验证现有工作流：
+
+```text
+真实研究
+   ↓
+发现 friction / blocker
+   ↓
+简化、修复、删除不必要复杂度
+   ↓
+再决定下一项功能
+```
+
+也就是说，**现在这个项目更需要被使用，而不是继续变大。**
+
+项目提供三层镜像：
 
 | 层级 | 镜像标签 | 用途 |
 |---|---|---|
@@ -13,7 +185,7 @@ DeepSeek Harness（`dsh`）官方未提供 Docker 部署，本项目基于官方
 | Research Core | `:research` / `:research-<research版本>` | 一般科研、文献、数据、可复现分析与论文 |
 | Research Economics | `:research-economics` / `:research-economics-<research版本>` | 经济学、计量经济学、DiD / Event Study |
 
-Research Edition 当前版本见 `research/VERSION`；当前为 **0.3.0**。
+Research Edition 当前版本见 `research/VERSION`；当前为 **0.9.0-rc.1**。
 
 ```
 .
