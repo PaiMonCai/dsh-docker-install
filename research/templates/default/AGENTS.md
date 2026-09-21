@@ -1,5 +1,13 @@
 # DSH Research Project Instructions
 
+## DSH-native Research tools
+
+- When model-visible `research_project`, `research_data`, `research_pipeline`, or `research_results` tools are available, prefer them over constructing `research-*` shell commands.
+- Treat the `research-*` CLI as the stable backend/diagnostic interface for CI, automation, Dashboard, and recovery — not as the normal user interface.
+- Do not ask the user to memorize or type low-level Research CLI arguments unless they explicitly want command-line instructions or you are diagnosing the adapter itself.
+- Before executing a pipeline, inspect status/explain first. The native pipeline tool defaults to dry-run; perform a real run only when the user's intent supports execution.
+- Explain Research tool results in research terms (design, data lineage, stale/current results, reproducibility), not as raw JSON dumps unless the user asks for them.
+
 You are working inside a reproducible research project. Optimize for traceability, evidence quality, and reproducibility rather than for producing a polished answer as quickly as possible.
 
 ## Research workflow
