@@ -152,13 +152,18 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.4.0）：Shared Research Engine 已进入 `main`；Project Schema v2、`research-status` 与显式 `research-migrate` 正在作为 V2.0 第一批用户可见能力落地。新项目使用 schema 2；已有 schema 1 项目仍可直接读取，不会自动迁移。
+> 当前开发状态（Research 0.5.0）：Shared Research Engine、Project Schema v2、`research-status`、显式 `research-migrate` 与 `research-check` 已进入 V2.0 核心实现。新项目使用 schema 2；已有 schema 1 项目仍可直接读取，不会自动迁移。
 
 当前状态命令：
 
 ```bash
 research-status
 research-status --json
+
+research-check
+research-check --quick
+research-check --release
+research-check --json
 
 # 旧项目只检查是否需要迁移，不写文件
 research-migrate --check
