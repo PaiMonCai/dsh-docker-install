@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"\nResearch run recorded: {result.run_dir}")
             print(f"Run manifest schema: {RUN_MANIFEST_SCHEMA}")
-        return 0 if result.exit_code == 0 else 1
+        return (0 if result.exit_code == 0 else 1) if args.json else result.exit_code
     except ResearchError as exc:
         if args.json:
             failure_json(
