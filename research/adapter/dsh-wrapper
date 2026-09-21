@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_DSH="${DSH_REAL_DSH:-/usr/local/bin/dsh}"
+PATCH="${DSH_RESEARCH_ADAPTER_PATCH:-/opt/dsh-research/adapter/cordis.patch.yml}"
+
+if [[ ! -x "$REAL_DSH" ]]; then
+  echo "research dsh wrapper: real dsh not found: $REAL_DSH" >&2
+  exit 127
+fi
+
+# Allow explicit opt-out for debugging/upstream compatibility checks.
+if [[ "${DSH_RESEARCH_ADAPTER_DISABLE:-0}" == "1" || ! -f "$PATCH" ]]; then
+  exec "$REAL_DSH" "$@"
+fi
+
+case "${1:-}" in
+  web|headless|sdk|sdk-minimal|acp)
+    profile="$1"
+    shift
+    exec "$REAL_DSH" "$profile" --patch "$PATCH" "$@"
+    ;;
+  --profile)
+    [[ $# -ge 2 ]] || exec "$REAL_DSH" "$@"
+    profile="$2"
+    shift 2
+    exec "$REAL_DSH" --profile "$profile" --patch "$PATCH" "$@"
+    ;;
+  plugin|--version|-V|version|help|-h|--help|"")
+    exec "$REAL_DSH" "$@"
+    ;;
+  *)
+    # Unknown/custom profile shorthand (for example: dsh tui ...).
+    # Preserve upstream behavior; users can explicitly pass --profile for adapter injection.
+    exec "$REAL_DSH" "$@"
+    ;;
+esac
