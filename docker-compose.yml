@@ -4,7 +4,7 @@ services:
       context: .
       args:
         # 与 Dockerfile 中的默认值保持一致；升级时改这里（check-update 工作流会自动维护）。
-        DSH_VERSION: "0.1.5-rc.2"
+        DSH_VERSION: "0.1.6-alpha.2"
         # 与 dsh 0.1.5-rc.2 官方 packageManager 保持一致。
         PNPM_VERSION: "11.7.0"
         # auto=自动检测国内网络并切镜像源；yes/no 强制指定
