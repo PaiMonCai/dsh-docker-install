@@ -456,6 +456,47 @@ docker build --build-arg IN_CHINA=no  -t dsh:latest .
 docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
 ```
 
+## Research Edition（一般科研版）
+
+Research Edition 在 Standard 镜像之上增加 Python 科研栈、Jupyter、Quarto、Pandoc、
+XeLaTeX 与可复现研究工具，不 fork DSH 核心。
+
+镜像标签：
+
+```text
+ghcr.io/paimoncai/dsh-docker-install:research
+```
+
+安装时可直接选择 **Research**；已有安装可切换：
+
+```bash
+dshd edition research
+dshd edition show
+dshd env
+```
+
+切换回通用版：
+
+```bash
+dshd edition standard
+```
+
+Research 容器内提供三个基础命令：
+
+```bash
+research-init my-study "研究标题"
+cd my-study
+research-run --name baseline -- python src/analysis.py
+research-archive
+```
+
+项目采用 `literature / data / notebooks / src / results / paper / runs` 结构。
+`literature/evidence-matrix.csv` 用于维护“文献—数据—方法—结论—局限”的证据矩阵；
+`research-run` 会记录 Git 状态、运行环境、输入/输出 hash 与日志；
+`research-archive` 默认不打包 `data/raw`，避免误发布敏感或受许可限制的数据。
+
+完整设计与构建说明见 `research/README.md`。
+
 ## 其他运行模式
 
 同一个镜像入口支持多种 profile：
