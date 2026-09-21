@@ -76,6 +76,7 @@ COPY research/adapter/dsh-wrapper /opt/dsh-research/venv/bin/dsh
 
 RUN chmod 0755 \
       /opt/dsh-research/venv/bin/dsh \
+      /opt/dsh-research/adapter/smoke-web.sh \
       /usr/local/bin/research-init \
       /usr/local/bin/research-run \
       /usr/local/bin/research-archive \
@@ -105,6 +106,7 @@ RUN chmod 0755 \
  && DSH_HOME="$tmp_home" dsh --profile web --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
  && DSH_HOME="$tmp_home" dsh --profile headless --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
  && rm -rf "$tmp_home" \
+ && /opt/dsh-research/adapter/smoke-web.sh \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
