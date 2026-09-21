@@ -150,28 +150,55 @@ Economics 模板会在通用 Research Project 的基础上增加：
 4. 文献综述优先维护 Evidence Matrix，而不是只生成自由文本总结。
 5. 项目可独立归档，方便论文复核、复现和交付。
 
-## V2 开发方向与可行性验证
+## V2 开发方向与实施方案
 
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
-Model / DiD / Paper / Archive 对象组织成一个真正可管理的 **Research Project lifecycle**。
+Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
+**Research Project lifecycle**。
 
 V1 已经提供项目目录、`research.yaml`、sources/evidence、数据 snapshot、run manifest、
-model manifest、DiD manifest、Quarto 结果和 hash 校验，因此 V2 可以在现有对象之上增量开发，
-不需要推翻 V1，也不需要 fork DSH 核心。
+model manifest、DiD manifest、Quarto 结果和 hash 校验，因此 V2 采用增量演进：
+不推翻 V1，不 fork DSH 核心，而是在现有对象之上增加统一的 Research Engine、状态模型、
+数据血缘、Pipeline DAG、Result Registry 和 Release 协议。
+
+V2 的整体目标可以概括为：
+
+```text
+Literature / Evidence
+        ↓
+Question / Design
+        ↓
+Data Catalog / Lineage
+        ↓
+Pipeline DAG
+        ↓
+Runs
+        ↓
+Results
+        ↓
+Paper
+        ↓
+Replication Release
+
+        ↑
+Research Agent / Dashboard
+```
 
 ### 可行性结论
 
 | 方向 | 可行性 | V1 基础 | V2 实现原则 |
 |---|---|---|---|
+| Shared Research Engine | 高 | 现有 Bash/Python CLI | 抽取项目发现、YAML/manifest、hash、Git、状态聚合等公共逻辑 |
 | Project State / Research Check | 高 | research.yaml + manifests + verify | 聚合现有状态，不重复保存第二套真相 |
-| Pipeline DAG / stale detection | 高 | 输入/输出 SHA256 + research-run | 以显式 inputs/outputs/dependencies 构建增量执行 |
-| Data Catalog / Lineage | 高 | raw/processed + snapshot metadata | dataset manifest + schema + source/code lineage |
+| Pipeline DAG / stale detection | 高 | 输入/输出 SHA256 + research-run | 以显式 inputs/outputs/dependencies + step signature 构建增量执行 |
+| Data Catalog / Lineage | 高 | raw/processed + snapshot metadata | dataset manifest + schema + source/code/run lineage |
+| Result Registry | 高 | model / DiD manifests + artifacts | 用统一 Result 对象承接 model / DiD / RDD / figure / table 等产物 |
 | Research Dashboard | 高，但需隔离 UI 风险 | DSH Web + CLI | CLI/manifest 为 source of truth，UI 仅作为 DSH plugin 展示/触发 |
 | R runtime | 高 | Quarto + research-run | 可选 R layer + renv；Python-first 不变 |
 | Zotero sync | 高 | references.bib + sources.jsonl | 先做 read-only Web API v3 同步，再考虑双向写入 |
-| Evidence Graph | 中高 | Evidence Matrix + notes | 从 paper/claim/evidence 建显式关系，不以向量相似度代替证据关系 |
+| Evidence Graph | 中高 | Evidence Matrix + notes | 从 claim 到来源位置建立显式证据关系，不以向量相似度代替证据 |
 | Advanced Economics | 高 | pyfixest / linearmodels / DiD | 每个方法单独定义 estimand、assumptions、diagnostics 和 smoke tests |
-| Multi-agent research roles | 中高 | DSH Agent + workspace tools | 共享同一 Project State；角色只是工作流，不制造多套项目状态 |
+| Research Agents | 中高 | DSH Agent + workspace tools | 共享同一 Project State；角色只是工作流，不制造多套项目状态 |
 | Replication Release | 高 | research-archive + hashes | 在 archive 上增加环境锁、许可/秘密检查和 release manifest |
 
 DSH 官方本身采用 plugin 架构，并提供 UI plugin / Web Client 扩展点。因此 Research Dashboard
@@ -183,123 +210,562 @@ R 也具备直接集成条件：Quarto 同时支持 Python/Jupyter 与 R/Knitr �
 `renv.lock` 锁定和恢复。因此 V2 可以让 Python 与 R 共享同一个 `data/processed/`、
 `results/` 和 `paper/`，而不是创建互不兼容的 Python/R 项目格式。
 
-Zotero 提供稳定的 Web API v3 和本地 API，V2 可以先把 Zotero collection 映射到
-`sources.jsonl` / `references.bib`，通过 item key/version 做增量同步。第一阶段默认 read-only，
+Zotero 第一阶段保持只读、幂等同步，通过 item key/version 做增量更新；
 API key/OAuth 只通过容器秘密配置传入，不写入科研项目和 Git。
 
-### V2.0 — Project State / Pipeline / Dashboard
+### V2.0 — Research Project Engine
 
-优先完成科研项目本身的“状态层”，而不是增加更多统计包。
+V2.0 是整个 V2 的基础版本。目标不是增加更多统计包，而是先建立统一的项目状态、
+数据对象、运行对象、结果对象和增量执行协议。
 
-计划新增：
+V2.0 完成以后，一个 Research Project 应能够回答：
+
+```text
+我现在做到哪一步？
+哪些数据和结果仍然 current？
+哪些结果已经 stale？
+为什么 stale？
+这个表或图由哪次 run、哪份数据、哪段代码生成？
+修改某个输入以后，哪些 downstream step 必须重跑？
+论文是否引用了当前结果？
+项目是否已经满足 replication release 条件？
+```
+
+#### Phase 0 — Shared Python Research Engine
+
+当前 Research Edition 同时存在 Bash 与 Python CLI。V2 不再让每个新命令重复实现
+项目根目录发现、YAML 解析、SHA256、Git 状态、manifest 读写和错误处理，而是增加内部 Python Engine：
+
+```text
+research/
+├── dsh_research/
+│   ├── __init__.py
+│   ├── project.py
+│   ├── config.py
+│   ├── hashing.py
+│   ├── manifests.py
+│   ├── state.py
+│   ├── checks.py
+│   ├── datasets.py
+│   ├── lineage.py
+│   ├── pipeline.py
+│   ├── runs.py
+│   ├── results.py
+│   ├── paper.py
+│   └── release.py
+└── bin/
+    ├── research-status
+    ├── research-check
+    ├── research-data
+    └── research-pipeline
+```
+
+外部 CLI 名称保持稳定，内部公共逻辑逐步迁移到 `dsh_research.*`。
+这样 V1 命令可以继续兼容，同时为 V2 后续 R、Zotero、Dashboard、Agents 和高级计量提供统一底座。
+
+#### Phase 1 — Project Schema v2 + Project State
+
+新增：
 
 ```text
 research-status
-research-check
-research-pipeline
-research-data
+research-migrate
 ```
+
+`ProjectState` 是**派生状态**，不是第二套数据库。它从以下 source of truth 聚合：
+
+```text
+research.yaml
+sources.jsonl
+evidence-matrix.csv
+dataset manifests
+run manifests
+result / model / DiD manifests
+pipeline state
+paper
+Git state
+```
+
+可以使用 `.research/cache/state.json` 加速，但 cache 必须可安全删除；
+删除后运行 `research-status` 应能完全重新构建状态。
 
 目标状态模型：
 
 ```text
 Research Project
 ├── Question / Design
-├── Literature
-├── Datasets
-├── Pipelines / Runs
-├── Models / DiD
-├── Tables / Figures
+├── Literature / Evidence
+├── Datasets / Lineage
+├── Pipeline / Runs
+├── Results
+│   ├── Models
+│   ├── DiD
+│   ├── Tables
+│   └── Figures
 ├── Paper
 └── Release
 ```
 
-`research-check` 需要聚合现有 verify 结果，例如：
+示例：
 
 ```text
-Research question            ✓
-Estimand                     ✓
-Literature evidence          19 / 24
-Raw data immutable           ✓
-Processed dataset            current
-Baseline models              3
-DiD diagnostics              ✓
-Stale tables / figures       0
-Missing paper citations      2
-Replication release          not ready
+$ research-status
+
+Project
+  Title                  AI 与企业生产率
+  Schema                 2
+  Git                    clean
+  Research Pack          economics
+
+Research Design
+  Question               ✓
+  Estimand               ✓
+  Identification         ✓
+
+Literature
+  Sources                42
+  Reviewed               31
+  Evidence entries       86
+
+Data
+  Registered datasets    5
+  Current                4
+  Stale                  1
+
+Pipeline
+  Steps                  8
+  Current                6
+  Stale                  2
+  Failed                 0
+
+Results
+  Registered             7
+  Stale                  1
+
+Paper
+  Missing citations      2
+  Stale artifacts        1
+
+Release
+  Status                 NOT READY
 ```
 
-Pipeline 使用显式 DAG：
+同时必须提供机器可读接口：
+
+```bash
+research-status --json
+```
+
+V2 若升级 `research.yaml` schema，必须提供非破坏性迁移：
+
+```bash
+research-migrate --to 2
+```
+
+迁移前保留原文件备份，并保证已有 V1 项目可以被 V2 CLI 检测和升级，而不是直接失效。
+
+#### Phase 2 — Research Check Rule Engine
+
+新增：
+
+```text
+research-check
+```
+
+`research-status` 回答“项目现在是什么状态”，`research-check` 回答“项目有什么问题”。
+
+统一 Check Result：
+
+```json
+{
+  "id": "paper.missing-citation",
+  "severity": "error",
+  "status": "fail",
+  "message": "citation key not found",
+  "path": "paper/paper.qmd"
+}
+```
+
+严重级别：
+
+```text
+INFO
+WARN
+ERROR
+```
+
+建议支持：
+
+```bash
+research-check --quick
+research-check --full
+research-check --release
+research-check --json
+```
+
+示例：
+
+```text
+PASS  project.question
+PASS  economics.estimand
+PASS  data.raw.immutable
+
+WARN  literature.coverage
+      5 sources have no Evidence Matrix entries
+
+WARN  pipeline.stale
+      baseline depends on stale dataset panel
+
+ERROR paper.citation
+      citation @smith2024 not found
+
+ERROR result.stale
+      table baseline was generated from an older dataset hash
+```
+
+CLI exit code 应稳定，便于 CI 直接使用 `research-check --release` 作为发布门槛。
+
+#### Phase 3 — Data Catalog + Lineage
+
+新增：
+
+```text
+research-data
+```
+
+V2 不再只依赖目录约定理解数据，而是给每个重要 dataset 建立 manifest：
+
+```text
+data/
+├── catalog/
+│   ├── cps.yaml
+│   ├── panel.yaml
+│   └── analysis.yaml
+├── raw/
+└── processed/
+```
+
+示例 Dataset Manifest：
 
 ```yaml
-pipeline:
+schema: 1
+
+dataset:
+  id: panel
+  title: Firm Panel
+
+kind: processed
+path: data/processed/panel.parquet
+format: parquet
+
+fingerprint:
+  sha256: "..."
+  size: 123456
+
+dimensions:
+  rows: 302145
+  columns: 48
+
+lineage:
+  inputs:
+    - dataset:raw-firms
+    - dataset:policy
+  pipeline_step: clean
+  run_id: 20260921T120000Z-clean
+
+access:
+  distributable: true
+```
+
+CLI 目标：
+
+```bash
+research-data register data/raw/cps.parquet --name cps --kind raw
+research-data list
+research-data show panel
+research-data verify panel
+research-data lineage panel
+```
+
+Data Catalog 必须能够追踪：
+
+```text
+Source / Raw Dataset
+        ↓
+Cleaning Code
+        ↓
+Run
+        ↓
+Processed Dataset
+        ↓
+Model / Result
+```
+
+#### Phase 4 — Pipeline DAG + Stale Detection
+
+新增：
+
+```text
+research-pipeline
+pipeline.yaml
+```
+
+Pipeline 使用显式 DAG，而不是只依赖脚本执行顺序：
+
+```yaml
+schema: 1
+
+steps:
   clean:
-    command: python src/clean.py
+    command:
+      - python
+      - src/clean.py
     inputs:
-      - data/raw/**
+      - dataset:raw-firms
     outputs:
-      - data/processed/panel.parquet
+      - dataset:panel
 
   baseline:
     depends_on: [clean]
-    command: research-econ-model feols ...
+    command:
+      - research-econ-model
+      - feols
+      - --name
+      - baseline
 
   did:
     depends_on: [clean]
-    command: research-econ-did estimate ...
+    command:
+      - research-econ-did
+      - estimate
+      - --name
+      - did-main
 
   paper:
     depends_on: [baseline, did]
-    command: quarto render paper/paper.qmd
+    command:
+      - quarto
+      - render
+      - paper/paper.qmd
 ```
 
-输入 hash 改变后只把受影响的 downstream step 标记为 stale，并只重跑必要步骤。
-
-Dashboard 作为 DSH UI plugin 展示同一份 Project State：
+stale detection 不能只依赖文件 mtime。每个 step 应计算稳定的 **Step Signature**：
 
 ```text
-Project
-├── Literature
-├── Data
-├── Pipeline
-├── Models
-├── DiD
-├── Results
-├── Paper
-└── Release
+step signature
+  = command
+  + dependency signatures
+  + input hashes
+  + relevant source-code hashes
+  + referenced research config
+  + relevant runtime identity
 ```
 
-Dashboard 不直接拥有科研状态；删除 UI plugin 后，所有项目仍可通过 CLI 完整使用。
+例如 `src/clean.py` 改变，即使 raw data 没变，也必须使：
+
+```text
+clean → stale
+baseline → stale
+did → stale
+paper → stale
+```
+
+而仅修改 bibliography 时，不应让数据清洗与模型全部重跑。
+
+CLI 目标：
+
+```bash
+research-pipeline status
+research-pipeline list
+research-pipeline graph
+research-pipeline explain did
+research-pipeline run
+research-pipeline run baseline
+```
+
+`research-pipeline explain` 必须说明 stale 原因，而不是只返回布尔状态。例如：
+
+```text
+did is stale because:
+
+dataset:panel
+  expected: sha256 AAA
+  current:  sha256 BBB
+
+caused by:
+  clean
+
+clean is stale because:
+  src/clean.py changed
+```
+
+Pipeline 执行时只重跑 stale 节点及其必要依赖；已经 current 的上游步骤必须跳过。
+
+#### Phase 5 — research-run Manifest v2
+
+V1 `research-run` 已经记录 command、Git commit、Git dirty、Python/uv/Quarto/Pandoc、
+pip freeze、输入输出 hash、stdout/stderr 和 exit code。V2 不推翻这一能力，而是把它升级为
+Pipeline 与 Result 的标准运行记录。
+
+Run Manifest v2 至少包含：
+
+```json
+{
+  "schema": 2,
+  "id": "20260921T120301Z-baseline",
+  "pipeline_step": "baseline",
+  "command": [],
+  "inputs": [
+    {"dataset": "panel", "sha256": "..."}
+  ],
+  "outputs": [
+    {"result": "baseline", "sha256": "..."}
+  ],
+  "environment": {
+    "python": "...",
+    "r": null,
+    "image_digest": "..."
+  },
+  "git": {
+    "commit": "...",
+    "dirty": false
+  },
+  "exit_code": 0
+}
+```
+
+Pipeline 必须能够根据 Run Manifest 判断：上一次运行到底基于什么数据、代码和环境。
+
+#### Phase 6 — Result Registry
+
+V2 增加统一的 **Research Result** 抽象，不让 Project State 直接耦合所有计量方法。
+
+统一 Result 可以承接：
+
+```text
+model
+did
+rdd
+synthetic-control
+descriptive-table
+figure
+table
+other
+```
+
+每个 Result 至少记录：
+
+```text
+id
+type
+inputs
+run
+manifest
+artifacts
+hash
+status
+```
+
+于是科研对象形成统一链路：
+
+```text
+Dataset
+   ↓
+Pipeline Step
+   ↓
+Run
+   ↓
+Result
+   ↓
+Artifact
+   ↓
+Paper
+```
+
+后续 RDD、Synthetic Control、DML 等方法只需要注册新的 Result 类型和 diagnostics，
+不需要不断扩张 Project State 的核心结构。
+
+#### Phase 7 — JSON Interfaces
+
+V2 核心 CLI 必须同时支持人类可读输出与稳定 JSON：
+
+```bash
+research-status --json
+research-check --json
+research-data list --json
+research-pipeline status --json
+```
+
+JSON 是 Dashboard、DSH Agent、CI 和未来其他客户端的稳定接口；
+不要让 UI 直接解析终端文本。
+
+#### Phase 8 — Research Dashboard
+
+Dashboard 是 V2.0 的最后一层，而不是最先开发的部分。
+
+```text
+DSH Research UI plugin
+        ↓
+Research CLI / JSON
+        ↓
+Research Engine
+        ↓
+Files + manifests
+```
+
+建议页面：
+
+```text
+Overview
+Research Design
+Literature
+Data
+Pipeline
+Results
+Paper
+Release
+```
+
+Dashboard 只展示和触发同一份 Project State，不拥有独立科研数据库；
+删除 UI plugin 后，所有项目仍可通过 CLI 完整恢复、执行和验证。
 
 ### V2.1 — R Runtime + 统一执行环境
 
-Economics Pack 保持 Python-first，同时增加可选 R runtime：
+Economics Pack 保持 Python-first，同时增加可选 R runtime。为避免普通 Economics 镜像过重，
+优先采用分层镜像：
 
 ```text
-Python
-├── pandas / Polars / DuckDB
-├── pyfixest / linearmodels
-└── ML / AI ecosystem
-
-R
-├── tidyverse / data.table
-├── fixest
-├── did / did2s
-├── modelsummary
-├── estimatr
-└── ggplot2
+research
+   ↓
+research-economics
+   ↓
+research-economics-r
 ```
 
-统一使用：
+第一阶段 R 环境控制在经济学高频工具：
+
+```text
+R
+├── renv
+├── data.table
+├── ggplot2
+├── fixest
+├── modelsummary
+└── estimatr
+```
+
+`did` / `did2s` 等现代 DiD 包在 amd64 / arm64 smoke test 稳定后逐步加入。
+
+Python 与 R 共用同一运行协议：
 
 ```bash
 research-run --name clean-python -- python src/clean.py
 research-run --name robustness-r -- Rscript src/robustness.R
 ```
 
-R 项目依赖使用 `renv.lock`，Python 继续记录当前 venv / package environment。
-`research-run` 与 `research-archive` 负责同时记录两种运行时及其版本，不让语言差异破坏
-现有可复现协议。
+R 项目依赖使用 `renv.lock`，Python 继续记录 venv/package environment。
+`research-run`、Pipeline 和 `research-release` 同时记录两种 runtime 及其版本，
+不让语言差异破坏现有可复现协议。
 
 ### V2.2 — Zotero + Evidence Graph
 
@@ -308,7 +774,7 @@ Zotero 第一阶段：
 ```text
 Zotero Collection
       ↓
-research-zotero sync
+research-zotero status / sync
       ↓
 sources.jsonl
 references.bib
@@ -316,9 +782,20 @@ literature/notes
 Evidence Matrix
 ```
 
-同步必须幂等，保留 Zotero item key/version，避免重复导入。
+同步必须只读优先、幂等，保留 Zotero item key/version，避免重复导入。
+`research-zotero status` 应显示 collection version、last synced version、new / updated / deleted / conflicts。
 
-在 Evidence Matrix 之上增加显式 Evidence Graph：
+凭据只通过环境变量或 DSH secret 配置传入，例如：
+
+```text
+ZOTERO_API_KEY
+ZOTERO_LIBRARY_ID
+```
+
+不得写入 `research.yaml`、项目文件或 Git。
+
+在 Evidence Matrix 之上增加显式 Evidence Graph。第一版优先使用简单、可审计的文件结构，
+例如 `literature/claims.yaml`，不急于引入图数据库或向量数据库。
 
 ```text
 Research Question
@@ -333,17 +810,17 @@ Claim
 
 ### V2.3 — Advanced Economics
 
-在当前 FE / IV / Panel / DiD 基础上逐步加入：
+在当前 FE / IV / Panel / DiD 基础上，按“先完善现有因果推断主线，再扩展高级方法”的顺序开发：
 
-- RDD；
-- Synthetic Control；
-- Callaway–Sant'Anna / 其他现代 staggered-DiD 实现；
-- Triple Difference；
-- Matching / Weighting；
-- Double Machine Learning；
-- Causal Forest / heterogeneous treatment effects；
-- placebo / falsification / sensitivity；
-- power / minimum detectable effect。
+1. Modern DiD completion：Callaway–Sant'Anna / 其他 staggered-DiD 实现；
+2. RDD；
+3. Synthetic Control；
+4. placebo / falsification / sensitivity；
+5. Matching / Weighting；
+6. Triple Difference；
+7. power / minimum detectable effect；
+8. Double Machine Learning；
+9. Causal Forest / heterogeneous treatment effects。
 
 每个方法都必须像现有 `research-econ-did` 一样包含：
 
@@ -353,6 +830,7 @@ Design fields
 → Estimator
 → Diagnostics
 → Manifest
+→ Result Registry
 → Tables/Figures
 → Quarto
 → verify
@@ -362,48 +840,233 @@ Design fields
 
 ### V2.4 — Research Agents + Replication Release
 
-Agent 层可以按职责拆分：
+Agent 层共享同一个 Project State，不各自维护隐藏状态。
+
+长期角色可以包括：
 
 ```text
 Planner
-→ Literature
-→ Data
-→ Methods
-→ Results
-→ Writing
-→ Reviewer
+Literature
+Data
+Methods
+Results
+Writing
+Reviewer
 ```
 
-这些角色共享同一个 Project State，不各自维护隐藏状态。
+但第一阶段优先实现：
 
-新增 `research-release`，在 `research-archive` 之上生成可交付 replication package：
+```text
+Planner
+Reviewer
+```
+
+Planner 读取 Project State 和 Research Check，告诉用户下一步应该完成什么；
+Reviewer 负责检查研究设计、数据、识别策略、推断、结果一致性和复现风险。
+
+Reviewer 重点检查：
+
+```text
+研究问题和 estimand 是否明确
+识别策略是否与 estimator 匹配
+聚类 / 标准误层级是否合理
+数据和结果是否 stale
+论文表格是否来自当前 result
+event study 是否被错误解释
+是否存在只报告显著规格的风险
+论文数字是否与 manifest 一致
+引用是否存在并可追溯
+```
+
+#### Archive 与 Release 分离
+
+`research-archive` 定位为内部项目快照；
+`research-release` 定位为可对外交付的 replication package。
+
+新增：
+
+```bash
+research-release check
+research-release build
+```
+
+`research-release check` 至少检查：
+
+```text
+pipeline current
+results current
+paper current
+Git state
+secrets / API keys
+raw-data license
+restricted datasets
+copyright PDFs
+PII / sensitive data
+large files
+runtime locks
+```
+
+Release 输出：
 
 ```text
 release/
-├── paper.pdf / paper.html
+├── paper/
+│   ├── paper.pdf
+│   └── paper.html
 ├── code/
-├── data/processed/
+├── data/
+│   └── processed/
 ├── results/
-├── literature/references.bib
+├── literature/
+│   └── references.bib
 ├── environment/
-│   ├── python environment
+│   ├── python.txt
+│   ├── pip-freeze.txt
+│   ├── R.txt
 │   ├── renv.lock
-│   ├── docker image digest
-│   └── system info
+│   ├── docker-image.txt
+│   ├── system.txt
+│   └── git.txt
 ├── runs/
 ├── README.md
 └── MANIFEST.json
 ```
 
-release 前必须检查 secrets、API keys、原始数据许可、受限数据、版权 PDF、个人信息和大文件，
-默认宁可不发布，也不把 `data/raw/` 或全文文献意外打包。
+默认宁可不发布，也不把 `data/raw/`、受限数据、全文版权文献、秘密或个人信息意外打包。
+
+### V2 Testing Strategy
+
+V2 的 Pipeline、状态聚合和 Release 必须由自动化测试保护，而不能只依赖 CLI smoke test。
+
+建议测试结构：
+
+```text
+research/tests/
+├── test_project.py
+├── test_migrate.py
+├── test_state.py
+├── test_checks.py
+├── test_catalog.py
+├── test_lineage.py
+├── test_pipeline.py
+├── test_stale.py
+├── test_runs.py
+├── test_results.py
+└── test_release.py
+```
+
+Pipeline 最低集成测试：
+
+```text
+raw → clean → model → paper
+```
+
+第一次运行：
+
+```text
+RUN clean
+RUN model
+RUN paper
+```
+
+第二次无修改：
+
+```text
+SKIP clean
+SKIP model
+SKIP paper
+```
+
+修改 raw：
+
+```text
+RUN clean
+RUN model
+RUN paper
+```
+
+只修改 model script：
+
+```text
+SKIP clean
+RUN model
+RUN paper
+```
+
+只修改 paper：
+
+```text
+SKIP clean
+SKIP model
+RUN paper
+```
+
+此外必须覆盖 DAG cycle、失败节点、schema migration、hash 稳定性、
+release secret scanning 和 amd64 / arm64 镜像 smoke test。
+
+### V2 推荐开发顺序
+
+V2 不一次性做成一个大 PR，而是按可回滚、可测试的小步演进：
+
+```text
+PR 1   refactor: add shared Research Python engine
+PR 2   feat: add Project Schema v2 and research-status
+PR 3   feat: add research-check rule engine
+PR 4   feat: add dataset catalog and lineage
+PR 5   feat: add pipeline DAG parser
+PR 6   feat: add stale detection and incremental execution
+PR 7   feat: migrate research-run to manifest schema v2
+PR 8   feat: add Result Registry
+PR 9   feat: add stable JSON interfaces
+PR 10  feat: add Research Dashboard plugin
+PR 11  feat: add optional R runtime
+PR 12  feat: add Zotero sync
+PR 13  feat: add Evidence Graph
+PR 14+ feat: advanced economics methods
+PR N   feat: Planner / Reviewer + replication release
+```
+
+建议版本节奏：
+
+```text
+0.4.0  V2 engine prototype
+0.5.0  Project State + Check
+0.6.0  Data Catalog + Lineage
+0.7.0  Pipeline DAG + stale detection
+0.8.0  Result Registry + Dashboard preview
+0.9.0  V2 release candidate
+2.0.0  Stable V2
+```
+
+在 `2.0.0` 前保持现有 V1 CLI 尽量兼容，不因为内部重构破坏已创建的 Research Project。
 
 ## V2 不变的架构原则
 
 1. **文件与 manifest 是 source of truth**：UI、Agent 和 CLI 都读写同一项目状态。
-2. **CLI first, UI optional**：Dashboard 不能成为项目可复现性的依赖。
-3. **不 fork DSH 核心**：UI 和 Agent 扩展优先使用官方 plugin extension points。
-4. **Python-first, multi-runtime**：R 是补充执行引擎，不推翻 Python 数据工程主线。
-5. **方法服从研究设计**：先 question / estimand / assumptions，再选择 estimator。
-6. **可追溯优先于自动化**：自动生成的表、图、结论都必须能回到数据、代码、run 和来源。
-7. **V2 先做 Project State**：V2.0 完成以前，不以增加大量统计包作为主要开发目标。
+2. **Derived state 可重建**：`.research/cache` 等缓存可以删除，项目仍能从 source of truth 恢复。
+3. **CLI first, UI optional**：Dashboard 不能成为项目可复现性的依赖。
+4. **稳定 JSON 协议**：Dashboard、Agent 和 CI 消费 JSON，不解析终端文本。
+5. **不 fork DSH 核心**：UI 和 Agent 扩展优先使用官方 plugin extension points。
+6. **Python-first, multi-runtime**：R 是补充执行引擎，不推翻 Python 数据工程主线。
+7. **方法服从研究设计**：先 question / estimand / assumptions，再选择 estimator。
+8. **可追溯优先于自动化**：表、图、结论都必须能回到 dataset、code、run、result 和来源。
+9. **增量执行必须可解释**：不仅知道 stale，还要知道为什么 stale。
+10. **Archive 与 Release 分离**：内部快照和对外 replication package 使用不同安全门槛。
+11. **向后兼容优先**：Schema 升级提供迁移路径，V1 项目不能因为 V2 重构直接失效。
+12. **V2 先做 Project Engine**：V2.0 完成以前，不以增加大量统计包作为主要开发目标。
+
+最终目标不是把 DSH Research 做成“带很多科研包的 Docker 镜像”，而是形成：
+
+```text
+AI Agent
+   +
+Research Project Engine
+   +
+Reproducible Data / Pipeline / Results
+   +
+Economics Research Workflows
+   +
+Replication Release
+```
+
+即一个以文件协议、可复现性和研究设计为核心的 **AI-native Research Environment**。
