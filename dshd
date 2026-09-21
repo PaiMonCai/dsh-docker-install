@@ -1272,6 +1272,9 @@ cmd_edition() {
       return
       ;;
     standard)
+      if dashboard_container_exists 2>/dev/null; then
+        docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || true
+      fi
       DSH_EDITION="standard"
       DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$DEFAULT_IMAGE"
@@ -2199,6 +2202,10 @@ cmd_doctor() {
 cmd_uninstall() {
   load_config; ensure_docker
   heading "卸载 dsh"
+  if dashboard_container_exists 2>/dev/null; then
+    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || true
+    ok "Research Dashboard sidecar 已删除"
+  fi
   if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
 
   if [[ "$DSH_STORAGE_MODE" == "volume" ]]; then
