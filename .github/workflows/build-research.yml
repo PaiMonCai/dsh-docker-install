@@ -64,6 +64,8 @@ jobs:
           node --check research/adapter/index.js
           bash -n research/adapter/dsh-wrapper
           bash -n research/adapter/smoke-web.sh
+          bash -n research/entrypoint.sh
+          bash -n research/tests/runtime-image-smoke.sh
           node research/tests/test-adapter.mjs
           bash research/tests/test-adapter-wrapper.sh
           grep -q '^schema: 2$' research/templates/default/research.yaml
@@ -102,12 +104,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        id: research-image
         with:
           context: .
           file: research/Dockerfile
           target: ${{ matrix.target }}
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           build-args: |
             BASE_IMAGE=${{ steps.img.outputs.name }}:latest
             RESEARCH_VERSION=${{ steps.ver.outputs.version }}
@@ -116,3 +120,20 @@ jobs:
             ${{ steps.img.outputs.name }}:${{ matrix.tag }}-${{ steps.ver.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
+
+      - name: Runtime smoke under read-only root and 1 GiB memory
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          image="${{ steps.img.outputs.name }}:${{ matrix.tag }}"
+          docker run --rm \
+            --read-only \
+            --memory=1g \
+            --memory-swap=1g \
+            --pids-limit=512 \
+            --shm-size=256m \
+            --tmpfs /tmp:rw,nosuid,nodev,size=384m \
+            --tmpfs /root/.dsh:rw,nosuid,nodev,size=192m \
+            --tmpfs /workspace:rw,nosuid,nodev,size=256m \
+            -v "$PWD/research/tests/runtime-image-smoke.sh:/runtime-image-smoke.sh:ro" \
+            "$image" bash /runtime-image-smoke.sh
