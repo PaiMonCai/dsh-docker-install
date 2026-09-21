@@ -329,7 +329,7 @@ def run_feols(args, root: Path) -> int:
             "input_rows": int(len(frame)),
         },
         "estimation": {
-            "nobs": int(getattr(fit, "_N", len(frame))),
+            "nobs": int(getattr(fit, "_N", None) or len(frame)),
             "terms": [row["term"] for row in rows],
             "plotted_terms": plotted_terms,
         },
