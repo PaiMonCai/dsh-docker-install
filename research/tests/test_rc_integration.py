@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -310,6 +312,10 @@ steps:
 
             # Exercise Dashboard through the actual CLI process, not internal
             # Python objects, then query its Stable JSON API bridge.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                dashboard_port = int(probe.getsockname()[1])
+            dashboard_url = f"http://127.0.0.1:{dashboard_port}/"
             process = subprocess.Popen(
                 [
                     sys.executable,
@@ -320,32 +326,36 @@ steps:
                     "--host",
                     "127.0.0.1",
                     "--port",
-                    "0",
+                    str(dashboard_port),
                     "--quiet",
                 ],
                 cwd=root,
                 env=env_for_source_tree(),
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
             )
             try:
-                url = None
+                dashboard_status = None
                 deadline = time.time() + 8
-                assert process.stdout is not None
                 while time.time() < deadline:
-                    line = process.stdout.readline().strip()
-                    if line.startswith("URL:"):
-                        url = line.split("URL:", 1)[1].strip()
-                        break
                     if process.poll() is not None:
                         break
+                    try:
+                        with urllib.request.urlopen(
+                            dashboard_url + "api/status",
+                            timeout=1,
+                        ) as response:
+                            dashboard_status = json.loads(response.read().decode("utf-8"))
+                        break
+                    except (urllib.error.URLError, TimeoutError):
+                        time.sleep(0.1)
+
                 self.assertIsNotNone(
-                    url,
-                    "dashboard did not publish its URL before the startup deadline",
+                    dashboard_status,
+                    "dashboard did not become HTTP-ready before the startup deadline",
                 )
-                with urllib.request.urlopen(str(url) + "api/status", timeout=5) as response:
-                    dashboard_status = json.loads(response.read().decode("utf-8"))
+                assert dashboard_status is not None
                 self.assertEqual(dashboard_status["api"], {"name": "dsh-research", "version": 1})
                 self.assertEqual(dashboard_status["data"]["project"]["slug"], "rc-project")
             finally:
