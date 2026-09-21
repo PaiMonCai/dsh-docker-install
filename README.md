@@ -319,6 +319,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
    声明对外 authority（逗号分隔），否则 `/api` 返回 401/403。
 3. **默认 root 运行**：bind mount 权限最省事，文件级限制交给 dsh 自己的沙箱。
    要降权加 `--user 1000:1000` 并保证挂载目录可写。
+4. **历史 Workspace 自动自愈**：当前标准持久工作区是 `/workspace`。如果持久卷中仍有
+   以旧 `cwd=/root/dsh` 创建的会话（对应 `$DSH_HOME/sessions/--root-dsh--`），而容器
+   recreate 后 `/root/dsh` 已随旧 overlay 消失，入口脚本会在 DSH 启动前自动创建
+   `/root/dsh -> /workspace` 软链接。它不会改写不可变的 SessionHeader，也不会让新会话继续
+   使用旧路径；`dshd doctor` 会显示修复状态。
 
 ## 文件沙箱
 
