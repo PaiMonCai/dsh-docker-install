@@ -76,6 +76,20 @@ class HashingTests(unittest.TestCase):
             self.assertNotEqual(first, tree_digest(root))
 
 
+    def test_tree_hash_distinguishes_missing_empty_and_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing = root / "missing"
+            empty = root / "empty"
+            empty.mkdir()
+            file_path = root / "empty.txt"
+            file_path.write_text("", encoding="utf-8")
+
+            self.assertNotEqual(tree_digest(missing), tree_digest(empty))
+            self.assertNotEqual(tree_digest(empty), tree_digest(file_path))
+            self.assertNotEqual(tree_digest(missing), tree_digest(file_path))
+
+
 class GitTests(unittest.TestCase):
     def test_git_state_for_non_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
