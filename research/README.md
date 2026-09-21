@@ -75,13 +75,15 @@ review.md + paper citations
 research-literature add 10.1257/aer.20181234
 research-literature add https://arxiv.org/abs/2401.01234
 research-literature add ./paper.pdf
+research-literature extract <citation_key>
 research-literature list
 research-literature review
 research-literature verify
 ```
 
 PDF 导入时会尝试从前几页识别 DOI；识别成功且网络可用时，再通过 Crossref 补全元数据。
-本地 PDF 默认复制到 `literature/pdfs/`，但该目录中的 PDF 默认不进入 Git。
+本地 PDF 默认复制到 `literature/pdfs/`，同时记录 SHA256；`extract` 可生成带页码标记的
+`literature/extracted/<citation_key>.txt`，便于结构化阅读和页码追溯。PDF 与提取全文默认都不进入 Git。
 `review` 只从 Evidence Matrix 生成可追溯证据索引，不会凭空生成论文结论。
 `verify` 会检查 BibTeX、Evidence Matrix、结构化笔记和 `paper/*.qmd` 引用的一致性，并检查原始数据是否被误提交到 Git。
 
