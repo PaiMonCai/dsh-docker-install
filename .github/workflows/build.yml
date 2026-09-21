@@ -101,7 +101,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          docker run --rm --entrypoint bash dsh-ci:pr -lc '
+          docker run --rm --entrypoint bash dsh-ci:pr -c '
             set -euo pipefail
             node --version
             npm --version
