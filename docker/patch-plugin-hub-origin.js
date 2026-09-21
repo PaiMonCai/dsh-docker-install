@@ -10,19 +10,34 @@ const routePattern = /const localHostnames = new Set\(\['localhost', '127\.0\.0\
 const pnpmPolicyPattern = /ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION\|Minimum release age\|untrusted origin/g;
 
 function patchRouteText(before) {
-  if (before.includes(ROUTE_MARKER) && before.includes('trustedHosts.has(host)')) {
-    return { text: before, changed: false, alreadyPatched: true };
+  let text = before;
+  let changed = false;
+
+  // 迁移旧版 runtime patch。5c365ac 生成的代码曾把 \s 吞成普通字母 s，
+  // 导致 DSH_TRUSTED_HOSTS=dsh.example.com 被错误拆分，所有域名 POST 都返回 403。
+  // 同时把早期正确但更易受双重转义影响的正则形式统一迁移为纯逗号分隔。
+  if (text.includes(ROUTE_MARKER) && text.includes('trustedHosts.has(host)')) {
+    const legacySplitForms = [
+      '.split(/[,s]+/)',
+      String.raw`.split(/[,\s]+/)`,
+    ];
+    for (const form of legacySplitForms) {
+      if (text.includes(form)) {
+        text = text.split(form).join(".split(',')");
+        changed = true;
+      }
+    }
+    return { text, changed, alreadyPatched: !changed };
   }
 
-  let changed = false;
-  const text = before.replace(routePattern, (match) => {
+  text = text.replace(routePattern, (match) => {
     changed = true;
     const semicolon = match.includes(';') ? ';' : '';
     return [
       "const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]'])" + semicolon,
       "        const trustedHosts = new Set(",
       "            (process.env.DSH_TRUSTED_HOSTS ?? '')",
-      "                .split(/[,\s]+/)",
+      "                .split(',')",
       "                .map((value) => value.trim())",
       "                .filter(Boolean),",
       "        )" + semicolon,
@@ -99,42 +114,65 @@ function profilePackageRoots(dshHome) {
 }
 
 function selfTest() {
-  const js = `function isSameOrigin(request) {
-    const origin = request.headers.origin;
-    const host = request.headers.host;
-    if (origin === undefined || host === undefined) return false;
-    try {
-        const url = new URL(origin);
-        const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]']);
-        return url.host === host && localHostnames.has(url.hostname);
-    } catch {
-        return false;
-    }
-}`;
-  const ts = `const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]'])
-    return url.host === host && localHostnames.has(url.hostname)`;
-  const failure = `if (/ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION|Minimum release age|untrusted origin/i.test(message)) return 'pnpmPolicy'`;
+  const js = [
+    'function isSameOrigin(request) {',
+    '    const origin = request.headers.origin;',
+    '    const host = request.headers.host;',
+    '    if (origin === undefined || host === undefined) return false;',
+    '    try {',
+    '        const url = new URL(origin);',
+    "        const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]']);",
+    '        return url.host === host && localHostnames.has(url.hostname);',
+    '    } catch {',
+    '        return false;',
+    '    }',
+    '}',
+  ].join('\n');
+  const ts = [
+    "const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]'])",
+    '    return url.host === host && localHostnames.has(url.hostname)',
+  ].join('\n');
+  const brokenPatched = [
+    "const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]']);",
+    '        const trustedHosts = new Set(',
+    "            (process.env.DSH_TRUSTED_HOSTS ?? '')",
+    '                .split(/[,s]+/)',
+    '                .map((value) => value.trim())',
+    '                .filter(Boolean),',
+    '        );',
+    '        return url.host === host',
+    '            && (localHostnames.has(url.hostname) || trustedHosts.has(host));',
+  ].join('\n');
+  const failure = "if (/ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION|Minimum release age|untrusted origin/i.test(message)) return 'pnpmPolicy'";
 
   const jsPatched = patchRouteText(js);
   const tsPatched = patchRouteText(ts);
+  const migrated = patchRouteText(brokenPatched);
   const failurePatched = patchFailureText(failure);
 
-  if (!jsPatched.changed || !jsPatched.text.includes('trustedHosts.has(host)')) {
+  if (!jsPatched.changed
+      || !jsPatched.text.includes('trustedHosts.has(host)')
+      || !jsPatched.text.includes(".split(',')")) {
     throw new Error('self-test: failed to patch JS route');
   }
   if (!tsPatched.changed || !tsPatched.text.includes('DSH_TRUSTED_HOSTS')) {
     throw new Error('self-test: failed to patch TS route');
+  }
+  if (!migrated.changed
+      || migrated.text.includes('.split(/[,s]+/)')
+      || !migrated.text.includes(".split(',')")) {
+    throw new Error('self-test: failed to migrate broken trusted-host split');
   }
   if (!failurePatched.changed
       || !failurePatched.text.includes('ERR_PNPM_UNTRUSTED_ORIGIN')
       || failurePatched.text.includes('|untrusted origin')) {
     throw new Error('self-test: failed to patch pnpm error classification');
   }
-  if (patchRouteText(jsPatched.text).changed) {
+  if (patchRouteText(jsPatched.text).changed || patchRouteText(migrated.text).changed) {
     throw new Error('self-test: route patch is not idempotent');
   }
 
-  process.stdout.write('Plugin Hub reverse-proxy patch self-test passed.\\n');
+  process.stdout.write('Plugin Hub reverse-proxy patch self-test passed.\n');
 }
 
 function main() {
@@ -170,6 +208,12 @@ function main() {
         transform: patchFailureText,
         label: 'client failure classifier',
         required: false,
+      },
+      {
+        file: path.join(root, 'client', 'client.js'),
+        transform: patchFailureText,
+        label: 'browser client failure classifier',
+        required: true,
       },
     ];
 
