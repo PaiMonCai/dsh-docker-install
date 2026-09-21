@@ -64,17 +64,31 @@ def iter_tree_files(root: str | Path) -> Iterable[Path]:
 
 
 def tree_digest(root: str | Path) -> str:
-    """Return one deterministic digest for a directory tree.
+    """Return one deterministic digest for a file or directory tree.
 
     Both relative paths and file contents contribute to the digest, so a rename
-    changes the fingerprint even if bytes are unchanged.
+    changes the fingerprint even if bytes are unchanged.  Missing paths, files,
+    and directories use distinct type markers; in particular an empty directory
+    must not compare equal to a missing input.
     """
 
     base = Path(root)
     digest = hashlib.sha256()
 
+    if not base.exists():
+        digest.update(b"MISSING\0")
+        return digest.hexdigest()
+
+    if base.is_file():
+        digest.update(b"FILE\0")
+        digest.update(base.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(sha256_file(base).encode("ascii"))
+        return digest.hexdigest()
+
+    digest.update(b"DIR\0")
     for path in iter_tree_files(base):
-        relative = path.name if base.is_file() else path.relative_to(base).as_posix()
+        relative = path.relative_to(base).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(sha256_file(path).encode("ascii"))
