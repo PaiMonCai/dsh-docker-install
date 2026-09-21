@@ -202,9 +202,67 @@ DSH
 同时配置：
 
 - 首次访问 Token；
-- `DSH_TRUSTED_HOSTS`；
+- `DSH_TRUSTED_HOSTS`（只写 `host` 或 `host:port`，不要带协议和路径）；
 - HTTPS 反向代理；
 - 不直接把 DSH Web UI 端口暴露到公网。
+
+### 反向代理必须保留原始 Host
+
+DSH 会在所有 `/api` 请求进入业务处理前校验 `Host`、`Origin` 和
+`Sec-Fetch-Site`。因此反向代理必须把浏览器访问时的原始 authority 传给上游；
+`X-Forwarded-Host` 不能替代真正的 `Host`。如果代理把 `Host` 改成
+`127.0.0.1`，而浏览器发送 `Origin: https://dsh.example.com`，两者不一致，
+包括 `settings/describe` 在内的 `/api` 请求都会返回 HTTP 403，即使域名已经加入
+`DSH_TRUSTED_HOSTS`。
+
+Nginx / OpenResty（包括宝塔反向代理）推荐配置：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3080;
+    proxy_http_version 1.1;
+
+    # 关键：保留浏览器请求中的域名和可选端口。
+    proxy_set_header Host $http_host;
+    proxy_set_header Origin $http_origin;
+
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_buffering off;
+    proxy_read_timeout 600s;
+}
+```
+
+不要使用下面这种配置：
+
+```nginx
+proxy_set_header Host 127.0.0.1;
+proxy_set_header Host $proxy_host;
+```
+
+每增加一个访问域名，还需要更新 Trusted Hosts 并重建容器：
+
+```bash
+dshd hosts add dsh.example.com
+dshd recreate
+```
+
+排查时可以在 Docker 宿主机直接模拟请求（把示例域名换成实际域名）：
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  http://127.0.0.1:3080/api/settings/describe \
+  -H 'Host: dsh.example.com' \
+  -H 'Origin: https://dsh.example.com' \
+  -H 'Sec-Fetch-Site: same-origin'
+```
+
+未携带浏览器 Cookie 时，返回 `401` 表示 Host/Origin 信任校验已经通过；返回 `403`
+表示 Trusted Hosts 尚未应用，或反向代理传递的 Host/Origin 不匹配。修改反向代理头后
+只需重载代理；修改 `DSH_TRUSTED_HOSTS` 才需要重建 DSH 容器。
 
 补丁只修改 `@deepseek-ai/dsh-client-ui-settings` 客户端插件中的 Settings 持久化判断，
 不改变其他 loopback 安全判断。构建时如果找不到对应表达式，镜像构建会直接失败，避免

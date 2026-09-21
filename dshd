@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.5.0"
+DSHD_VERSION="0.5.1"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -426,7 +426,7 @@ local_token_url() {
   suffix="$(token_suffix "$source_url")" || return 1
   host="$DSH_BIND_ADDR"
   [[ "$host" == "0.0.0.0" || "$host" == "::" ]] && host="127.0.0.1"
-  printf 'http://%s:%s/%s' "$host" "$DSH_PORT" "${suffix#?}"
+  printf 'http://%s:%s/%s' "$host" "$DSH_PORT" "$suffix"
 }
 
 public_token_url() {
@@ -442,7 +442,7 @@ public_token_url() {
   authority="${authority%%/*}"
   [[ -n "$authority" ]] || return 1
 
-  printf '%s://%s/%s' "$scheme" "$authority" "${suffix#?}"
+  printf '%s://%s/%s' "$scheme" "$authority" "$suffix"
 }
 
 wait_ready() {
