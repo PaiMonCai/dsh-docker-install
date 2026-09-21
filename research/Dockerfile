@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.18
-ARG RESEARCH_VERSION=0.9.0-rc.2
+ARG RESEARCH_VERSION=0.9.0-rc.3
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \
@@ -105,6 +105,9 @@ RUN chmod 0755 \
  && tmp_home="$(mktemp -d)" \
  && DSH_HOME="$tmp_home" dsh --profile web --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
  && DSH_HOME="$tmp_home" dsh --profile headless --dump-config | grep -q '/opt/dsh-research/adapter/index.js' \
+ && DSH_HOME="$tmp_home" DSH_RESEARCH_ADAPTER_PROFILES='web,headless,compat-smoke' \
+      dsh compat-smoke --from-default-profile headless --dump-config \
+      | grep -q '/opt/dsh-research/adapter/index.js' \
  && rm -rf "$tmp_home" \
  && /opt/dsh-research/adapter/smoke-web.sh \
  && pandoc --version | head -1 \

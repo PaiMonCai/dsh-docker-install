@@ -63,23 +63,58 @@ constructing long shell commands itself.
 
 ## Activation
 
-Research images place a small `dsh` wrapper earlier on PATH. For the official
-agent profiles:
+Research images place a small `dsh` wrapper earlier on PATH. The wrapper
+understands the current DSH launcher forms:
 
 ```text
-dsh web
-dsh headless ...
+dsh web ...
 dsh --profile web ...
-dsh --profile headless ...
+dsh --profile=web ...
+dsh <custom-profile> ...
 ```
 
-the wrapper injects:
+By default the Adapter is injected only into:
 
 ```text
---patch /opt/dsh-research/adapter/cordis.patch.yml
+web,headless
 ```
 
-All other DSH management commands preserve upstream behavior. Set
-`DSH_RESEARCH_ADAPTER_DISABLE=1` to bypass the adapter for debugging.
+The compatibility set is configurable without editing the wrapper:
 
-The patch is invocation-local. It does not modify the persisted DSH profile.
+```bash
+# Add a custom Agent profile.
+export DSH_RESEARCH_ADAPTER_PROFILES=web,headless,tui
+
+# Opt every booted profile into the Adapter.
+export DSH_RESEARCH_ADAPTER_PROFILES='*'
+
+# Disable the Adapter completely for upstream/debug checks.
+export DSH_RESEARCH_ADAPTER_DISABLE=1
+```
+
+The wrapper preserves user `--patch` ordering, avoids injecting the Adapter
+twice, leaves `plugin` commands untouched, and does not inject into
+`--dump-default-config` because upstream explicitly forbids extra patches in
+that mode.
+
+The injected layer remains invocation-local and does not modify persisted DSH
+profiles.
+
+## Backend discovery
+
+Research backends no longer have to live in one hard-coded directory. The
+Adapter searches executables in this order:
+
+```text
+DSH_RESEARCH_BIN_DIR
+        ↓
+DSH_RESEARCH_BIN_PATH
+        ↓
+/usr/local/bin
+        ↓
+PATH
+```
+
+`DSH_RESEARCH_BIN_PATH` uses the platform path-list separator and can contain
+multiple directories. This makes the same Adapter usable from source checkouts,
+derived images, organization-specific layouts, and optional Research Packs.

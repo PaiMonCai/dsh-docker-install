@@ -3,38 +3,106 @@ set -euo pipefail
 
 REAL_DSH="${DSH_REAL_DSH:-/usr/local/bin/dsh}"
 PATCH="${DSH_RESEARCH_ADAPTER_PATCH:-/opt/dsh-research/adapter/cordis.patch.yml}"
+PROFILE_SPEC="${DSH_RESEARCH_ADAPTER_PROFILES:-web,headless}"
 
 if [[ ! -x "$REAL_DSH" ]]; then
   echo "research dsh wrapper: real dsh not found: $REAL_DSH" >&2
   exit 127
 fi
 
-# Allow explicit opt-out for debugging/upstream compatibility checks.
+# Explicit opt-out for upstream/debug compatibility checks.
 if [[ "${DSH_RESEARCH_ADAPTER_DISABLE:-0}" == "1" || ! -f "$PATCH" ]]; then
   exec "$REAL_DSH" "$@"
 fi
 
-case "${1:-}" in
-  web|headless)
-    profile="$1"
-    shift
-    exec "$REAL_DSH" "$profile" --patch "$PATCH" "$@"
-    ;;
-  --profile)
-    [[ $# -ge 2 ]] || exec "$REAL_DSH" "$@"
-    profile="$2"
-    if [[ "$profile" == "web" || "$profile" == "headless" ]]; then
-      shift 2
-      exec "$REAL_DSH" --profile "$profile" --patch "$PATCH" "$@"
-    fi
-    exec "$REAL_DSH" "$@"
-    ;;
-  plugin|--version|-V|version|help|-h|--help|"")
-    exec "$REAL_DSH" "$@"
-    ;;
-  *)
-    # Unknown/custom profile shorthand (for example: dsh tui ...).
-    # Preserve upstream behavior; users can explicitly pass --profile for adapter injection.
-    exec "$REAL_DSH" "$@"
-    ;;
-esac
+profile_allowed() {
+  local profile="$1" item normalized
+  local items=()
+  normalized="${PROFILE_SPEC//,/ }"
+  read -r -a items <<<"$normalized"
+  for item in "${items[@]}"; do
+    [[ "$item" == "*" || "$item" == "$profile" ]] && return 0
+  done
+  return 1
+}
+
+# Parse only the launcher's stable argument surface. DSH hands the first
+# unrecognized token and everything after it to the profile application.
+# We mirror that boundary only far enough to insert one extra --patch.
+args=("$@")
+count="${#args[@]}"
+profile=""
+boundary="$count"
+adapter_present=0
+dump_default=0
+i=0
+
+# plugin is a launcher subcommand, never profile shorthand.
+if (( count > 0 )) && [[ "${args[0]}" == "plugin" ]]; then
+  exec "$REAL_DSH" "${args[@]}"
+fi
+
+# A leading non-option token is the official profile shorthand.
+if (( count > 0 )) && [[ "${args[0]}" != -* ]]; then
+  profile="${args[0]}"
+  i=1
+fi
+
+while (( i < count )); do
+  token="${args[i]}"
+  case "$token" in
+    --profile)
+      if (( i + 1 >= count )); then
+        exec "$REAL_DSH" "${args[@]}"
+      fi
+      profile="${args[i+1]}"
+      ((i += 2))
+      ;;
+    --profile=*)
+      profile="${token#--profile=}"
+      ((i += 1))
+      ;;
+    --from-default-profile|--patch)
+      if (( i + 1 >= count )); then
+        exec "$REAL_DSH" "${args[@]}"
+      fi
+      if [[ "$token" == "--patch" && "${args[i+1]}" == "$PATCH" ]]; then
+        adapter_present=1
+      fi
+      ((i += 2))
+      ;;
+    --from-default-profile=*)
+      ((i += 1))
+      ;;
+    --patch=*)
+      [[ "${token#--patch=}" == "$PATCH" ]] && adapter_present=1
+      ((i += 1))
+      ;;
+    --dump-config)
+      ((i += 1))
+      ;;
+    --dump-default-config)
+      dump_default=1
+      ((i += 1))
+      ;;
+    -V|--version)
+      # Launcher-owned terminal flags do not boot a profile.
+      exec "$REAL_DSH" "${args[@]}"
+      ;;
+    *)
+      boundary="$i"
+      break
+      ;;
+  esac
+done
+
+# Preserve upstream argv exactly when no adapter injection is appropriate.
+if [[ -z "$profile" ]]   || ! profile_allowed "$profile"   || [[ "$adapter_present" == "1" ]]   || [[ "$dump_default" == "1" ]]; then
+  exec "$REAL_DSH" "${args[@]}"
+fi
+
+# Insert the adapter as the final launcher patch immediately before profile
+# application arguments. User patches keep argv order and Adapter is top layer.
+before=("${args[@]:0:boundary}")
+after=("${args[@]:boundary}")
+exec "$REAL_DSH" "${before[@]}" --patch "$PATCH" "${after[@]}"
