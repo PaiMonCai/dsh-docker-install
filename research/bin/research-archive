@@ -51,7 +51,7 @@ python --version >"$stage/project/environment/python.txt" 2>&1 || true
 uv --version >"$stage/project/environment/uv.txt" 2>&1 || true
 quarto --version >"$stage/project/environment/quarto.txt" 2>&1 || true
 pandoc --version | head -1 >"$stage/project/environment/pandoc.txt" 2>&1 || true
-python -m pip freeze >"$stage/project/environment/pip-freeze.txt" 2>/dev/null || true
+uv pip freeze --python "${DSH_RESEARCH_VENV:-/opt/dsh-research/venv}/bin/python" >"$stage/project/environment/pip-freeze.txt" 2>/dev/null || true
 git -C "$root" status --short >"$stage/project/environment/git-status.txt" 2>/dev/null || true
 git -C "$root" diff >"$stage/project/environment/git-diff.patch" 2>/dev/null || true
 
