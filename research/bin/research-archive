@@ -28,6 +28,20 @@ case "${1:-}" in
 esac
 
 root="$(find_root)" || { echo "未找到 research.yaml；请在 Research Project 内运行。" >&2; exit 1; }
+
+if command -v research-literature >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-literature verify
+  )
+fi
+if command -v research-econ-data >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-econ-data verify
+  )
+fi
+
 slug="$(basename "$root")"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 archive_dir="$root/archives"
