@@ -221,7 +221,35 @@ def event_time(term: str, index: Any) -> float | None:
             return float(m.group(1))
     return None
 
-def normalize(frame) -> list[dict[str, Any]]:
+def make_event_dummies(work, event_col: str = "__dsh_event_time") -> dict[str, float]:
+    values = sorted(
+        {
+            float(value)
+            for value in work[event_col].dropna().unique().tolist()
+            if math.isfinite(float(value)) and float(value) != -1.0
+        }
+    )
+    mapping: dict[str, float] = {}
+    used: set[str] = set()
+    for value in values:
+        sign = "m" if value < 0 else "p"
+        magnitude = f"{abs(value):g}".replace(".", "d").replace("-", "")
+        name = f"__dsh_es_{sign}{magnitude}"
+        if name in used:
+            raise DidError(f"event-time dummy 名称冲突: {value}")
+        used.add(name)
+        work[name] = (
+            (work["__dsh_ever_treated"] == 1)
+            & (work[event_col] == value)
+        ).astype(int)
+        if int(work[name].sum()) > 0:
+            mapping[name] = value
+    if not mapping:
+        raise DidError("没有可估计的 event-time dummy（reference period=-1 已被省略）。")
+    return mapping
+
+
+def normalize(frame, explicit_event_map: dict[str, float] | None = None) -> list[dict[str, Any]]:
     est = col(frame, ["Estimate", "estimate"])
     se = col(frame, ["Std. Error", "std_error", "Std.Error"])
     p = col(frame, ["Pr(>|t|)", "p_value", "pvalue", "P>|t|"])
@@ -238,7 +266,11 @@ def normalize(frame) -> list[dict[str, Any]]:
         pv = float(row[p]) if p else math.nan
         rows.append({
             "term": term,
-            "event_time": event_time(term, idx),
+            "event_time": (
+                explicit_event_map.get(term)
+                if explicit_event_map and term in explicit_event_map
+                else event_time(term, idx)
+            ),
             "estimate": estimate,
             "std_error": std,
             "p_value": pv,
@@ -409,12 +441,13 @@ def run_estimate(args, root: Path) -> int:
     att = args.mode == "att"
     controls = (args.controls or "").strip()
     controls_rhs = f" + {controls}" if controls else ""
+    explicit_event_map: dict[str, float] | None = None
 
     if args.estimator == "lpdid":
         if controls:
             raise DidError(
                 "PyFixest 0.60.0 的 LP-DiD 尚不支持 xfml/covariates；请移除 --controls，"
-                "或选择 twfe/did2s/saturated。"
+                "或选择 twfe/did2s。"
             )
         fit = pf.lpdid(
             data=work, yname=args.outcome, idname=args.id, tname=args.time,
@@ -432,18 +465,15 @@ def run_estimate(args, root: Path) -> int:
                 f"| {args.id} + {args.time}"
             )
         else:
+            explicit_event_map = make_event_dummies(work)
+            event_rhs = " + ".join(explicit_event_map)
             formula = (
-                f"{args.outcome} ~ "
-                f"i(__dsh_event_time_model, __dsh_ever_treated, ref=-1)"
-                f"{controls_rhs} | {args.id} + {args.time}"
+                f"{args.outcome} ~ {event_rhs}{controls_rhs} "
+                f"| {args.id} + {args.time}"
             )
-        fit = pf.feols(
-            formula,
-            data=work,
-            vcov={"CRV1": args.cluster},
-        )
+        fit = pf.feols(formula, data=work, vcov={"CRV1": args.cluster})
         raw = fit.tidy()
-        source = "feols.twfe"
+        source = "feols.twfe.explicit-event-dummies"
 
     elif args.estimator == "did2s":
         first_stage = (
@@ -454,10 +484,9 @@ def run_estimate(args, root: Path) -> int:
         if att:
             second_stage = f"~ __dsh_treated{controls_rhs}"
         else:
-            second_stage = (
-                "~ i(__dsh_event_time_model, __dsh_ever_treated, ref=-1)"
-                f"{controls_rhs}"
-            )
+            explicit_event_map = make_event_dummies(work)
+            event_rhs = " + ".join(explicit_event_map)
+            second_stage = f"~ {event_rhs}{controls_rhs}"
         fit = pf.did2s(
             data=work,
             yname=args.outcome,
@@ -467,7 +496,7 @@ def run_estimate(args, root: Path) -> int:
             cluster=args.cluster,
         )
         raw = fit.tidy()
-        source = "did2s.tidy"
+        source = "did2s.explicit-event-dummies"
 
     elif args.estimator == "saturated":
         if controls:
@@ -482,7 +511,7 @@ def run_estimate(args, root: Path) -> int:
             )
         fit = pf.event_study(
             data=work, yname=args.outcome, idname=args.id, tname=args.time,
-            gname=args.cohort, xfml=controls or None, cluster=args.cluster,
+            gname=args.cohort, xfml=None, cluster=args.cluster,
             estimator="saturated", att=False,
         )
         raw = fit.aggregate(weighting="shares")
@@ -491,9 +520,13 @@ def run_estimate(args, root: Path) -> int:
     else:
         raise DidError(f"未知 estimator: {args.estimator}")
 
-    rows = normalize(raw)
+    rows = normalize(raw, explicit_event_map=explicit_event_map)
     if args.mode == "dynamic" and not any(r["event_time"] is not None for r in rows):
-        raise DidError("估计成功，但无法解析 event time；请检查 pyfixest 输出格式。")
+        terms = [r["term"] for r in rows]
+        raise DidError(
+            "估计成功，但无法解析 event time；PyFixest 返回 terms="
+            + repr(terms[:20])
+        )
 
     p = paths(root, name)
     p["base"].mkdir(parents=True, exist_ok=True)
