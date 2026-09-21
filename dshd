@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.6.0"
+DSHD_VERSION="0.7.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -15,6 +15,8 @@ DEFAULT_IMAGE="ghcr.io/paimoncai/dsh-docker-install:latest"
 MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:latest"
 RESEARCH_IMAGE="ghcr.io/paimoncai/dsh-docker-install:research"
 RESEARCH_MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:research"
+RESEARCH_ECONOMICS_IMAGE="ghcr.io/paimoncai/dsh-docker-install:research-economics"
+RESEARCH_ECONOMICS_MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:research-economics"
 DEFAULT_NAME="dsh"
 DEFAULT_PORT="3080"
 DEFAULT_BIND_ADDR="127.0.0.1"
@@ -160,6 +162,7 @@ detect_docker_socket() {
 
 load_config() {
   DSH_EDITION="${DSH_EDITION:-}"
+  DSH_RESEARCH_PACK="${DSH_RESEARCH_PACK:-}"
   DSH_IMAGE="${DSH_IMAGE:-$DEFAULT_IMAGE}"
   DSH_NAME="${DSH_NAME:-$DEFAULT_NAME}"
   DSH_PORT="${DSH_PORT:-$DEFAULT_PORT}"
@@ -182,15 +185,27 @@ load_config() {
     source "$CONFIG_FILE"
   fi
 
-  # 兼容旧配置：没有 DSH_EDITION 时根据镜像推断。
+  # 兼容旧配置：没有 DSH_EDITION / DSH_RESEARCH_PACK 时根据镜像推断。
   if [[ -z "$DSH_EDITION" ]]; then
     case "$DSH_IMAGE" in
-      "$RESEARCH_IMAGE"|"$RESEARCH_MIRROR_IMAGE"|*:research|*:research-*) DSH_EDITION="research" ;;
+      "$RESEARCH_IMAGE"|"$RESEARCH_MIRROR_IMAGE"|"$RESEARCH_ECONOMICS_IMAGE"|"$RESEARCH_ECONOMICS_MIRROR_IMAGE"|*:research|*:research-*) DSH_EDITION="research" ;;
       *) DSH_EDITION="standard" ;;
     esac
   fi
+  if [[ -z "$DSH_RESEARCH_PACK" ]]; then
+    case "$DSH_IMAGE" in
+      "$RESEARCH_ECONOMICS_IMAGE"|"$RESEARCH_ECONOMICS_MIRROR_IMAGE"|*:research-economics|*:research-economics-*) DSH_RESEARCH_PACK="economics" ;;
+      *) DSH_RESEARCH_PACK="none" ;;
+    esac
+  fi
+
   [[ "$DSH_EDITION" == "standard" || "$DSH_EDITION" == "research" ]] \
     || die "未知 DSH_EDITION=$DSH_EDITION（仅支持 standard/research）。"
+  [[ "$DSH_RESEARCH_PACK" == "none" || "$DSH_RESEARCH_PACK" == "economics" ]] \
+    || die "未知 DSH_RESEARCH_PACK=$DSH_RESEARCH_PACK（仅支持 none/economics）。"
+  if [[ "$DSH_EDITION" == "standard" ]]; then
+    DSH_RESEARCH_PACK="none"
+  fi
 
   detect_docker_socket
 }
@@ -201,6 +216,7 @@ save_config() {
   tmp="$(mktemp)"
   {
     printf 'DSH_EDITION=%q\n' "$DSH_EDITION"
+    printf 'DSH_RESEARCH_PACK=%q\n' "$DSH_RESEARCH_PACK"
     printf 'DSH_IMAGE=%q\n' "$DSH_IMAGE"
     printf 'DSH_NAME=%q\n' "$DSH_NAME"
     printf 'DSH_PORT=%q\n' "$DSH_PORT"
@@ -373,22 +389,41 @@ network_report() {
 
 pull_best_image() {
   local candidates=() img
+  local official="" mirror=""
 
   if [[ "$DSH_EDITION" == "research" ]]; then
-    # Research 版只在 Research 镜像之间回退，不静默降级为 Standard。
-    if [[ -n "${DSH_IMAGE:-}" && "$DSH_IMAGE" != "$RESEARCH_IMAGE" && "$DSH_IMAGE" != "$RESEARCH_MIRROR_IMAGE" ]]; then
+    case "$DSH_RESEARCH_PACK" in
+      economics)
+        official="$RESEARCH_ECONOMICS_IMAGE"
+        mirror="$RESEARCH_ECONOMICS_MIRROR_IMAGE"
+        ;;
+      none)
+        official="$RESEARCH_IMAGE"
+        mirror="$RESEARCH_MIRROR_IMAGE"
+        ;;
+      *)
+        die "未知 Research Pack: $DSH_RESEARCH_PACK"
+        ;;
+    esac
+
+    # Research 版只在同一 Pack 的官方/镜像 tag 之间回退，不静默换 Pack。
+    # 自定义镜像保持第一优先级。
+    if [[ -n "${DSH_IMAGE:-}" \
+      && "$DSH_IMAGE" != "$RESEARCH_IMAGE" \
+      && "$DSH_IMAGE" != "$RESEARCH_MIRROR_IMAGE" \
+      && "$DSH_IMAGE" != "$RESEARCH_ECONOMICS_IMAGE" \
+      && "$DSH_IMAGE" != "$RESEARCH_ECONOMICS_MIRROR_IMAGE" ]]; then
       candidates+=("$DSH_IMAGE")
     fi
-    candidates+=("$RESEARCH_IMAGE" "$RESEARCH_MIRROR_IMAGE")
+    candidates+=("$official" "$mirror")
   else
-    # 已知 latest 源优先官方 GHCR，减少镜像站同步滞后；自定义镜像仍优先。
     if [[ -n "${DSH_IMAGE:-}" && "$DSH_IMAGE" != "$DEFAULT_IMAGE" && "$DSH_IMAGE" != "$MIRROR_IMAGE" ]]; then
       candidates+=("$DSH_IMAGE")
     fi
     candidates+=("$DEFAULT_IMAGE" "$MIRROR_IMAGE")
   fi
 
-  heading "拉取 dsh 镜像（edition=$DSH_EDITION）"
+  heading "拉取 dsh 镜像（edition=$DSH_EDITION, research-pack=$DSH_RESEARCH_PACK）"
   for img in "${candidates[@]}"; do
     info "尝试: $img"
     if docker_cmd pull "$img"; then
@@ -409,7 +444,7 @@ pull_best_image() {
     fi
   fi
 
-  die "当前 edition 的候选镜像均拉取失败。请检查网络、GHCR Package 可见性或自定义 DSH_IMAGE。"
+  die "当前 edition / Research Pack 的候选镜像均拉取失败。请检查网络、GHCR Package 可见性或自定义 DSH_IMAGE。"
 }
 
 container_exists() {
@@ -654,14 +689,48 @@ EOF
       read -r -p "选择版本 [1]: " edition_choice || true
       edition_choice="${edition_choice:-1}"
       case "$edition_choice" in
-        1) DSH_EDITION="standard"; DSH_IMAGE="$DEFAULT_IMAGE" ;;
-        2) DSH_EDITION="research"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
-        *) warn "无效选项，使用 Standard。"; DSH_EDITION="standard"; DSH_IMAGE="$DEFAULT_IMAGE" ;;
+        1)
+          DSH_EDITION="standard"
+          DSH_RESEARCH_PACK="none"
+          DSH_IMAGE="$DEFAULT_IMAGE"
+          ;;
+        2)
+          DSH_EDITION="research"
+          heading "Research Pack"
+          cat <<'EOF'
+  1) None       通用科研
+  2) Economics  经济学 / 计量经济学
+EOF
+          local pack_choice=""
+          read -r -p "选择 Research Pack [1]: " pack_choice || true
+          pack_choice="${pack_choice:-1}"
+          case "$pack_choice" in
+            1) DSH_RESEARCH_PACK="none"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
+            2) DSH_RESEARCH_PACK="economics"; DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE" ;;
+            *) warn "无效选项，使用通用 Research。"; DSH_RESEARCH_PACK="none"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
+          esac
+          ;;
+        *)
+          warn "无效选项，使用 Standard。"
+          DSH_EDITION="standard"
+          DSH_RESEARCH_PACK="none"
+          DSH_IMAGE="$DEFAULT_IMAGE"
+          ;;
       esac
     else
       case "${DSH_EDITION:-standard}" in
-        research) DSH_EDITION="research"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
-        *) DSH_EDITION="standard"; DSH_IMAGE="$DEFAULT_IMAGE" ;;
+        research)
+          DSH_EDITION="research"
+          case "${DSH_RESEARCH_PACK:-none}" in
+            economics) DSH_RESEARCH_PACK="economics"; DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE" ;;
+            *) DSH_RESEARCH_PACK="none"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
+          esac
+          ;;
+        *)
+          DSH_EDITION="standard"
+          DSH_RESEARCH_PACK="none"
+          DSH_IMAGE="$DEFAULT_IMAGE"
+          ;;
       esac
     fi
 
@@ -1024,6 +1093,7 @@ cmd_status() {
   printf '状态:      %s\n' "$(container_state)"
   printf '健康检查:  %s\n' "$(health_state)"
   printf '版本:      %s\n' "$DSH_EDITION"
+  printf 'Research Pack: %s\n' "$DSH_RESEARCH_PACK"
   printf '镜像:      %s\n' "$DSH_IMAGE"
   printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
   printf '工作区:    %s\n' "$DSH_WORKSPACE"
@@ -1099,16 +1169,19 @@ cmd_edition() {
   case "$action" in
     show|status)
       heading "DSH Edition"
-      printf '当前版本: %s\n' "$DSH_EDITION"
-      printf '镜像:     %s\n' "$DSH_IMAGE"
+      printf '当前版本:       %s\n' "$DSH_EDITION"
+      printf 'Research Pack:  %s\n' "$DSH_RESEARCH_PACK"
+      printf '镜像:           %s\n' "$DSH_IMAGE"
       return
       ;;
     standard)
       DSH_EDITION="standard"
+      DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$DEFAULT_IMAGE"
       ;;
     research)
       DSH_EDITION="research"
+      DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$RESEARCH_IMAGE"
       ;;
     *)
@@ -1118,8 +1191,44 @@ cmd_edition() {
 
   pull_best_image
   save_config
-  ok "已切换到 $DSH_EDITION：$DSH_IMAGE"
+  ok "已切换到 $DSH_EDITION（Research Pack=$DSH_RESEARCH_PACK）：$DSH_IMAGE"
   if container_exists && confirm "是否立即用新版本重建容器？" Y; then
+    create_container
+  fi
+}
+
+cmd_research_pack() {
+  load_config
+  ensure_docker
+  local action="${1:-show}"
+
+  case "$action" in
+    show|status)
+      heading "Research Pack"
+      printf 'Edition:  %s\n' "$DSH_EDITION"
+      printf 'Pack:     %s\n' "$DSH_RESEARCH_PACK"
+      printf '镜像:     %s\n' "$DSH_IMAGE"
+      return
+      ;;
+    none|off|core)
+      DSH_EDITION="research"
+      DSH_RESEARCH_PACK="none"
+      DSH_IMAGE="$RESEARCH_IMAGE"
+      ;;
+    economics|econ)
+      DSH_EDITION="research"
+      DSH_RESEARCH_PACK="economics"
+      DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE"
+      ;;
+    *)
+      die "未知 Research Pack: $action（可用: show/none/economics）"
+      ;;
+  esac
+
+  pull_best_image
+  save_config
+  ok "Research Pack 已切换为 $DSH_RESEARCH_PACK：$DSH_IMAGE"
+  if container_exists && confirm "是否立即用新 Research Pack 重建容器？" Y; then
     create_container
   fi
 }
@@ -1128,7 +1237,7 @@ cmd_edition_menu() {
   load_config
   while true; do
     heading "Standard / Research 版本"
-    printf '当前: %s\n\n' "$DSH_EDITION"
+    printf '当前: %s（Research Pack=%s）\n\n' "$DSH_EDITION" "$DSH_RESEARCH_PACK"
     cat <<'EOF'
   1) Standard  通用开发版
   2) Research  一般科研版
@@ -1144,6 +1253,28 @@ EOF
     esac
   done
 }
+
+cmd_research_pack_menu() {
+  load_config
+  while true; do
+    heading "Research Pack"
+    printf '当前: %s\n\n' "$DSH_RESEARCH_PACK"
+    cat <<'EOF'
+  1) None       通用科研
+  2) Economics  经济学 / 计量经济学
+  0) 返回
+EOF
+    local choice=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1) cmd_research_pack none; return ;;
+      2) cmd_research_pack economics; return ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+  done
+}
+
 
 normalize_trusted_hosts() {
   local raw="$*" token out="" existing
@@ -1737,6 +1868,9 @@ dshd - DeepSeek Harness Docker 管理器
   dshd edition             查看当前 Standard / Research 版本
   dshd edition research    切换到一般科研版
   dshd edition standard    切换回通用开发版
+  dshd research-pack       查看当前科研扩展包
+  dshd research-pack economics  切换到 Economics Research Pack
+  dshd research-pack none       切回通用 Research
   dshd api                 配置 DeepSeek API / Base URL
   dshd api show            查看 API 配置
   dshd api official        切换 DeepSeek 官方 API
@@ -1769,8 +1903,8 @@ menu() {
   while true; do
     clear 2>/dev/null || true
     printf '%sDeepSeek Harness Docker Manager%s  v%s\n' "$C_CYAN" "$C_RESET" "$DSHD_VERSION"
-    printf '容器: %-16s 状态: %-12s 健康: %-10s Edition: %-8s Docker管理: %s\n' \
-      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)" "$DSH_EDITION" "$DSH_DOCKER_ACCESS"
+    printf '容器: %-16s 状态: %-12s 健康: %-10s Edition: %-8s Pack: %-10s Docker管理: %s\n' \
+      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)" "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$DSH_DOCKER_ACCESS"
     cat <<'EOF'
 
   1) 安装 / 初始化
@@ -1794,6 +1928,7 @@ menu() {
  19) 检查更新 dshd 自身
  20) 卸载
  21) Standard / Research 版本切换
+ 22) Research Pack 切换
 
   0) 退出
 EOF
@@ -1822,6 +1957,7 @@ EOF
       19) cmd_self_update ;;
       20) cmd_uninstall ;;
       21) cmd_edition_menu ;;
+      22) cmd_research_pack_menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -1853,6 +1989,7 @@ main() {
     recreate) cmd_recreate ;;
     config) cmd_config ;;
     edition) shift; cmd_edition "${1:-show}" ;;
+    research-pack|pack) shift; cmd_research_pack "${1:-show}" ;;
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
