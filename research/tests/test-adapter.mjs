@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -13,6 +13,16 @@ process.env.DSH_RESEARCH_WORKSPACE = workspace
 process.env.DSH_RESEARCH_BIN_DIR = join(researchRoot, 'bin')
 process.env.DSH_RESEARCH_HOME = researchRoot
 process.env.PYTHONPATH = [researchRoot, process.env.PYTHONPATH || ''].filter(Boolean).join(':')
+
+for (const name of [
+  'research-init',
+  'research-status',
+  'research-data',
+  'research-pipeline',
+  'research-result',
+]) {
+  await chmod(join(researchRoot, 'bin', name), 0o755)
+}
 
 try {
   const moduleUrl = pathToFileURL(join(researchRoot, 'adapter', 'index.js'))
