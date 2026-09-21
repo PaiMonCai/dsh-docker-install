@@ -494,7 +494,12 @@ def step_statuses(
                 reasons.append(f"dependency {dependency} is {dependency_status.status}")
 
         previous = latest_successful_run(project, name)
+        most_recent = latest_run(project, name)
         latest_path: str | None = None
+        if most_recent is not None:
+            recent_path, recent_manifest = most_recent
+            if recent_manifest.get("success") is not True:
+                reasons.append("latest run failed")
         if previous is None:
             reasons.append("step has never completed successfully")
         else:
