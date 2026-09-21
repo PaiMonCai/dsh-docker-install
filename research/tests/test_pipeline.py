@@ -184,6 +184,48 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(status.status, "stale")
             self.assertIn("input fingerprint changed", status.reasons)
 
+    def test_latest_failed_run_marks_step_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self.make_project(root)
+            (root / "input.txt").write_text("x\n", encoding="utf-8")
+            write_yaml(
+                root / "pipeline.yaml",
+                {
+                    "schema": 1,
+                    "steps": {
+                        "step": {
+                            "command": ["python", "-c", "from pathlib import Path; Path('out.txt').write_text('ok')"],
+                            "inputs": {"files": ["input.txt"]},
+                            "outputs": {"files": ["out.txt"]},
+                        }
+                    },
+                },
+            )
+            pipeline = load_pipeline(project)
+            execute_pipeline(project, pipeline)
+            self.assertEqual(step_statuses(project, pipeline)["step"].status, "current")
+
+            write_yaml(
+                root / "pipeline.yaml",
+                {
+                    "schema": 1,
+                    "steps": {
+                        "step": {
+                            "command": ["python", "-c", "import sys; sys.exit(7)"],
+                            "inputs": {"files": ["input.txt"]},
+                            "outputs": {"files": ["out.txt"]},
+                        }
+                    },
+                },
+            )
+            pipeline = load_pipeline(project)
+            with self.assertRaises(PipelineError):
+                execute_pipeline(project, pipeline, force=True)
+            status = step_statuses(project, pipeline)["step"]
+            self.assertEqual(status.status, "stale")
+            self.assertIn("latest run failed", status.reasons)
+
     def test_cycle_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
