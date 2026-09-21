@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const ROUTE_MARKER = 'DSH_TRUSTED_HOSTS';
-const routePattern = /const localHostnames = new Set\(\['localhost', '127\\.0\\.0\\.1', '\\[::1\\]'\]\);?\s*return url\.host === host && localHostnames\.has\(url\.hostname\);?/m;
+const routePattern = /const localHostnames = new Set\(\['localhost', '127\.0\.0\.1', '\[::1\]'\]\);?\s*return url\.host === host && localHostnames\.has\(url\.hostname\);?/m;
 const pnpmPolicyPattern = /ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION\|Minimum release age\|untrusted origin/g;
 
 function patchRouteText(before) {
@@ -22,13 +22,13 @@ function patchRouteText(before) {
       "const localHostnames = new Set(['localhost', '127.0.0.1', '[::1]'])" + semicolon,
       "        const trustedHosts = new Set(",
       "            (process.env.DSH_TRUSTED_HOSTS ?? '')",
-      "                .split(/[,\\s]+/)",
+      "                .split(/[,\s]+/)",
       "                .map((value) => value.trim())",
       "                .filter(Boolean),",
       "        )" + semicolon,
       "        return url.host === host",
       "            && (localHostnames.has(url.hostname) || trustedHosts.has(host))" + semicolon,
-    ].join('\\n        ');
+    ].join('\n        ');
   });
 
   return { text, changed, alreadyPatched: false };
