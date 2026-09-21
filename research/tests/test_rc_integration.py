@@ -342,7 +342,7 @@ steps:
                         break
                 self.assertIsNotNone(
                     url,
-                    f"dashboard did not start; stderr={process.stderr.read() if process.stderr else ''}",
+                    "dashboard did not publish its URL before the startup deadline",
                 )
                 with urllib.request.urlopen(str(url) + "api/status", timeout=5) as response:
                     dashboard_status = json.loads(response.read().decode("utf-8"))
