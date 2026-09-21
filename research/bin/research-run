@@ -1,109 +1,88 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+#!/usr/bin/env python3
+from __future__ import annotations
 
-find_root() {
-  local dir="$PWD"
-  while [[ "$dir" != "/" ]]; do
-    [[ -f "$dir/research.yaml" ]] && { printf '%s' "$dir"; return 0; }
-    dir="$(dirname "$dir")"
-  done
-  return 1
-}
+import argparse
+import sys
+from pathlib import Path
 
-hash_tree() {
-  local root="$1" rel="$2" out="$3"
-  : >"$out"
-  [[ -d "$root/$rel" ]] || return 0
-  (
-    cd "$root"
-    find "$rel" -type f -print0 | sort -z | xargs -0 -r sha256sum
-  ) >"$out"
-}
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+from dsh_research.runs import RUN_MANIFEST_SCHEMA, record_run
 
-if [[ "${1:-}" == "--self-test" ]]; then
-  command -v python >/dev/null
-  command -v sha256sum >/dev/null
-  echo "research-run self-test passed"
-  exit 0
-fi
 
-label="run"
-if [[ "${1:-}" == "--name" ]]; then
-  [[ $# -ge 3 ]] || { echo "用法: research-run [--name LABEL] -- command [args...]" >&2; exit 2; }
-  label="$2"
-  shift 2
-fi
-[[ "${1:-}" == "--" ]] && shift
-[[ $# -gt 0 ]] || { echo "缺少要执行的命令。" >&2; exit 2; }
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-run",
+        description="执行命令并记录可复现的 Research Run Manifest v2。",
+    )
+    parser.add_argument("--name", default="run", help="run label")
+    parser.add_argument("--input-dataset", action="append", default=[], help="精确记录输入 dataset，可重复")
+    parser.add_argument("--input-file", action="append", default=[], help="精确记录输入文件，可重复")
+    parser.add_argument("--output-file", action="append", default=[], help="精确记录输出文件，可重复")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    return parser
 
-root="$(find_root)" || { echo "未找到 research.yaml；请在 Research Project 内运行。" >&2; exit 1; }
-safe_label="$(printf '%s' "$label" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//')"
-[[ -n "$safe_label" ]] || safe_label="run"
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-run_dir="$root/runs/$stamp-$safe_label"
-mkdir -p "$run_dir/manifests" "$run_dir/environment"
 
-printf '%q ' "$@" >"$run_dir/command.sh"
-printf '\n' >>"$run_dir/command.sh"
+def self_test() -> int:
+    import json
+    import tempfile
 
-git_commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
-git_dirty=false
-if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1   && [[ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]]; then
-  git_dirty=true
-fi
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        (root / "research.yaml").write_text(
+            "schema: 2\nproject:\n  slug: smoke\n  title: Smoke\n  template: default\n  status: active\n",
+            encoding="utf-8",
+        )
+        project = ResearchProject(root)
+        result = record_run(
+            project,
+            label="smoke",
+            command=[sys.executable, "-c", "from pathlib import Path; Path('out.txt').write_text('ok')"],
+            output_files=["out.txt"],
+        )
+        payload = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+        assert payload["schema"] == 2
+        assert payload["success"] is True
+        assert payload["outputs"]["files"][0]["status"] == "current"
+        assert (result.run_dir / "command.sh").is_file()
+        assert (result.run_dir / "stdout.log").is_file()
+    print("research-run self-test passed")
+    return 0
 
-python --version >"$run_dir/environment/python.txt" 2>&1 || true
-uv --version >"$run_dir/environment/uv.txt" 2>&1 || true
-quarto --version >"$run_dir/environment/quarto.txt" 2>&1 || true
-pandoc --version | head -1 >"$run_dir/environment/pandoc.txt" 2>&1 || true
-uv pip freeze --python "${DSH_RESEARCH_VENV:-/opt/dsh-research/venv}/bin/python" >"$run_dir/environment/pip-freeze.txt" 2>/dev/null || true
 
-hash_tree "$root" "data/raw" "$run_dir/manifests/input-raw.sha256"
-hash_tree "$root" "data/processed" "$run_dir/manifests/input-processed.sha256"
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.self_test:
+        return self_test()
 
-started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-python - "$run_dir/metadata.json" "$started_at" "$label" "$git_commit" "$git_dirty" <<'PY'
-import json, os, platform, sys
-path, started_at, label, commit, dirty = sys.argv[1:]
-payload = {
-    "schema": 1,
-    "started_at": started_at,
-    "label": label,
-    "git_commit": commit or None,
-    "git_dirty": dirty == "true",
-    "research_pack": os.environ.get("DSH_RESEARCH_PACK", "none"),
-    "platform": platform.platform(),
-    "exit_code": None,
-}
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(payload, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-PY
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        print("缺少要执行的命令。", file=sys.stderr)
+        return 2
 
-set +e
-(
-  cd "$root"
-  "$@"
-) > >(tee "$run_dir/stdout.log") 2> >(tee "$run_dir/stderr.log" >&2)
-status=$?
-set -e
+    try:
+        project = ResearchProject.discover()
+        result = record_run(
+            project,
+            label=args.name,
+            command=command,
+            input_datasets=args.input_dataset,
+            input_files=args.input_file,
+            output_files=args.output_file,
+        )
+        print(f"\nResearch run recorded: {result.run_dir}")
+        print(f"Run manifest schema: {RUN_MANIFEST_SCHEMA}")
+        return result.exit_code
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
-hash_tree "$root" "results" "$run_dir/manifests/output-results.sha256"
-hash_tree "$root" "paper" "$run_dir/manifests/output-paper.sha256"
 
-finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-python - "$run_dir/metadata.json" "$finished_at" "$status" <<'PY'
-import json, sys
-path, finished_at, status = sys.argv[1:]
-with open(path, encoding="utf-8") as f:
-    payload = json.load(f)
-payload["finished_at"] = finished_at
-payload["exit_code"] = int(status)
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(payload, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-PY
-
-ln -sfn "$(basename "$run_dir")" "$root/runs/latest"
-printf '\nResearch run recorded: %s\n' "$run_dir"
-exit "$status"
+if __name__ == "__main__":
+    raise SystemExit(main())
