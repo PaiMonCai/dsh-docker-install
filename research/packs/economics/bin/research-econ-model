@@ -1,0 +1,535 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import math
+import re
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+class EconModelError(RuntimeError):
+    pass
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def find_root(start: Path | None = None) -> Path:
+    current = (start or Path.cwd()).resolve()
+    while True:
+        if (current / "research.yaml").is_file():
+            return current
+        if current.parent == current:
+            raise EconModelError("未找到 research.yaml；请在 Research Project 内运行。")
+        current = current.parent
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def safe_name(value: str) -> str:
+    if not NAME_RE.fullmatch(value):
+        raise EconModelError("name 只能包含字母、数字、点、下划线和短横线，且必须以字母或数字开头。")
+    return value
+
+
+def resolve_processed_data(root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    path = path.resolve()
+    processed = (root / "data" / "processed").resolve()
+    try:
+        path.relative_to(processed)
+    except ValueError as exc:
+        raise EconModelError(
+            f"正式模型默认只能读取 data/processed/：{path}\\n"
+            "请先把 raw/interim 数据通过代码转换到 data/processed/。"
+        ) from exc
+    if not path.is_file():
+        raise EconModelError(f"分析数据不存在: {path}")
+    return path
+
+
+def load_frame(path: Path):
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise EconModelError("Economics Research Pack 缺少 pandas。") from exc
+
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".parquet", ".pq"}:
+        return pd.read_parquet(path)
+    if suffix in {".feather", ".arrow"}:
+        return pd.read_feather(path)
+    raise EconModelError("当前支持 CSV / Parquet / Feather 分析数据。")
+
+
+def vcov_argument(kind: str, cluster: str) -> tuple[Any, dict[str, str]]:
+    kind = kind.lower()
+    if kind == "iid":
+        return "iid", {"type": "iid", "cluster": ""}
+    if kind in {"hetero", "hc1", "hc2", "hc3"}:
+        return kind.upper() if kind.startswith("hc") else "hetero", {"type": kind, "cluster": ""}
+    if kind in {"crv1", "cluster"}:
+        if not cluster.strip():
+            raise EconModelError("--vcov cluster/CRV1 时必须提供 --cluster。")
+        return {"CRV1": cluster.strip()}, {"type": "CRV1", "cluster": cluster.strip()}
+    if kind == "crv3":
+        if not cluster.strip():
+            raise EconModelError("--vcov CRV3 时必须提供 --cluster。")
+        return {"CRV3": cluster.strip()}, {"type": "CRV3", "cluster": cluster.strip()}
+    raise EconModelError("未知 vcov；可用 iid/hetero/HC1/HC2/HC3/cluster/CRV1/CRV3。")
+
+
+def tidy_model(fit) -> list[dict[str, Any]]:
+    tidy = fit.tidy().copy()
+    tidy.index = tidy.index.map(str)
+    required = ["Estimate", "Std. Error", "t value", "Pr(>|t|)", "2.5%", "97.5%"]
+    missing = [name for name in required if name not in tidy.columns]
+    if missing:
+        raise EconModelError(f"pyfixest tidy() 缺少预期列: {missing}; got={list(tidy.columns)}")
+
+    rows = []
+    for term, row in tidy.iterrows():
+        rows.append(
+            {
+                "term": term,
+                "estimate": float(row["Estimate"]),
+                "std_error": float(row["Std. Error"]),
+                "t_value": float(row["t value"]),
+                "p_value": float(row["Pr(>|t|)"]),
+                "ci_low": float(row["2.5%"]),
+                "ci_high": float(row["97.5%"]),
+            }
+        )
+    return rows
+
+
+def fmt(value: float) -> str:
+    if math.isnan(value):
+        return ""
+    if abs(value) >= 10000 or (0 < abs(value) < 0.0001):
+        return f"{value:.4e}"
+    return f"{value:.4f}"
+
+
+def markdown_table(rows: list[dict[str, Any]]) -> str:
+    lines = [
+        "| Term | Estimate | Std. Error | t | p | 95% CI |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        interval = f"[{fmt(row['ci_low'])}, {fmt(row['ci_high'])}]"
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row["term"]).replace("|", "\\\\|"),
+                    fmt(row["estimate"]),
+                    fmt(row["std_error"]),
+                    fmt(row["t_value"]),
+                    fmt(row["p_value"]),
+                    interval,
+                ]
+            )
+            + " |"
+        )
+    return "\\n".join(lines)
+
+
+def csv_table(path: Path, rows: list[dict[str, Any]]) -> None:
+    fields = ["term", "estimate", "std_error", "t_value", "p_value", "ci_low", "ci_high"]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def coefficient_plot(
+    path: Path,
+    rows: list[dict[str, Any]],
+    focus: list[str],
+    include_intercept: bool,
+) -> list[str]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    selected = rows
+    if focus:
+        wanted = set(focus)
+        selected = [row for row in rows if row["term"] in wanted]
+        missing = sorted(wanted.difference({row["term"] for row in selected}))
+        if missing:
+            raise EconModelError(f"--focus 指定的系数不存在: {', '.join(missing)}")
+    elif not include_intercept:
+        selected = [
+            row for row in rows
+            if row["term"].lower() not in {"intercept", "(intercept)"}
+        ]
+
+    if not selected:
+        raise EconModelError("没有可绘制的系数；使用 --include-intercept 或检查 --focus。")
+
+    labels = [row["term"] for row in selected]
+    estimates = [row["estimate"] for row in selected]
+    lower = [row["estimate"] - row["ci_low"] for row in selected]
+    upper = [row["ci_high"] - row["estimate"] for row in selected]
+    y = list(range(len(selected)))
+
+    height = max(3.0, 0.48 * len(selected) + 1.5)
+    fig, ax = plt.subplots(figsize=(7.2, height))
+    ax.errorbar(estimates, y, xerr=[lower, upper], fmt="o", capsize=3)
+    ax.axvline(0.0, linewidth=1)
+    ax.set_yticks(y, labels)
+    ax.set_xlabel("Estimate (95% CI)")
+    ax.set_title("Coefficient estimates")
+    ax.invert_yaxis()
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return labels
+
+
+def paths_for(root: Path, name: str) -> dict[str, Path]:
+    return {
+        "manifest_dir": root / "results" / "models" / name,
+        "manifest": root / "results" / "models" / name / "model.json",
+        "table_csv": root / "results" / "tables" / f"{name}.csv",
+        "table_md": root / "results" / "tables" / f"{name}.md",
+        "figure": root / "results" / "figures" / f"{name}.png",
+        "generated": root / "paper" / "generated" / "economics-results.qmd",
+    }
+
+
+def ensure_output_dirs(root: Path, name: str) -> dict[str, Path]:
+    paths = paths_for(root, name)
+    paths["manifest_dir"].mkdir(parents=True, exist_ok=True)
+    paths["table_csv"].parent.mkdir(parents=True, exist_ok=True)
+    paths["figure"].parent.mkdir(parents=True, exist_ok=True)
+    paths["generated"].parent.mkdir(parents=True, exist_ok=True)
+    return paths
+
+
+def rel(root: Path, path: Path) -> str:
+    return str(path.relative_to(root))
+
+
+def qmd_from_manifests(root: Path) -> str:
+    model_root = root / "results" / "models"
+    manifests = sorted(model_root.glob("*/model.json")) if model_root.is_dir() else []
+    lines = [
+        "<!-- AUTO-GENERATED by research-econ-model. DO NOT EDIT BY HAND. -->",
+        "",
+    ]
+    if not manifests:
+        lines += [
+            "_暂无已登记的经济学模型结果。运行 research-econ-model feols 后本节会自动更新。_",
+            "",
+        ]
+        return "\\n".join(lines)
+
+    for manifest_path in manifests:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        name = safe_name(str(data["name"]))
+        title = str(data.get("title") or name)
+        formula = str(data.get("formula") or "")
+        vcov = data.get("vcov") or {}
+        inference = str(vcov.get("type") or "")
+        cluster = str(vcov.get("cluster") or "")
+        if cluster:
+            inference += f" clustered by {cluster}"
+
+        table_md_path = root / str(data["outputs"]["table_md"]["path"])
+        table_text = table_md_path.read_text(encoding="utf-8").strip()
+        data_info = data.get("data") or {}
+
+        lines += [
+            f"### {title}",
+            "",
+            f"**Specification:** \`{formula}\`  ",
+            f"**Inference:** {inference}  ",
+            f"**Data:** \`{data_info.get('path','')}\`; SHA256 \`{data_info.get('sha256','')}\`  ",
+            f"**Input rows:** {data_info.get('input_rows','')}  ",
+            "",
+            table_text,
+            "",
+            f": {title} {{#tbl-econ-{name}}}",
+            "",
+            f"![{title} coefficient plot](../results/figures/{name}.png){{#fig-econ-{name}}}",
+            "",
+        ]
+    return "\\n".join(lines)
+
+
+def render_index(root: Path) -> Path:
+    generated = root / "paper" / "generated" / "economics-results.qmd"
+    generated.parent.mkdir(parents=True, exist_ok=True)
+    generated.write_text(qmd_from_manifests(root), encoding="utf-8")
+    return generated
+
+
+def run_feols(args, root: Path) -> int:
+    try:
+        import pyfixest as pf
+    except ImportError as exc:
+        raise EconModelError("当前环境没有 pyfixest；请使用 Economics Research Pack。") from exc
+
+    name = safe_name(args.name)
+    data_path = resolve_processed_data(root, args.data)
+    frame = load_frame(data_path)
+    if frame.empty:
+        raise EconModelError("分析数据为空。")
+
+    vcov, vcov_meta = vcov_argument(args.vcov, args.cluster or "")
+    fit = pf.feols(args.formula, data=frame, vcov=vcov)
+    rows = tidy_model(fit)
+
+    paths = ensure_output_dirs(root, name)
+    csv_table(paths["table_csv"], rows)
+    paths["table_md"].write_text(markdown_table(rows) + "\\n", encoding="utf-8")
+    plotted_terms = coefficient_plot(
+        paths["figure"],
+        rows,
+        args.focus or [],
+        bool(args.include_intercept),
+    )
+
+    manifest = {
+        "schema": 1,
+        "kind": "pyfixest.feols",
+        "name": name,
+        "title": args.title or name,
+        "created_at": utc_now(),
+        "formula": args.formula,
+        "vcov": vcov_meta,
+        "focus": args.focus or [],
+        "data": {
+            "path": rel(root, data_path),
+            "sha256": sha256_file(data_path),
+            "input_rows": int(len(frame)),
+        },
+        "estimation": {
+            "nobs": int(getattr(fit, "_N", len(frame))),
+            "terms": [row["term"] for row in rows],
+            "plotted_terms": plotted_terms,
+        },
+        "outputs": {
+            "table_csv": {
+                "path": rel(root, paths["table_csv"]),
+                "sha256": sha256_file(paths["table_csv"]),
+            },
+            "table_md": {
+                "path": rel(root, paths["table_md"]),
+                "sha256": sha256_file(paths["table_md"]),
+            },
+            "figure": {
+                "path": rel(root, paths["figure"]),
+                "sha256": sha256_file(paths["figure"]),
+            },
+        },
+        "coefficients": rows,
+        "note": (
+            "Generated output. Interpret causally only if the project's identification "
+            "strategy and assumptions justify a causal estimand."
+        ),
+    }
+    paths["manifest"].write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
+        encoding="utf-8",
+    )
+    generated = render_index(root)
+
+    print(f"[ok] model: {paths['manifest']}")
+    print(f"[ok] table: {paths['table_md']}")
+    print(f"[ok] figure: {paths['figure']}")
+    print(f"[ok] paper include: {generated}")
+    print(f"     crossrefs: @tbl-econ-{name}  @fig-econ-{name}")
+    return 0
+
+
+def list_models(root: Path) -> None:
+    model_root = root / "results" / "models"
+    manifests = sorted(model_root.glob("*/model.json")) if model_root.is_dir() else []
+    if not manifests:
+        print("尚无已登记模型。")
+        return
+    for path in manifests:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        vcov = data.get("vcov") or {}
+        cluster = f" cluster={vcov.get('cluster')}" if vcov.get("cluster") else ""
+        print(
+            f"{str(data.get('name','')):20} "
+            f"{str(data.get('kind','')):18} "
+            f"{str(vcov.get('type','')):8}{cluster} "
+            f"{str(data.get('formula',''))}"
+        )
+
+
+def verify(root: Path) -> int:
+    model_root = root / "results" / "models"
+    manifests = sorted(model_root.glob("*/model.json")) if model_root.is_dir() else []
+    errors: list[str] = []
+
+    for manifest_path in manifests:
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            name = safe_name(str(data["name"]))
+            data_info = data["data"]
+            data_path = root / str(data_info["path"])
+            if not data_path.is_file():
+                errors.append(f"{name}: analysis data missing: {data_info['path']}")
+            elif sha256_file(data_path) != str(data_info["sha256"]):
+                errors.append(f"{name}: analysis data SHA256 changed: {data_info['path']}")
+
+            for label, item in (data.get("outputs") or {}).items():
+                output_path = root / str(item["path"])
+                if not output_path.is_file():
+                    errors.append(f"{name}: output missing ({label}): {item['path']}")
+                elif sha256_file(output_path) != str(item["sha256"]):
+                    errors.append(f"{name}: output SHA256 changed ({label}): {item['path']}")
+        except Exception as exc:
+            errors.append(f"{manifest_path}: invalid manifest: {exc}")
+
+    generated = root / "paper" / "generated" / "economics-results.qmd"
+    expected = qmd_from_manifests(root)
+    if not generated.is_file():
+        errors.append("paper/generated/economics-results.qmd missing; run research-econ-model render")
+    elif generated.read_text(encoding="utf-8") != expected:
+        errors.append("paper/generated/economics-results.qmd is stale; run research-econ-model render")
+
+    if errors:
+        for message in errors:
+            print(f"[error] {message}")
+        print(f"[error] economics model verify failed: {len(errors)} issue(s)")
+        return 1
+    print(f"[ok] economics model verify passed ({len(manifests)} model(s))")
+    return 0
+
+
+def self_test() -> int:
+    try:
+        import pandas as pd
+        import pyfixest  # noqa: F401
+    except ImportError as exc:
+        raise EconModelError("self-test requires pandas + pyfixest") from exc
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "research.yaml").write_text("schema: 1\\n", encoding="utf-8")
+        processed = root / "data" / "processed"
+        processed.mkdir(parents=True)
+        n = 80
+        df = pd.DataFrame(
+            {
+                "y": [1.0 + 0.25 * i + 0.4 * (i % 2) + (i % 5) * 0.03 for i in range(n)],
+                "treatment": [float(i % 2) for i in range(n)],
+                "x1": [float(i) / 10.0 for i in range(n)],
+                "entity_id": [i % 20 for i in range(n)],
+                "year": [2020 + (i % 4) for i in range(n)],
+            }
+        )
+        data_path = processed / "analysis.csv"
+        df.to_csv(data_path, index=False)
+
+        args = argparse.Namespace(
+            name="baseline",
+            title="Baseline",
+            data="data/processed/analysis.csv",
+            formula="y ~ treatment + x1 | entity_id + year",
+            vcov="cluster",
+            cluster="entity_id",
+            focus=["treatment", "x1"],
+            include_intercept=False,
+        )
+        run_feols(args, root)
+        assert (root / "results" / "models" / "baseline" / "model.json").is_file()
+        assert (root / "results" / "figures" / "baseline.png").stat().st_size > 0
+        qmd = (root / "paper" / "generated" / "economics-results.qmd").read_text(encoding="utf-8")
+        assert "#tbl-econ-baseline" in qmd
+        assert "#fig-econ-baseline" in qmd
+        assert verify(root) == 0
+
+    print("research-econ-model self-test passed")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-econ-model",
+        description="DSH Economics Research Pack：回归 → 可追溯结果 → 论文交叉引用。",
+    )
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    feols = sub.add_parser("feols", help="使用 pyfixest 估计线性/固定效应模型")
+    feols.add_argument("--name", required=True, help="模型 ID，例如 baseline")
+    feols.add_argument("--title", default="", help="论文中显示的结果标题")
+    feols.add_argument("--data", required=True, help="data/processed 下的 CSV/Parquet/Feather")
+    feols.add_argument("--formula", required=True, help="fixest 公式，例如 y ~ treat + x | firm + year")
+    feols.add_argument(
+        "--vcov",
+        required=True,
+        help="iid/hetero/HC1/HC2/HC3/cluster/CRV1/CRV3；不允许默默使用默认推断",
+    )
+    feols.add_argument("--cluster", default="", help="聚类变量；多维聚类可写 firm + year")
+    feols.add_argument("--focus", action="append", default=[], help="系数图中保留的 term，可重复")
+    feols.add_argument("--include-intercept", action="store_true", help="未指定 focus 时也绘制截距")
+
+    sub.add_parser("list", help="列出已登记模型")
+    sub.add_parser("render", help="根据 model manifests 重建 paper/generated/economics-results.qmd")
+    sub.add_parser("verify", help="校验分析数据、结果文件 hash 和论文生成片段")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    try:
+        root = find_root()
+        if args.command == "feols":
+            return run_feols(args, root)
+        if args.command == "list":
+            list_models(root)
+            return 0
+        if args.command == "render":
+            print(f"[ok] paper include: {render_index(root)}")
+            return 0
+        if args.command == "verify":
+            return verify(root)
+    except EconModelError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
