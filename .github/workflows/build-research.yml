@@ -46,6 +46,7 @@ jobs:
           bash -n research/bin/research-archive
           python -m py_compile research/bin/research-literature
           python -m py_compile research/packs/economics/bin/research-econ-data
+          python -m py_compile research/packs/economics/bin/research-econ-model
           python research/bin/research-literature --self-test
           test -s research/templates/default/research.yaml
           test -s research/templates/default/AGENTS.md
