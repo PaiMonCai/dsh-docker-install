@@ -65,6 +65,6 @@ export DSH_RESEARCH_RUNTIME_VENV="$runtime_venv"
 export VIRTUAL_ENV="$runtime_venv"
 export PATH="$runtime_venv/bin:$base_venv/bin:$PATH"
 export QUARTO_PYTHON="$runtime_venv/bin/python"
-export QUARTO_R="${QUARTO_R:-/usr/bin}"
+export QUARTO_R="${QUARTO_R:-/usr/bin/Rscript}"
 
 exec /usr/local/bin/dsh-entrypoint "$@"
