@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+from dsh_research.checks import render_report, run_checks
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-check",
+        description="检查 Research Project 的设计、文献、数据、结果与发布就绪状态。",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--quick", action="store_true", help="只运行核心项目/设计/原始数据检查")
+    mode.add_argument("--full", action="store_true", help="运行完整项目检查（默认）")
+    mode.add_argument("--release", action="store_true", help="在完整检查上增加发布门槛")
+    parser.add_argument("--json", action="store_true", help="输出稳定 JSON")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+    from pathlib import Path
+    from dsh_research.config import write_yaml
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        write_yaml(
+            root / "research.yaml",
+            {
+                "schema": 2,
+                "project": {"slug": "smoke", "title": "Smoke", "template": "default", "status": "active"},
+                "research": {"field": "", "question": "Does X affect Y?", "hypotheses": []},
+                "data_policy": {"raw_is_immutable": True, "raw_path": "data/raw"},
+                "paper": {"source": "paper/paper.qmd", "bibliography": "literature/references.bib"},
+            },
+        )
+        (root / "literature").mkdir()
+        (root / "literature" / "references.bib").write_text("", encoding="utf-8")
+        (root / "literature" / "sources.jsonl").write_text("", encoding="utf-8")
+        (root / "literature" / "evidence-matrix.csv").write_text("citation_key\n", encoding="utf-8")
+        report = run_checks(ResearchProject(root), "full")
+        assert report.ok
+    print("research-check self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.self_test:
+        return self_test()
+
+    mode = "release" if args.release else "quick" if args.quick else "full"
+    try:
+        report = run_checks(ResearchProject.discover(), mode)
+        if args.json:
+            print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(render_report(report))
+        return 0 if report.ok else 1
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
