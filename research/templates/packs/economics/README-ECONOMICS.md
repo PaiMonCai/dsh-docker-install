@@ -53,3 +53,52 @@ research-econ-data verify
 ```
 
 注意：FRED 这里记录的是“检索时间”，不是 ALFRED 的历史实时 vintage。若研究依赖当时可获得的信息集，需要单独使用真正的 vintage 数据源。
+
+## 回归 → 表格 → 图 → 论文
+
+正式线性/固定效应模型可以通过 `research-econ-model` 登记。输入必须来自
+`data/processed/`，并且必须显式声明方差估计方式：
+
+```bash
+research-run --name baseline -- \
+  research-econ-model feols \
+  --name baseline \
+  --title "基准回归" \
+  --data data/processed/analysis.csv \
+  --formula "y ~ treatment + x1 | entity_id + year" \
+  --vcov cluster \
+  --cluster entity_id \
+  --focus treatment
+```
+
+一次成功运行会生成：
+
+```text
+results/
+├── models/baseline/model.json
+├── tables/baseline.csv
+├── tables/baseline.md
+└── figures/baseline.png
+
+paper/generated/economics-results.qmd
+```
+
+`model.json` 记录公式、显式 vcov、分析数据 SHA256、输入行数、系数和输出文件 SHA256。
+论文模板会自动 include `paper/generated/economics-results.qmd`，所以模型登记后不需要复制粘贴回归表。
+
+Quarto 交叉引用：
+
+```text
+@tbl-econ-baseline
+@fig-econ-baseline
+```
+
+校验和重建：
+
+```bash
+research-econ-model list
+research-econ-model render
+research-econ-model verify
+```
+
+如果分析数据、表格或系数图在登记后被手动改动，`verify` 会报 SHA256 不一致。
