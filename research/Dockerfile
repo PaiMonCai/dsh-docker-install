@@ -91,10 +91,10 @@ RUN set -eux; \
 # Quarto can reuse Playwright's bundled Chrome Headless Shell. Expose a stable
 # path because Quarto does not discover Playwright's cache location itself.
 RUN set -eux; \
-    shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name headless_shell -print -quit 2>/dev/null || true)"; \
+    shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f \( -name chrome-headless-shell -o -name headless_shell \) -print -quit 2>/dev/null || true)"; \
     if [ -z "$shell" ]; then \
-      npx playwright install --only-shell chromium; \
-      shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name headless_shell -print -quit)"; \
+      npx playwright install --with-deps --only-shell chromium; \
+      shell="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f \( -name chrome-headless-shell -o -name headless_shell \) -print -quit)"; \
     fi; \
     test -n "$shell"; \
     test -x "$shell"; \
