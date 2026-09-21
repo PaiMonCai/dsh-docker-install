@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse, csv, hashlib, json, math, re, subprocess, sys, tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+class DidError(RuntimeError):
+    pass
+
+def now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+def root_dir(start: Path | None = None) -> Path:
+    p = (start or Path.cwd()).resolve()
+    while True:
+        if (p / "research.yaml").is_file():
+            return p
+        if p.parent == p:
+            raise DidError("未找到 research.yaml；请在 Economics Research Project 内运行。")
+        p = p.parent
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def safe_name(value: str) -> str:
+    if not NAME_RE.fullmatch(value):
+        raise DidError("name 只能包含字母、数字、点、下划线和短横线。")
+    return value
+
+def processed_path(root: Path, value: str) -> Path:
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = root / p
+    p = p.resolve()
+    base = (root / "data" / "processed").resolve()
+    try:
+        p.relative_to(base)
+    except ValueError as exc:
+        raise DidError(f"DiD/Event Study 输入必须位于 data/processed/: {p}") from exc
+    if not p.is_file():
+        raise DidError(f"分析数据不存在: {p}")
+    return p
+
+def load_frame(path: Path):
+    import pandas as pd
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path)
+    if path.suffix.lower() in {".parquet", ".pq"}:
+        return pd.read_parquet(path)
+    if path.suffix.lower() in {".feather", ".arrow"}:
+        return pd.read_feather(path)
+    raise DidError("当前支持 CSV / Parquet / Feather。")
+
+def git_state(root: Path) -> dict[str, Any]:
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+        return {"commit": commit or None, "dirty": bool(dirty)}
+    except OSError:
+        return {"commit": None, "dirty": None}
+
+def parse_never(value: str) -> float:
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise DidError("--never-treated 必须是数值；PyFixest 常用 0。") from exc
+
+def prepare_panel(
+    frame, outcome: str, idname: str, tname: str, gname: str,
+    treatment: str | None, never: float,
+):
+    import pandas as pd
+    required = [outcome, idname, tname, gname] + ([treatment] if treatment else [])
+    missing = [x for x in required if x not in frame.columns]
+    if missing:
+        raise DidError("缺少变量: " + ", ".join(missing))
+    work = frame.copy()
+    if work[required].isna().any().any():
+        bad = {x: int(work[x].isna().sum()) for x in required if work[x].isna().any()}
+        raise DidError(f"DiD 核心变量存在缺失值: {bad}")
+    try:
+        work[tname] = pd.to_numeric(work[tname], errors="raise")
+        work[gname] = pd.to_numeric(work[gname], errors="raise")
+    except Exception as exc:
+        raise DidError("time/cohort 必须可转换为数值。") from exc
+
+    dup = int(work.duplicated([idname, tname]).sum())
+    if dup:
+        raise DidError(f"发现 {dup} 个重复 unit-time 观测。")
+
+    g_nunique = work.groupby(idname)[gname].nunique()
+    if int((g_nunique != 1).sum()):
+        raise DidError("cohort 必须在每个 unit 内恒定。")
+
+    cohort = work.groupby(idname)[gname].first()
+    treated_units = cohort[cohort != never]
+    never_units = cohort[cohort == never]
+    if treated_units.empty:
+        raise DidError("没有 treated units。")
+
+    work["__dsh_treated"] = ((work[gname] != never) & (work[tname] >= work[gname])).astype(int)
+    work["__dsh_event_time"] = work[tname] - work[gname]
+    work.loc[work[gname] == never, "__dsh_event_time"] = math.nan
+
+    if treatment:
+        values = set(work[treatment].astype(float).unique().tolist())
+        if not values.issubset({0.0, 1.0}):
+            raise DidError(f"{treatment} 必须是 0/1。")
+        sorted_work = work.sort_values([idname, tname])
+        reversals = int((sorted_work.groupby(idname)[treatment].diff().fillna(0) < 0).sum())
+        if reversals:
+            raise DidError(f"treatment 存在 {reversals} 次 1→0，不满足一次性采用。")
+        mismatches = int((work[treatment].astype(int) != work["__dsh_treated"]).sum())
+        if mismatches:
+            raise DidError(f"treatment 与 cohort 隐含路径有 {mismatches} 个不一致观测。")
+
+    counts = cohort.value_counts().sort_index()
+    treated_rows = work[work[gname] != never]
+    diagnostics = {
+        "rows": int(len(work)),
+        "units": int(work[idname].nunique()),
+        "time_min": float(work[tname].min()),
+        "time_max": float(work[tname].max()),
+        "treated_units": int(len(treated_units)),
+        "never_treated_units": int(len(never_units)),
+        "treated_cohorts": int(treated_units.nunique()),
+        "event_time_min": float(treated_rows["__dsh_event_time"].min()),
+        "event_time_max": float(treated_rows["__dsh_event_time"].max()),
+        "cohorts": [{"cohort": float(k), "units": int(v)} for k, v in counts.items()],
+        "warnings": [],
+    }
+    if never_units.empty:
+        diagnostics["warnings"].append(
+            "没有 never-treated units；识别将依赖 not-yet-treated / cohort comparisons。"
+        )
+    if diagnostics["treated_cohorts"] > 1:
+        diagnostics["warnings"].append(
+            "存在 staggered adoption；TWFE 在 treatment effects 异质时可能混合不恰当的比较。"
+        )
+    return work, diagnostics
+
+def paths(root: Path, name: str) -> dict[str, Path]:
+    base = root / "results" / "did" / name
+    return {
+        "base": base,
+        "manifest": base / "did.json",
+        "estimates": base / "estimates.csv",
+        "diagnostics": base / "diagnostics.json",
+        "cohorts": base / "cohorts.csv",
+        "panel": base / "panel.png",
+        "event": base / "event-study.png",
+        "generated": root / "paper" / "generated" / "did-results.qmd",
+    }
+
+def plot_panel(work, path: Path, idname: str, tname: str, gname: str, never: float) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    units_df = work[[idname, gname]].drop_duplicates().copy()
+    units_df["__never"] = units_df[gname] == never
+    units_df = units_df.sort_values(["__never", gname, idname])
+    units = units_df[idname].tolist()
+    times = sorted(work[tname].unique().tolist())
+    upos = {u: i for i, u in enumerate(units)}
+    tpos = {t: i for i, t in enumerate(times)}
+    matrix = np.full((len(units), len(times)), np.nan)
+    for _, row in work.iterrows():
+        matrix[upos[row[idname]], tpos[row[tname]]] = row["__dsh_treated"]
+
+    fig, ax = plt.subplots(figsize=(8.5, min(10, max(3.5, len(units) * 0.05 + 2.5))))
+    ax.imshow(matrix, aspect="auto", interpolation="nearest")
+    ax.set_xlabel(tname)
+    ax.set_ylabel(idname)
+    ax.set_title("Treatment timing / panel view")
+    ax.set_yticks([])
+    if len(times) <= 20:
+        ax.set_xticks(range(len(times)), [str(x) for x in times], rotation=45, ha="right")
+    fig.tight_layout()
+    fig.savefig(path, dpi=170, bbox_inches="tight")
+    plt.close(fig)
+
+def col(frame, names: list[str]) -> str | None:
+    m = {str(x).lower(): str(x) for x in frame.columns}
+    for name in names:
+        if name.lower() in m:
+            return m[name.lower()]
+    return None
+
+def event_time(term: str, index: Any) -> float | None:
+    if isinstance(index, (int, float)) and not isinstance(index, bool):
+        value = float(index)
+        if math.isfinite(value):
+            return value
+    for pattern in [
+        r"(?:period|event[_ ]?time|rel[_ ]?year|time[_ ]?to[_ ]?treatment)[^-\d]*(-?\d+(?:\.\d+)?)",
+        r"::\s*(-?\d+(?:\.\d+)?)",
+        r"\[\s*T?\.?\s*(-?\d+(?:\.\d+)?)\s*\]",
+    ]:
+        m = re.search(pattern, term, re.I)
+        if m:
+            return float(m.group(1))
+    return None
+
+def normalize(frame) -> list[dict[str, Any]]:
+    est = col(frame, ["Estimate", "estimate"])
+    se = col(frame, ["Std. Error", "std_error", "Std.Error"])
+    p = col(frame, ["Pr(>|t|)", "p_value", "pvalue", "P>|t|"])
+    lo = col(frame, ["2.5%", "ci_low", "CI_lower"])
+    hi = col(frame, ["97.5%", "ci_high", "CI_upper"])
+    if not est or not se:
+        raise DidError(f"无法识别 PyFixest 结果列: {list(frame.columns)}")
+
+    rows = []
+    for idx, row in frame.iterrows():
+        term = str(idx)
+        estimate = float(row[est])
+        std = float(row[se])
+        pv = float(row[p]) if p else math.nan
+        rows.append({
+            "term": term,
+            "event_time": event_time(term, idx),
+            "estimate": estimate,
+            "std_error": std,
+            "p_value": pv,
+            "ci_low": float(row[lo]) if lo else estimate - 1.96 * std,
+            "ci_high": float(row[hi]) if hi else estimate + 1.96 * std,
+        })
+    return rows
+
+def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    fields = ["term", "event_time", "estimate", "std_error", "p_value", "ci_low", "ci_high"]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(rows)
+
+def plot_event(path: Path, rows: list[dict[str, Any]], title: str) -> bool:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    dyn = sorted(
+        [r for r in rows if r["event_time"] is not None],
+        key=lambda r: float(r["event_time"]),
+    )
+    if not dyn:
+        return False
+    x = [float(r["event_time"]) for r in dyn]
+    y = [float(r["estimate"]) for r in dyn]
+    low = [float(r["estimate"]) - float(r["ci_low"]) for r in dyn]
+    high = [float(r["ci_high"]) - float(r["estimate"]) for r in dyn]
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    ax.errorbar(x, y, yerr=[low, high], fmt="o-", capsize=3)
+    ax.axhline(0, linewidth=1)
+    ax.axvline(-1, linewidth=1, linestyle="--")
+    ax.set_xlabel("Event time")
+    ax.set_ylabel("Estimate (95% CI)")
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+def pretrend(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    leads = [r for r in rows if r["event_time"] is not None and float(r["event_time"]) < -1]
+    ps = [float(r["p_value"]) for r in leads if math.isfinite(float(r["p_value"]))]
+    return {
+        "lead_count": len(leads),
+        "pointwise_p_lt_0_05": sum(p < 0.05 for p in ps),
+        "minimum_pointwise_p": min(ps) if ps else None,
+        "note": (
+            "Pointwise lead tests are diagnostics, not proof of parallel trends. "
+            "Multiple pre-period tests can create false positives."
+        ),
+    }
+
+def warnings_for(estimator: str, diagnostics: dict[str, Any]) -> list[str]:
+    out = list(diagnostics.get("warnings") or [])
+    if estimator == "twfe" and diagnostics.get("treated_cohorts", 0) > 1:
+        out.append(
+            "Staggered-adoption TWFE 仅作为 baseline；异质 treatment effects 下可能出现污染的跨 cohort 比较。"
+        )
+    elif estimator == "did2s":
+        out.append("DID2S 仍依赖 parallel trends / no anticipation 等识别假设。")
+    elif estimator == "saturated":
+        out.append("Saturated/Sun-Abraham-style 结果依赖 cohort-specific effects 的聚合权重与比较组。")
+    elif estimator == "lpdid":
+        out.append("LP-DiD 的 horizon 结果仍依赖设计与比较组；不要把 event-study 图本身当作识别证明。")
+    return out
+
+def build_qmd(root: Path) -> str:
+    base = root / "results" / "did"
+    manifests = sorted(base.glob("*/did.json")) if base.is_dir() else []
+    lines = ["<!-- AUTO-GENERATED by research-econ-did. DO NOT EDIT BY HAND. -->", ""]
+    if not manifests:
+        return "\n".join(lines + ["_暂无已登记的 DiD / Event Study 结果。_", ""])
+    for mp in manifests:
+        data = json.loads(mp.read_text(encoding="utf-8"))
+        name = safe_name(str(data["name"]))
+        title = str(data.get("title") or name)
+        d = data.get("design") or {}
+        diag = data.get("diagnostics") or {}
+        pt = data.get("pretrend") or {}
+        rows = list(csv.DictReader((root / data["outputs"]["estimates"]["path"]).open("r", encoding="utf-8")))
+
+        lines += [
+            f"### {title}", "",
+            f"**Estimator:** {data.get('estimator','')}  ",
+            f"**Mode:** {data.get('mode','')}  ",
+            f"**Outcome:** `{d.get('outcome','')}`  ",
+            f"**Unit / time / cohort:** `{d.get('id','')}` / `{d.get('time','')}` / `{d.get('cohort','')}`  ",
+            f"**Cluster:** `{d.get('cluster','')}`  ",
+            f"**Treated cohorts:** {diag.get('treated_cohorts','')}  ",
+            f"**Never-treated units:** {diag.get('never_treated_units','')}  ",
+            "",
+        ]
+        dynamic = [r for r in rows if r.get("event_time") not in {"", None, "None"}]
+        if dynamic:
+            lines += [
+                "| Event time | Estimate | Std. Error | p | 95% CI |",
+                "|---:|---:|---:|---:|---:|",
+            ]
+            for r in sorted(dynamic, key=lambda x: float(x["event_time"])):
+                lines.append(
+                    f"| {float(r['event_time']):g} | {float(r['estimate']):.4f} | "
+                    f"{float(r['std_error']):.4f} | {float(r['p_value']):.4f} | "
+                    f"[{float(r['ci_low']):.4f}, {float(r['ci_high']):.4f}] |"
+                )
+            lines += ["", f": {title} event-study estimates {{#tbl-did-{name}}}", ""]
+
+        lines += [
+            f"![{title} treatment timing](../results/did/{name}/panel.png){{#fig-did-{name}-panel}}",
+            "",
+        ]
+        if data["outputs"].get("event"):
+            lines += [
+                f"![{title} event study](../results/did/{name}/event-study.png){{#fig-did-{name}-event}}",
+                "",
+            ]
+        lines += [
+            f"**Pre-treatment diagnostic:** {pt.get('lead_count',0)} lead(s); "
+            f"{pt.get('pointwise_p_lt_0_05',0)} pointwise p<0.05.  ",
+            "",
+        ]
+        for w in data.get("warnings") or []:
+            lines.append(f"- ⚠ {w}")
+        lines.append("")
+    return "\n".join(lines)
+
+def render(root: Path) -> Path:
+    out = root / "paper" / "generated" / "did-results.qmd"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(build_qmd(root), encoding="utf-8")
+    return out
+
+def run_check(args, root: Path) -> int:
+    name = safe_name(args.name)
+    data = processed_path(root, args.data)
+    frame = load_frame(data)
+    never = parse_never(args.never_treated)
+    work, diag = prepare_panel(
+        frame, args.outcome, args.id, args.time, args.cohort,
+        args.treatment or None, never,
+    )
+    p = paths(root, name)
+    p["base"].mkdir(parents=True, exist_ok=True)
+    p["diagnostics"].write_text(json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with p["cohorts"].open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["cohort", "units"])
+        w.writeheader(); w.writerows(diag["cohorts"])
+    plot_panel(work, p["panel"], args.id, args.time, args.cohort, never)
+    print(f"[ok] diagnostics: {p['diagnostics']}")
+    print(f"[ok] panel view: {p['panel']}")
+    for w in diag["warnings"]:
+        print(f"[warn] {w}")
+    return 0
+
+def run_estimate(args, root: Path) -> int:
+    import pyfixest as pf
+    name = safe_name(args.name)
+    data = processed_path(root, args.data)
+    frame = load_frame(data)
+    never = parse_never(args.never_treated)
+    work, diag = prepare_panel(
+        frame, args.outcome, args.id, args.time, args.cohort,
+        args.treatment or None, never,
+    )
+    if args.cluster not in work.columns:
+        raise DidError(f"cluster 变量不存在: {args.cluster}")
+    att = args.mode == "att"
+
+    if args.estimator == "lpdid":
+        fit = pf.lpdid(
+            data=work, yname=args.outcome, idname=args.id, tname=args.time,
+            gname=args.cohort, vcov={"CRV1": args.cluster},
+            pre_window=args.pre_window, post_window=args.post_window,
+            never_treated=never, att=att, xfml=args.controls or None,
+        )
+        raw = fit.tidy()
+        source = "lpdid.tidy"
+    else:
+        fit = pf.event_study(
+            data=work, yname=args.outcome, idname=args.id, tname=args.time,
+            gname=args.cohort, xfml=args.controls or None, cluster=args.cluster,
+            estimator=args.estimator, att=att,
+        )
+        if args.estimator == "saturated" and not att and hasattr(fit, "aggregate"):
+            raw = fit.aggregate(weighting="shares")
+            source = "saturated.aggregate(shares)"
+        else:
+            raw = fit.tidy()
+            source = "fit.tidy"
+
+    rows = normalize(raw)
+    if args.mode == "dynamic" and not any(r["event_time"] is not None for r in rows):
+        raise DidError("估计成功，但无法解析 event time；请检查 pyfixest 输出格式。")
+
+    p = paths(root, name)
+    p["base"].mkdir(parents=True, exist_ok=True)
+    write_rows(p["estimates"], rows)
+    p["diagnostics"].write_text(json.dumps(diag, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with p["cohorts"].open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["cohort", "units"])
+        w.writeheader(); w.writerows(diag["cohorts"])
+    plot_panel(work, p["panel"], args.id, args.time, args.cohort, never)
+    has_event = plot_event(p["event"], rows, args.title or name)
+    pt = pretrend(rows) if args.mode == "dynamic" else {
+        "lead_count": 0, "pointwise_p_lt_0_05": 0,
+        "minimum_pointwise_p": None, "note": "ATT mode."
+    }
+    warns = warnings_for(args.estimator, diag)
+
+    outputs = {}
+    for key in ["estimates", "diagnostics", "cohorts", "panel"]:
+        outputs[key] = {"path": str(p[key].relative_to(root)), "sha256": sha256(p[key])}
+    outputs["event"] = (
+        {"path": str(p["event"].relative_to(root)), "sha256": sha256(p["event"])}
+        if has_event else None
+    )
+    manifest = {
+        "schema": 1, "kind": "did-event-study", "name": name,
+        "title": args.title or name, "created_at": now(),
+        "estimator": args.estimator, "mode": args.mode, "result_source": source,
+        "git": git_state(root),
+        "design": {
+            "data": str(data.relative_to(root)), "data_sha256": sha256(data),
+            "outcome": args.outcome, "id": args.id, "time": args.time,
+            "cohort": args.cohort, "treatment": args.treatment or "",
+            "never_treated": never, "cluster": args.cluster,
+            "controls": args.controls or "", "pre_window": args.pre_window,
+            "post_window": args.post_window,
+        },
+        "diagnostics": diag, "pretrend": pt, "warnings": warns, "outputs": outputs,
+    }
+    p["manifest"].write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    generated = render(root)
+    print(f"[ok] DID manifest: {p['manifest']}")
+    print(f"[ok] estimates: {p['estimates']}")
+    print(f"[ok] treatment timing: {p['panel']}")
+    if has_event: print(f"[ok] event plot: {p['event']}")
+    print(f"[ok] paper include: {generated}")
+    for w in warns: print(f"[warn] {w}")
+    return 0
+
+def research_design(root: Path) -> dict[str, Any]:
+    import yaml
+    return yaml.safe_load((root / "research.yaml").read_text(encoding="utf-8")) or {}
+
+def verify(root: Path) -> int:
+    base = root / "results" / "did"
+    manifests = sorted(base.glob("*/did.json")) if base.is_dir() else []
+    errors, warns = [], []
+    if manifests:
+        cfg = research_design(root)
+        econ = cfg.get("economics") or {}
+        did = econ.get("did") or {}
+        required_econ = [
+            "population", "unit_of_observation", "outcome", "estimand",
+            "identification_strategy", "standard_errors", "clustering_level",
+        ]
+        missing = [x for x in required_econ if not econ.get(x)]
+        if missing: errors.append("research.yaml economics 空项: " + ", ".join(missing))
+        required_did = [
+            "treatment_timing_variable", "cohort_variable", "comparison_group",
+            "reference_period", "anticipation_periods",
+        ]
+        missing = [x for x in required_did if did.get(x) in {"", None}]
+        if missing: errors.append("research.yaml economics.did 空项: " + ", ".join(missing))
+
+    for mp in manifests:
+        try:
+            d = json.loads(mp.read_text(encoding="utf-8"))
+            name = safe_name(str(d["name"]))
+            design = d["design"]
+            dp = root / design["data"]
+            if not dp.is_file():
+                errors.append(f"{name}: data missing")
+            elif sha256(dp) != design["data_sha256"]:
+                errors.append(f"{name}: data SHA256 changed")
+            for label, item in d["outputs"].items():
+                if not item: continue
+                op = root / item["path"]
+                if not op.is_file():
+                    errors.append(f"{name}: output missing ({label})")
+                elif sha256(op) != item["sha256"]:
+                    errors.append(f"{name}: output SHA256 changed ({label})")
+            if d["estimator"] == "twfe" and d["diagnostics"].get("treated_cohorts", 0) > 1:
+                warns.append(f"{name}: staggered-adoption TWFE 仅应作为 baseline；同时报告异质效应稳健方法。")
+            if d["pretrend"].get("pointwise_p_lt_0_05", 0):
+                warns.append(
+                    f"{name}: pre-treatment 有 {d['pretrend']['pointwise_p_lt_0_05']} 个 pointwise p<0.05；"
+                    "需结合设计与 simultaneous/joint inference 解释。"
+                )
+        except Exception as exc:
+            errors.append(f"{mp}: invalid manifest: {exc}")
+
+    generated = root / "paper" / "generated" / "did-results.qmd"
+    expected = build_qmd(root)
+    if not generated.is_file():
+        errors.append("paper/generated/did-results.qmd missing; run research-econ-did render")
+    elif generated.read_text(encoding="utf-8") != expected:
+        errors.append("paper/generated/did-results.qmd stale; run research-econ-did render")
+    for w in warns: print(f"[warn] {w}")
+    if errors:
+        for e in errors: print(f"[error] {e}")
+        return 1
+    print(f"[ok] DID verify passed ({len(manifests)} design(s))")
+    return 0
+
+def self_test() -> int:
+    import pandas as pd
+    import pyfixest  # noqa: F401
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "research.yaml").write_text(
+            """schema: 1
+economics:
+  population: "synthetic panel"
+  unit_of_observation: "unit-year"
+  outcome: "y"
+  estimand: "dynamic ATT"
+  identification_strategy: "synthetic staggered-adoption DiD smoke test"
+  standard_errors: "CRV1 clustered by unit"
+  clustering_level: "unit"
+  did:
+    treatment_timing_variable: "year"
+    cohort_variable: "g"
+    comparison_group: "never-treated and not-yet-treated"
+    reference_period: -1
+    anticipation_periods: 0
+""", encoding="utf-8")
+        proc = root / "data" / "processed"; proc.mkdir(parents=True)
+        records = []
+        for unit in range(60):
+            g = 3 if unit < 20 else (5 if unit < 40 else 0)
+            for year in range(8):
+                treated = int(g != 0 and year >= g)
+                ev = year - g if g else -99
+                effect = 0 if not treated else 0.5 + 0.15 * max(ev, 0)
+                y = 1 + 0.04 * unit + 0.1 * year + effect + ((unit * 7 + year * 3) % 11) / 100
+                records.append({"unit": unit, "year": year, "g": g, "treated": treated, "y": y})
+        pd.DataFrame(records).to_csv(proc / "did.csv", index=False)
+
+        args = argparse.Namespace(
+            name="twfe-smoke", title="TWFE smoke", data="data/processed/did.csv",
+            outcome="y", id="unit", time="year", cohort="g", treatment="treated",
+            never_treated="0", cluster="unit", controls=None, estimator="twfe",
+            mode="dynamic", pre_window=None, post_window=None,
+        )
+        run_estimate(args, root)
+        assert (root / "results" / "did" / "twfe-smoke" / "did.json").is_file()
+        assert (root / "results" / "did" / "twfe-smoke" / "event-study.png").is_file()
+        assert "#tbl-did-twfe-smoke" in (root / "paper" / "generated" / "did-results.qmd").read_text(encoding="utf-8")
+        assert verify(root) == 0
+    print("research-econ-did self-test passed")
+    return 0
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="research-econ-did",
+        description="DSH Economics Research Pack：DiD / Event Study 诊断、估计、图表与论文集成。",
+    )
+    p.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = p.add_subparsers(dest="command")
+
+    def common(x):
+        x.add_argument("--name", required=True)
+        x.add_argument("--data", required=True)
+        x.add_argument("--outcome", required=True)
+        x.add_argument("--id", required=True)
+        x.add_argument("--time", required=True)
+        x.add_argument("--cohort", required=True, help="首次处理期；never-treated 通常编码 0")
+        x.add_argument("--treatment", default="", help="可选 0/1 treatment，用于核对 cohort")
+        x.add_argument("--never-treated", default="0")
+
+    check = sub.add_parser("check", help="检查 panel / treatment timing / cohort")
+    common(check)
+
+    est = sub.add_parser("estimate", help="估计 DiD / Event Study")
+    common(est)
+    est.add_argument("--title", default="")
+    est.add_argument("--cluster", required=True)
+    est.add_argument("--controls", default=None, help="PyFixest xfml，例如 '~ x1 + x2'")
+    est.add_argument("--estimator", required=True, choices=["twfe", "did2s", "saturated", "lpdid"])
+    est.add_argument("--mode", choices=["dynamic", "att"], default="dynamic")
+    est.add_argument("--pre-window", type=int, default=None, help="LP-DiD pre window")
+    est.add_argument("--post-window", type=int, default=None, help="LP-DiD post window")
+
+    sub.add_parser("render", help="重建 paper/generated/did-results.qmd")
+    sub.add_parser("verify", help="校验 DID 数据、输出、研究设计和论文生成片段")
+    return p
+
+def main(argv: list[str] | None = None) -> int:
+    p = parser(); args = p.parse_args(argv)
+    if args.self_test: return self_test()
+    if not args.command: p.print_help(); return 2
+    try:
+        root = root_dir()
+        if args.command == "check": return run_check(args, root)
+        if args.command == "estimate": return run_estimate(args, root)
+        if args.command == "render": print(f"[ok] paper include: {render(root)}"); return 0
+        if args.command == "verify": return verify(root)
+    except DidError as exc:
+        print(f"[error] {exc}", file=sys.stderr); return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr); return 1
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
