@@ -297,7 +297,7 @@ dsh 的文件/命令沙箱后端候选链是 bubblewrap → 内核 Landlock：
 
 | 环境 | 内容 |
 |---|---|
-| JavaScript / TypeScript | Node.js 24、npm、pnpm 10 |
+| JavaScript / TypeScript | Node.js 24、npm、pnpm 11.7.0（与 dsh 官方 packageManager 一致） |
 | Python | Python 3、pip、venv、uv |
 | Go | Go 1.27.1（amd64 / arm64） |
 | Docker 工具 | Docker CLI、Buildx、Docker Compose v2 |
@@ -374,9 +374,15 @@ docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
 ```bash
 docker run --rm dsh:latest headless "跑一下测试"   # 一次性 headless 任务
 docker run --rm dsh:latest dsh --dump-config      # 原样透传给 dsh CLI
-docker run --rm dsh:latest plugin add <name>      # 插件管理
+docker run --rm -v dsh-home:/root/.dsh dsh:latest \
+  plugin --profile web add <name>                 # 安装到持久化的 Web profile
 docker run --rm -it dsh:latest bash               # 进容器排查
 ```
+
+镜像把 pnpm 固定为 dsh `0.1.5-rc.2` 官方使用的 `11.7.0`。如果已有数据卷中的
+`profiles/*/node_modules/.modules.yaml` 是由其他 pnpm 大版本生成的，需先用当前 pnpm
+重新执行一次 `pnpm install --force --no-frozen-lockfile`；仅重建镜像不会改写持久卷中的
+旧依赖树。
 
 ## 环境变量
 

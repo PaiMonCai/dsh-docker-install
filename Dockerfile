@@ -8,7 +8,7 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 
 ARG DSH_VERSION=0.1.5-rc.2
-ARG PNPM_VERSION=10
+ARG PNPM_VERSION=11.7.0
 ARG GO_VERSION=1.27.1
 ARG TARGETARCH
 ARG IN_CHINA=auto
@@ -109,15 +109,27 @@ RUN set -eux; \
     docker buildx version; \
     docker compose version
 
+# 与 dsh 0.1.5-rc.2 官方根项目的 packageManager 保持一致。pnpm 必须先于
+# dsh/插件单独安装：不能把它们放进同一条 npm install，因为 npm 不保证
+# 全局包的安装/生命周期顺序，可能用另一版 pnpm 生成 profile 的 node_modules。
 RUN . /usr/local/bin/cn-mirror \
  && if is_cn; then \
-      echo "==> China network detected, switching npm/playwright to npmmirror.com"; \
+      echo "==> China network detected, switching npm to npmmirror.com"; \
       npm config set registry https://registry.npmmirror.com --global; \
+    fi \
+ && npm install --global --no-audit --no-fund \
+      "pnpm@${PNPM_VERSION}" \
+ && test "$(pnpm --version)" = "${PNPM_VERSION}" \
+ && PNPM_MAJOR="${PNPM_VERSION%%.*}" \
+ && pnpm store path | grep -q "/v${PNPM_MAJOR}$"
+
+RUN . /usr/local/bin/cn-mirror \
+ && if is_cn; then \
+      echo "==> China network detected, switching Playwright to npmmirror.com"; \
       export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright; \
     fi \
  && npm install --global --no-audit --no-fund \
       "@deepseek-ai/dsh@${DSH_VERSION}" \
-      "pnpm@${PNPM_VERSION}" \
       playwright \
  && node /usr/local/bin/patch-remote-settings.js \
  && npx playwright install --with-deps chromium \
@@ -125,7 +137,8 @@ RUN . /usr/local/bin/cn-mirror \
  && npm cache clean --force \
  && dsh --version \
  && node --version \
- && pnpm --version \
+ && test "$(pnpm --version)" = "${PNPM_VERSION}" \
+ && pnpm store path \
  && chromium --version
 
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
