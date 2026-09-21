@@ -3,6 +3,8 @@ ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
 FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 ARG QUARTO_VERSION=1.10.18
 ARG RESEARCH_VERSION=0.9.0-rc.3
 
@@ -113,18 +115,22 @@ RUN chmod 0755 \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
- && printf '%s\n' \
-      '---' \
-      'title: "科研环境测试"' \
-      'format: pdf' \
-      'pdf-engine: xelatex' \
-      'mainfont: "Noto Serif CJK SC"' \
-      '---' \
-      '' \
-      '中文排版 smoke test。' > /tmp/research-smoke.qmd \
- && quarto render /tmp/research-smoke.qmd --to pdf \
- && test -s /tmp/research-smoke.pdf \
- && rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf
+ && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
+      printf '%s\\n' \
+        '---' \
+        'title: "科研环境测试"' \
+        'format: pdf' \
+        'pdf-engine: xelatex' \
+        'mainfont: "Noto Serif CJK SC"' \
+        '---' \
+        '' \
+        '中文排版 smoke test。' > /tmp/research-smoke.qmd; \
+      quarto render /tmp/research-smoke.qmd --to pdf; \
+      test -s /tmp/research-smoke.pdf; \
+      rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf; \
+    else \
+      echo "Skipping Quarto render smoke under emulation: ${BUILDPLATFORM} -> ${TARGETPLATFORM}"; \
+    fi
 
 WORKDIR /workspace
 
