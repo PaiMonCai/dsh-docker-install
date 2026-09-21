@@ -64,6 +64,11 @@ execute:
 根据设计报告平行趋势、placebo、带宽、替代变量、样本规则或其他必要检验。
 失败或不支持预期结论的结果也应记录。
 
+{{< include generated/did-results.qmd >}}
+
+对于 DiD / Event Study，可以用 `@tbl-did-<name>`、`@fig-did-<name>-event`
+和 `@fig-did-<name>-panel` 引用自动生成的估计表、动态效应图和 treatment timing 图。
+
 # 8. 异质性与机制
 
 区分预先提出的机制/异质性分析与探索性分析，避免把事后切样本包装成确认性证据。
