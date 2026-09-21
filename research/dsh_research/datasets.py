@@ -484,13 +484,43 @@ def lineage_tree(project: ResearchProject, dataset_id: str) -> dict[str, Any]:
         lineage = data.get("lineage") if isinstance(data.get("lineage"), dict) else {}
         refs = lineage.get("inputs") if isinstance(lineage.get("inputs"), list) else []
         children = []
+        effective_status = status.status
         for ref in refs:
             if isinstance(ref, dict) and ref.get("dataset"):
-                children.append(visit(str(ref["dataset"])))
+                dep = str(ref["dataset"])
+                child = visit(dep)
+                children.append(child)
+                expected = str(ref.get("sha256") or "")
+                child_current = dataset_status(project, dep) if child.get("status") != "missing" else None
+                if child.get("status") in {"missing", "cycle", "invalid", "stale"}:
+                    effective_status = "stale" if effective_status == "current" else effective_status
+                elif expected and child_current and child_current.current_sha256 != expected:
+                    effective_status = "stale"
+
+        code_refs = lineage.get("code") if isinstance(lineage.get("code"), list) else []
+        if effective_status == "current":
+            for item in code_refs:
+                if not isinstance(item, dict):
+                    effective_status = "invalid"
+                    break
+                code_value = str(item.get("path") or "")
+                expected = str(item.get("sha256") or "")
+                try:
+                    code_path, _ = _relative_project_path(project, code_value)
+                except Exception:
+                    effective_status = "invalid"
+                    break
+                if not code_path.is_file():
+                    effective_status = "stale"
+                    break
+                if expected and sha256_file(code_path) != expected:
+                    effective_status = "stale"
+                    break
+
         seen_stack.pop()
         return {
             "dataset": current,
-            "status": status.status,
+            "status": effective_status,
             "path": status.path,
             "pipeline_step": lineage.get("pipeline_step"),
             "run_id": lineage.get("run_id"),
