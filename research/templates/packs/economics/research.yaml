@@ -29,6 +29,14 @@ economics:
   heterogeneity_plan: []
   mechanism_plan: []
 
+  did:
+    treatment_timing_variable: ""
+    cohort_variable: ""
+    comparison_group: ""
+    reference_period: -1
+    anticipation_periods: 0
+    pretrend_assessment: ""
+
 data_policy:
   raw_is_immutable: true
   raw_path: "data/raw"
