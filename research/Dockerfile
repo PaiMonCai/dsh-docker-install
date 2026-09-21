@@ -78,6 +78,7 @@ RUN chmod 0755 \
       /usr/local/bin/research-status \
       /usr/local/bin/research-migrate \
       /usr/local/bin/research-check \
+      /usr/local/bin/research-data \
  && python -c "import dsh_research; from dsh_research.project import ResearchProject; print('Research engine import passed')" \
  && research-init --self-test \
  && research-run --self-test \
@@ -86,6 +87,7 @@ RUN chmod 0755 \
  && research-status --self-test \
  && research-migrate --self-test \
  && research-check --self-test \
+ && research-data --self-test \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
