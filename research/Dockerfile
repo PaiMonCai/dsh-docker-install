@@ -6,7 +6,7 @@ ARG TARGETARCH
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG QUARTO_VERSION=1.10.18
-ARG RESEARCH_VERSION=0.9.0-rc.3
+ARG RESEARCH_VERSION=0.9.0-rc.4
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \
@@ -20,8 +20,31 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DSH_RESEARCH_VENV=/opt/dsh-research/venv \
     DSH_RESEARCH_VERSION=${RESEARCH_VERSION} \
     DSH_RESEARCH_ADAPTER_PATCH=/opt/dsh-research/adapter/cordis.patch.yml \
+    DSH_RESEARCH_CACHE_ROOT=/tmp/dsh-research-cache \
     PYTHONPATH=/opt/dsh-research \
-    PATH=/opt/dsh-research/venv/bin:${PATH}
+    PATH=/opt/dsh-research/venv/bin:${PATH} \
+    UV_CACHE_DIR=/tmp/dsh-research-cache/uv \
+    PIP_CACHE_DIR=/tmp/dsh-research-cache/pip \
+    XDG_CACHE_HOME=/tmp/dsh-research-cache/xdg \
+    XDG_DATA_HOME=/tmp/dsh-research-cache/xdg-data \
+    MPLCONFIGDIR=/tmp/dsh-research-cache/matplotlib \
+    NUMBA_CACHE_DIR=/tmp/dsh-research-cache/numba \
+    JUPYTER_RUNTIME_DIR=/tmp/dsh-research-cache/jupyter-runtime \
+    IPYTHONDIR=/tmp/dsh-research-cache/ipython \
+    PYTHONPYCACHEPREFIX=/tmp/dsh-research-cache/pycache \
+    DENO_DIR=/tmp/dsh-research-cache/deno \
+    TEXMFCACHE=/tmp/dsh-research-cache/texmf-cache \
+    TEXMFVAR=/tmp/dsh-research-cache/texmf-var \
+    TEXMFCONFIG=/tmp/dsh-research-cache/texmf-config \
+    QUARTO_CHROMIUM=/usr/local/bin/chrome-headless-shell \
+    QUARTO_DENO_V8_OPTIONS=--max-old-space-size=512 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    NUMBA_NUM_THREADS=1 \
+    POLARS_MAX_THREADS=1 \
+    MALLOC_ARENA_MAX=2
 
 USER root
 
@@ -34,6 +57,9 @@ RUN apt-get update \
       pandoc \
       poppler-utils \
       qpdf \
+      r-base \
+      r-cran-knitr \
+      r-cran-rmarkdown \
       ripgrep \
       rsync \
       sqlite3 \
@@ -42,6 +68,7 @@ RUN apt-get update \
       texlive-latex-extra \
       texlive-latex-recommended \
       texlive-lang-chinese \
+      texlive-luatex \
       texlive-xetex \
  && rm -rf /var/lib/apt/lists/*
 
