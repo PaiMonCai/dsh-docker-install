@@ -44,6 +44,17 @@ research-literature review
 research-literature verify
 
 research-run --name baseline -- python src/analysis.py
+
+# Economics Pack 示例：
+research-run --name baseline-regression -- \
+  research-econ-model feols \
+  --name baseline \
+  --data data/processed/analysis.csv \
+  --formula "y ~ treatment + x1 | entity_id + year" \
+  --vcov cluster \
+  --cluster entity_id \
+  --focus treatment
+
 quarto render paper/paper.qmd
 research-archive
 ```
@@ -123,7 +134,8 @@ Economics 模板会在通用 Research Project 的基础上增加：
 - `src/econometrics.py` 的 pyfixest 与 IV/2SLS 脚手架；
 - 更适合经验经济学论文的 Quarto 结构；
 - `pyfixest`、`linearmodels`、`arch`、`wbgapi`、`pandas-datareader`。
-- `research-econ-data`：World Bank / FRED 原始数据快照、检索元数据与 SHA256 校验。\n
+- `research-econ-data`：World Bank / FRED 原始数据快照、检索元数据与 SHA256 校验。
+- `research-econ-model`：强制显式 vcov，登记模型公式、数据 SHA256、系数、表格和图形 hash，并自动更新 `paper/generated/economics-results.qmd`。\n- Quarto 可直接使用 `@tbl-econ-<name>` / `@fig-econ-<name>` 引用生成结果。\n
 这些示例公式只是脚手架。Research Agent 被明确要求先定义 estimand 和识别策略，不能因为某个规格“显著”就把它升级为基准模型。
 
 ## V1 设计原则
