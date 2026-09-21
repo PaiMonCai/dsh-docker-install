@@ -442,11 +442,10 @@ export function apply(ctx) {
         title: { type: 'string' },
         vcov: {
           type: 'string',
-          enum: ['iid', 'hetero', 'HC1', 'HC2', 'HC3', 'cluster'],
+          enum: ['iid', 'hetero', 'HC1', 'HC2', 'HC3', 'cluster', 'CRV1', 'CRV3'],
         },
         cluster: { type: 'string' },
-        weights: { type: 'string' },
-        focus: { type: 'string' },
+        focus: { type: 'array', items: { type: 'string' } },
       }, ['name', 'data', 'formula', 'vcov']),
       async execute(args, exec) {
         const project = projectRoot(args.project || '.')
@@ -459,8 +458,7 @@ export function apply(ctx) {
         ]
         pushOption(argv, '--title', args.title)
         pushOption(argv, '--cluster', args.cluster)
-        pushOption(argv, '--weights', args.weights)
-        pushOption(argv, '--focus', args.focus)
+        for (const term of args.focus || []) pushOption(argv, '--focus', term)
         return runCli('research-econ-model', argv, {
           cwd: project,
           signal: exec?.signal,
