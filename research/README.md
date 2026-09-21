@@ -123,7 +123,7 @@ Economics 模板会在通用 Research Project 的基础上增加：
 - `src/econometrics.py` 的 pyfixest 与 IV/2SLS 脚手架；
 - 更适合经验经济学论文的 Quarto 结构；
 - `pyfixest`、`linearmodels`、`arch`、`wbgapi`、`pandas-datareader`。
-
+- `research-econ-data`：World Bank / FRED 原始数据快照、检索元数据与 SHA256 校验。\n
 这些示例公式只是脚手架。Research Agent 被明确要求先定义 estimand 和识别策略，不能因为某个规格“显著”就把它升级为基准模型。
 
 ## V1 设计原则
