@@ -94,9 +94,7 @@ RUN set -eux; \
     tar -C /usr/local -xzf /tmp/go.tgz; \
     rm -f /tmp/go.tgz; \
     rm -rf \
-      /usr/local/go/api \
       /usr/local/go/doc \
-      /usr/local/go/misc \
       /usr/local/go/test; \
     go version
 
