@@ -21,7 +21,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DSH_RESEARCH_VERSION=${RESEARCH_VERSION} \
     DSH_RESEARCH_ADAPTER_PATCH=/opt/dsh-research/adapter/cordis.patch.yml \
     PYTHONPATH=/opt/dsh-research \
-    PATH=/opt/dsh-research/venv/bin:${PATH}
+    PATH=/opt/dsh-research/venv/bin:${PATH} \
+    XDG_CACHE_HOME=/tmp/dsh-cache \
+    UV_CACHE_DIR=/tmp/dsh-cache/uv \
+    PIP_CACHE_DIR=/tmp/dsh-cache/pip \
+    MPLCONFIGDIR=/tmp/dsh-cache/matplotlib \
+    JUPYTER_CONFIG_DIR=/tmp/dsh-cache/jupyter \
+    QUARTO_CACHE_DIR=/tmp/dsh-cache/quarto \
+    TEXMFVAR=/tmp/dsh-cache/texmf-var \
+    TEXMFCONFIG=/tmp/dsh-cache/texmf-config \
+    TEXMFCACHE=/tmp/dsh-cache/texmf-cache \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    NUMBA_NUM_THREADS=1 \
+    POLARS_MAX_THREADS=1 \
+    MALLOC_ARENA_MAX=2
 
 USER root
 
@@ -42,8 +58,11 @@ RUN apt-get update \
       texlive-latex-extra \
       texlive-latex-recommended \
       texlive-lang-chinese \
+      texlive-luatex \
       texlive-xetex \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /tmp/dsh-cache \
+ && chmod 1777 /tmp/dsh-cache
 
 # Quarto ships official amd64 + arm64 Debian packages. Pin both release and SHA256.
 RUN set -eux; \
@@ -68,7 +87,8 @@ RUN uv venv --seed /opt/dsh-research/venv \
       -r /opt/dsh-research/python-requirements.txt \
  && python --version \
  && python -c "import numpy, pandas, scipy, statsmodels, sklearn, sympy, pyarrow, duckdb" \
- && jupyter --version
+ && jupyter --version \
+ && chmod -R a+rX,u+w,g+w /opt/dsh-research/venv
 
 COPY research/dsh_research/ /opt/dsh-research/dsh_research/
 COPY research/bin/ /usr/local/bin/
@@ -112,8 +132,12 @@ RUN chmod 0755 \
       | grep -q '/opt/dsh-research/adapter/index.js' \
  && rm -rf "$tmp_home" \
  && /opt/dsh-research/adapter/smoke-web.sh \
+ && npx playwright install chromium-headless-shell \
+ && test -n "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name 'chrome-headless-shell' -o -name 'headless_shell' | head -1)" \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
+ && lualatex --version | head -1 \
+ && kpsewhich luaotfload-main.lua \
  && latexmk -v | head -1 \
  && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
       printf '%s\n' \
@@ -141,6 +165,12 @@ ARG TARGETPLATFORM
 
 ENV DSH_RESEARCH_PACK=economics
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends r-base-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && R --version \
+ && Rscript --version
+
 LABEL io.caicailo.dsh.edition="research" \
       io.caicailo.dsh.research.pack="economics"
 
@@ -150,15 +180,14 @@ COPY research/packs/economics/bin/research-econ-model /usr/local/bin/research-ec
 COPY research/packs/economics/bin/research-econ-did /usr/local/bin/research-econ-did
 
 RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-model /usr/local/bin/research-econ-did \
+ && command -v research-econ-data \
+ && command -v research-econ-model \
+ && command -v research-econ-did \
  && uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/economics-requirements.txt \
  && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')" \
  && research-econ-data --self-test \
- && if [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
-      research-econ-model --self-test; \
-    else \
-      DSH_RESEARCH_SKIP_QUARTO_SMOKE=1 research-econ-model --self-test; \
-    fi \
+ && research-econ-model --self-test \
  && research-econ-did --self-test \
  && tmp="$(mktemp -d)" \
  && research-init --template economics economics-smoke "Economics Smoke Test" "$tmp/project" \
