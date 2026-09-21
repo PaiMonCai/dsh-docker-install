@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -88,5 +89,40 @@ def migrate_project(
     backup = project.config_path.with_name(f"research.yaml.bak.schema{before}")
     if not backup.exists():
         shutil.copy2(project.config_path, backup)
+    _exclude_local_backup(project.root, backup.name)
     write_yaml(project.config_path, migrated)
     return before, target, backup
+
+
+def _exclude_local_backup(root: Path, backup_name: str) -> None:
+    """Keep migration backups local without rewriting the user's .gitignore.
+
+    New templates ignore schema backups globally.  Existing V1 projects may not
+    have that rule, so add it to Git's repository-local exclude file when Git is
+    available.  Failure is deliberately non-fatal: preserving the backup is
+    more important than keeping status output clean.
+    """
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        exclude = Path(result.stdout.strip())
+        if not exclude.is_absolute():
+            exclude = (root / exclude).resolve()
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        pattern = f"/{backup_name}"
+        existing = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+        lines = {line.strip() for line in existing.splitlines()}
+        if pattern not in lines:
+            with exclude.open("a", encoding="utf-8") as handle:
+                if existing and not existing.endswith("\n"):
+                    handle.write("\n")
+                handle.write(pattern + "\n")
+    except OSError:
+        return
