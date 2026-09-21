@@ -16,7 +16,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DSH_HOME="$TMP_HOME" dsh web --port "$PORT" --no-open >"$LOG" 2>&1 &
+ARGS=(web)
+if [[ -f /opt/dsh/dsh-bind.patch.yml ]]; then
+  ARGS+=(--patch /opt/dsh/dsh-bind.patch.yml)
+fi
+ARGS+=(--port "$PORT" --no-open)
+
+DSH_HOME="$TMP_HOME" dsh "${ARGS[@]}" >"$LOG" 2>&1 &
 PID="$!"
 
 ready=0
