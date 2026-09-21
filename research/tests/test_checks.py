@@ -11,6 +11,7 @@ from dsh_research.config import write_yaml
 from dsh_research.datasets import register_dataset
 from dsh_research.hashing import sha256_file
 from dsh_research.project import ResearchProject
+from dsh_research.results import register_result
 
 
 def make_project(root: Path, *, economics: bool = False) -> None:
@@ -155,6 +156,27 @@ class CheckEngineTests(unittest.TestCase):
             catalog = next(r for r in report.results if r.id == "data.catalog")
             self.assertEqual(catalog.status, "fail")
             self.assertEqual(catalog.severity, "ERROR")
+
+    def test_stale_registered_result_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            make_project(root)
+            artifact = root / "results" / "tables" / "summary.csv"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("x\\n1\\n", encoding="utf-8")
+            project = ResearchProject(root)
+            register_result(
+                project,
+                result_id="summary",
+                result_type="table",
+                artifacts=["results/tables/summary.csv"],
+            )
+            artifact.write_text("x\\n2\\n", encoding="utf-8")
+            report = run_checks(project, "full")
+            result = next(r for r in report.results if r.id == "result.registry")
+            self.assertEqual(result.status, "fail")
+            self.assertEqual(result.severity, "ERROR")
+            self.assertFalse(report.ok)
 
     def test_model_input_hash_change_is_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
