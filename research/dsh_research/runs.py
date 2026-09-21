@@ -134,14 +134,15 @@ def _write_environment_files(run_dir: Path, environment: dict[str, Any]) -> None
         (target / "pip-freeze.txt").write_text(frozen.rstrip() + "\n", encoding="utf-8")
 
 
-def _pump(stream, log, target) -> None:
+def _pump(stream, log, target=None) -> None:
     for chunk in iter(stream.readline, ""):
         if not chunk:
             break
         log.write(chunk)
         log.flush()
-        target.write(chunk)
-        target.flush()
+        if target is not None:
+            target.write(chunk)
+            target.flush()
     stream.close()
 
 
@@ -161,6 +162,7 @@ def record_run(
     input_datasets: Iterable[str] = (),
     input_files: Iterable[str] = (),
     output_files: Iterable[str] = (),
+    stream_output: bool = True,
 ) -> RunResult:
     if not command:
         raise RunError("缺少要执行的命令。")
@@ -204,8 +206,14 @@ def record_run(
             assert process.stdout is not None
             assert process.stderr is not None
             threads = [
-                threading.Thread(target=_pump, args=(process.stdout, stdout_log, sys.stdout)),
-                threading.Thread(target=_pump, args=(process.stderr, stderr_log, sys.stderr)),
+                threading.Thread(
+                    target=_pump,
+                    args=(process.stdout, stdout_log, sys.stdout if stream_output else None),
+                ),
+                threading.Thread(
+                    target=_pump,
+                    args=(process.stderr, stderr_log, sys.stderr if stream_output else None),
+                ),
             ]
             for thread in threads:
                 thread.start()
