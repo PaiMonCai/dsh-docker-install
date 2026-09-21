@@ -116,49 +116,49 @@ Dashboard              = replaceable UI
 
 ## 普通用户真正需要记住的工作流
 
-作为使用者，不需要理解所有 V2 内部模块。真正需要记住的是：
+从 Research 0.9.0-rc.2 开始，普通用户的主要入口是 **DSH Agent**，不是 `research-*` 命令。
 
 ```text
-安装 DSH
-  ↓
-创建 Research Project
-  ↓
-放入 / 登记数据
-  ↓
-运行 Pipeline
-  ↓
-检查 Result / Dashboard
-  ↓
-写 Paper
-  ↓
-research-check --release
+你
+ ↓ 自然语言
+DSH Agent
+ ↓ native Research tools
+Research Adapter
+ ↓
+Research Engine / CLI / manifests
 ```
 
-典型 Economics 项目：
+三个入口的角色固定为：
+
+```text
+DSH Agent     → 做研究
+Dashboard     → 看研究
+research-*    → 后台协议 / CI / 调试 / 恢复
+```
+
+典型 Economics 使用方式：
 
 ```bash
 dshd edition research
 dshd research-pack economics
+dshd shell
 
-research-init --template economics thesis "经济学研究"
-cd thesis
-
-# 数据放入 data/raw 后登记
-research-data register data/raw/example.csv --name raw-example --kind raw
-
-# 按 pipeline.yaml 执行
-research-pipeline run
-
-# 看项目状态
-research-status
-research-result list
-
-# 可选 Dashboard
-dshd dashboard start thesis
-
-# 最终检查
-research-check --release
+# 一次性 CLI Agent
+dsh headless "在 /workspace 下创建一个 economics 研究项目 thesis，题目是数字基础设施与企业生产率。先定义研究问题和识别策略，不要直接估计。"
 ```
+
+也可以直接使用 DSH Web UI，对 Agent 说：
+
+```text
+我把数据放到了 thesis/data/raw/firms.csv。
+请检查研究设计和数据结构，先告诉我适不适合做 DiD，不要直接跑模型。
+```
+
+Agent 会调用内置的 `research_project / research_data / research_pipeline /`
+`research_results / economics_did / economics_model` 工具。你不需要手工拼接
+`research-econ-did --outcome ... --cohort ...` 这类底层参数。
+
+需要排障、自动化或 CI 时，`research-*` CLI 仍完整保留。
 
 ## V2 之后的开发原则
 
@@ -185,7 +185,7 @@ V2.0 已进入 Release Candidate 阶段。接下来不再优先横向增加 R、
 | Research Core | `:research` / `:research-<research版本>` | 一般科研、文献、数据、可复现分析与论文 |
 | Research Economics | `:research-economics` / `:research-economics-<research版本>` | 经济学、计量经济学、DiD / Event Study |
 
-Research Edition 当前版本见 `research/VERSION`；当前为 **0.9.0-rc.1**。
+Research Edition 当前版本见 `research/VERSION`；当前为 **0.9.0-rc.2**。
 
 ```
 .
@@ -749,7 +749,27 @@ docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
 
 ## Research Edition（一般科研版）
 
-Research Edition 不 fork DSH 核心，而是在 Standard 镜像之上叠加科研工具链：
+Research Edition 不 fork DSH 核心，而是在 Standard 镜像之上增加 **Research Engine + DSH-native Research Adapter**。
+
+正常使用链路是：
+
+```text
+User
+ ↓
+DSH Agent
+ ↓
+DSH-native Research Adapter
+ ↓
+Research CLI / Stable JSON API
+ ↓
+Research Engine
+ ↓
+files + manifests
+```
+
+其中 `research-*` 是稳定后端接口，不是要求普通用户记忆的主要 UI。
+
+Research Edition 的镜像层级仍然是：
 
 ```text
 Standard
@@ -785,12 +805,23 @@ dshd edition standard
 
 ### 一般科研工作流
 
-新建项目：
+推荐直接让 DSH Agent 创建和管理项目：
+
+```bash
+dshd shell
+dsh headless "创建一个名为 my-study 的通用 Research Project，标题为研究标题。先检查项目状态并告诉我下一步，不要替我编造数据或结果。"
+```
+
+Web UI 中也可以直接用自然语言持续推进。
+
+底层等价命令仍然存在：
 
 ```bash
 research-init my-study "研究标题"
 cd my-study
 ```
+
+但它们主要用于调试、CI 和自动化。
 
 默认项目结构围绕：
 
