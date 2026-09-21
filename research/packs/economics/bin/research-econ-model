@@ -78,7 +78,7 @@ def resolve_processed_data(root: Path, value: str) -> Path:
         path.relative_to(processed)
     except ValueError as exc:
         raise EconModelError(
-            f"正式模型默认只能读取 data/processed/：{path}\\n"
+            f"正式模型默认只能读取 data/processed/：{path}\n"
             "请先把 raw/interim 数据通过代码转换到 data/processed/。"
         ) from exc
     if not path.is_file():
@@ -162,7 +162,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
             "| "
             + " | ".join(
                 [
-                    str(row["term"]).replace("|", "\\\\|"),
+                    str(row["term"]).replace("|", "\\|"),
                     fmt(row["estimate"]),
                     fmt(row["std_error"]),
                     fmt(row["t_value"]),
@@ -172,7 +172,7 @@ def markdown_table(rows: list[dict[str, Any]]) -> str:
             )
             + " |"
         )
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def csv_table(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -266,7 +266,7 @@ def qmd_from_manifests(root: Path) -> str:
             "_暂无已登记的经济学模型结果。运行 `research-econ-model feols ...` 后本节会自动更新。_",
             "",
         ]
-        return "\\n".join(lines)
+        return "\n".join(lines)
 
     for manifest_path in manifests:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -286,9 +286,9 @@ def qmd_from_manifests(root: Path) -> str:
         lines += [
             f"### {title}",
             "",
-            f"**Specification:** \`{formula}\`  ",
+            f"**Specification:** `{formula}`  ",
             f"**Inference:** {inference}  ",
-            f"**Data:** \`{data_info.get('path','')}\`; SHA256 \`{data_info.get('sha256','')}\`  ",
+            f"**Data:** `{data_info.get('path','')}`; SHA256 `{data_info.get('sha256','')}`  ",
             f"**Input rows:** {data_info.get('input_rows','')}  ",
             f"**Estimation observations:** {(data.get('estimation') or {}).get('nobs','')}  ",
             "",
@@ -299,7 +299,7 @@ def qmd_from_manifests(root: Path) -> str:
             f"![{title} coefficient plot](../results/figures/{name}.png){{#fig-econ-{name}}}",
             "",
         ]
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def render_index(root: Path) -> Path:
@@ -327,7 +327,7 @@ def run_feols(args, root: Path) -> int:
 
     paths = ensure_output_dirs(root, name)
     csv_table(paths["table_csv"], rows)
-    paths["table_md"].write_text(markdown_table(rows) + "\\n", encoding="utf-8")
+    paths["table_md"].write_text(markdown_table(rows) + "\n", encoding="utf-8")
     plotted_terms = coefficient_plot(
         paths["figure"],
         rows,
@@ -376,7 +376,7 @@ def run_feols(args, root: Path) -> int:
         ),
     }
     paths["manifest"].write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     generated = render_index(root)
@@ -494,7 +494,19 @@ def self_test() -> int:
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        (root / "research.yaml").write_text("schema: 1\\n", encoding="utf-8")
+        (root / "research.yaml").write_text(
+            """schema: 1
+economics:
+  population: "synthetic test panel"
+  unit_of_observation: "entity-year"
+  outcome: "y"
+  estimand: "conditional association used only for smoke testing"
+  identification_strategy: "synthetic smoke test; no causal claim"
+  standard_errors: "CRV1 clustered by entity_id"
+  clustering_level: "entity_id"
+""",
+            encoding="utf-8",
+        )
         processed = root / "data" / "processed"
         processed.mkdir(parents=True)
         n = 80
