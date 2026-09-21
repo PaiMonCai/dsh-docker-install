@@ -35,6 +35,16 @@ def safe_name(value: str) -> str:
         raise DidError("name 只能包含字母、数字、点、下划线和短横线。")
     return value
 
+def sync_result_registry(root: Path) -> None:
+    """Refresh the unified V2 Result Registry when the shared engine is available."""
+    try:
+        from dsh_research.project import ResearchProject
+        from dsh_research.results import sync_legacy_results
+    except ImportError:
+        return
+    sync_legacy_results(ResearchProject(root.resolve()))
+
+
 def processed_path(root: Path, value: str) -> Path:
     p = Path(value).expanduser()
     if not p.is_absolute():
@@ -567,6 +577,7 @@ def run_estimate(args, root: Path) -> int:
     }
     p["manifest"].write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     generated = render(root)
+    sync_result_registry(root)
     print(f"[ok] DID manifest: {p['manifest']}")
     print(f"[ok] estimates: {p['estimates']}")
     print(f"[ok] treatment timing: {p['panel']}")
