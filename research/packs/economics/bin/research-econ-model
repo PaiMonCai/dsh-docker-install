@@ -243,7 +243,7 @@ def qmd_from_manifests(root: Path) -> str:
     ]
     if not manifests:
         lines += [
-            "_暂无已登记的经济学模型结果。运行 research-econ-model feols 后本节会自动更新。_",
+            "_暂无已登记的经济学模型结果。运行 `research-econ-model feols ...` 后本节会自动更新。_",
             "",
         ]
         return "\\n".join(lines)
