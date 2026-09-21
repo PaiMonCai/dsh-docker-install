@@ -23,6 +23,7 @@ RUN apt-get update \
       fonts-noto-cjk \
       graphviz \
       latexmk \
+      lmodern \
       pandoc \
       poppler-utils \
       qpdf \
