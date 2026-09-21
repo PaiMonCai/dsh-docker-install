@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--license", dest="license_name", default="", help="许可/授权说明")
     register.add_argument("--distributable", type=_distributable, default=None)
     register.add_argument("--input", action="append", default=[], help="上游 dataset id，可重复")
+    register.add_argument("--code", action="append", default=[], help="生成该 dataset 的代码文件，可重复")
     register.add_argument("--pipeline-step", default="")
     register.add_argument("--run-id", default="")
     register.add_argument("--force", action="store_true", help="显式更新已有 manifest")
@@ -122,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
                 license_name=args.license_name,
                 distributable=args.distributable,
                 inputs=args.input,
+                code=args.code,
                 pipeline_step=args.pipeline_step,
                 run_id=args.run_id,
                 force=args.force,
