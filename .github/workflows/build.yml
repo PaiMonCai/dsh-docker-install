@@ -52,6 +52,8 @@ jobs:
           bash -n docker/entrypoint.sh
           sh -n docker/cn-mirror.sh
           node --check docker/patch-remote-settings.js
+          node --check docker/patch-plugin-hub-origin.js
+          node docker/patch-plugin-hub-origin.js --self-test
 
       - name: Resolve dsh version
         id: ver

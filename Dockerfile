@@ -34,6 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
+COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
 
 RUN chmod +x /usr/local/bin/cn-mirror \
  && . /usr/local/bin/cn-mirror \

@@ -323,6 +323,32 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 不改变其他 loopback 安全判断。构建时如果找不到对应表达式，镜像构建会直接失败，避免
 上游版本变化后补丁静默失效。
 
+## Plugin Hub 反向代理 POST 修复
+
+社区插件 `dsh-plugin`（Plugin Hub）目前对安装、卸载、保存设置、清日志等 POST 操作有独立的
+Origin 防护：上游除了要求 `Origin.host === Host`，还把 hostname 写死为
+`localhost / 127.0.0.1 / ::1`。因此即使 DSH 主 Web UI 已通过
+`DSH_TRUSTED_HOSTS` 信任反代域名，Plugin Hub 仍可能返回：
+
+```text
+403 {"error":"untrusted origin"}
+```
+
+本镜像包含 `docker/patch-plugin-hub-origin.js`。由于 Plugin Hub 安装在持久卷的
+`$DSH_HOME/profiles/<profile>/node_modules/dsh-plugin`，而不是镜像全局 npm 目录，
+entrypoint 会在每次启动 DSH 前对已安装 profile 做**幂等运行时 patch**：
+
+- loopback（localhost / 127.0.0.1 / ::1）保持原上游行为；
+- 反代域名必须满足 `Origin.host === Host`；
+- 且该 Host 必须出现在 `DSH_TRUSTED_HOSTS` 中；
+- 同时把客户端对 bare `untrusted origin` 的错误分类修正：只有明确的
+  `ERR_PNPM_UNTRUSTED_ORIGIN` 才按 pnpm 供应链策略处理。
+
+因此反向代理仍必须保留浏览器原始 Host/Origin，不能把它们伪造成 127.0.0.1。
+Plugin Hub 升级覆盖 node_modules 后，下一次 `dshd restart` / `dshd recreate`
+会再次自动应用 patch；若上游结构变化导致无法匹配，entrypoint 会明确告警，
+`dshd doctor` 也会提示 patch 未生效，而不会静默把问题误报成 pnpm 故障。
+
 ## 关键设计
 
 1. **`--host 0.0.0.0` 是禁区，用 patch 层绕过**：CLI 会明确拒绝

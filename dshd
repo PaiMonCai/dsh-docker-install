@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.5.4"
+DSHD_VERSION="0.5.5"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -1511,6 +1511,26 @@ cmd_doctor() {
       [[ "$mutable_git_deps" =~ ^[0-9]+$ ]] || mutable_git_deps=0
       if (( mutable_git_deps > 0 )); then
         warn "检测到 $mutable_git_deps 个未固定 commit/tag 的 github: 依赖；重装时可能随上游分支漂移，建议使用 #<commit> 固定。"
+      fi
+
+      local hub_route hub_source hub_failure
+      hub_route="$(docker_cmd exec "$DSH_NAME" sh -c '
+        find "${DSH_HOME:-/root/.dsh}/profiles" -path "*/node_modules/dsh-plugin/lib/http/routes.js" -type f -print -quit 2>/dev/null
+      ' 2>/dev/null || true)"
+      if [[ -n "$hub_route" ]]; then
+        if docker_cmd exec "$DSH_NAME" grep -q 'DSH_TRUSTED_HOSTS' "$hub_route" 2>/dev/null; then
+          ok "Plugin Hub 反代 Origin patch 已生效（复用 DSH_TRUSTED_HOSTS）"
+        elif [[ -n "$DSH_TRUSTED_HOSTS" ]]; then
+          warn "Plugin Hub 已安装但反代 Origin patch 未生效；域名访问时安装/卸载/保存设置可能返回 403 untrusted origin。"
+          warn "可执行 dshd restart 让 entrypoint 重新应用 patch；若仍失败请检查容器日志。"
+        fi
+
+        hub_source="${hub_route%/lib/http/routes.js}/src/client/logic/failures.ts"
+        if docker_cmd exec "$DSH_NAME" test -f "$hub_source" 2>/dev/null; then
+          if docker_cmd exec "$DSH_NAME" grep -q 'Minimum release age|untrusted origin' "$hub_source" 2>/dev/null; then
+            warn "Plugin Hub 前端仍会把 bare 'untrusted origin' 误判为 pnpmPolicy；重启后应由 runtime patch 修正。"
+          fi
+        fi
       fi
 
       if [[ "$DSH_DOCKER_ACCESS" == "true" ]]; then
