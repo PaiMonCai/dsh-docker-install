@@ -27,7 +27,7 @@ execute:
 
 # 文献综述
 
-文献引用示例：[@citation_key]。
+先用 `research-literature add` 导入文献并维护 Evidence Matrix，再使用生成的 citation key 进行 Pandoc/Quarto 引用。
 
 # 数据与方法
 
