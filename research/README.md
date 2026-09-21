@@ -562,6 +562,8 @@ Pipeline DAG / stale propagation 的输入基础。
 
 #### Phase 4 — Pipeline DAG + Stale Detection
 
+**Implemented in Research 0.7.0.** Pipeline 不再依赖脚本执行顺序或文件 mtime，而是使用显式 DAG、step signature 与可追溯 run manifest 做增量执行。
+
 新增：
 
 ```text
@@ -569,20 +571,20 @@ research-pipeline
 pipeline.yaml
 ```
 
-Pipeline 使用显式 DAG，而不是只依赖脚本执行顺序：
+Pipeline schema：
 
 ```yaml
 schema: 1
 
 steps:
   clean:
-    command:
-      - python
-      - src/clean.py
+    command: [python, src/clean.py]
     inputs:
-      - dataset:raw-firms
+      datasets: [raw-firms]
+      files:
+        - src/clean.py
     outputs:
-      - dataset:panel
+      datasets: [panel]
 
   baseline:
     depends_on: [clean]
@@ -591,74 +593,133 @@ steps:
       - feols
       - --name
       - baseline
-
-  did:
-    depends_on: [clean]
-    command:
-      - research-econ-did
-      - estimate
-      - --name
-      - did-main
+      - --data
+      - data/processed/panel.parquet
+      - --formula
+      - "y ~ treatment + x1 | firm_id + year"
+      - --vcov
+      - cluster
+      - --cluster
+      - firm_id
+    inputs:
+      datasets: [panel]
+    outputs:
+      files:
+        - results/models/baseline/model.json
+        - results/tables/baseline.csv
 
   paper:
-    depends_on: [baseline, did]
-    command:
-      - quarto
-      - render
-      - paper/paper.qmd
+    depends_on: [baseline]
+    command: [quarto, render, paper/paper.qmd]
+    inputs:
+      files:
+        - paper/**/*.qmd
+        - literature/references.bib
+    outputs:
+      files:
+        - paper/paper.html
 ```
 
-stale detection 不能只依赖文件 mtime。每个 step 应计算稳定的 **Step Signature**：
+每个 step 的稳定 **Step Signature** 由以下对象组成：
 
 ```text
 step signature
   = command
   + dependency signatures
-  + input hashes
-  + relevant source-code hashes
-  + referenced research config
-  + relevant runtime identity
+  + input Dataset fingerprints
+  + input file/glob fingerprints
+  + explicitly referenced research config
+  + runtime identity
 ```
 
-例如 `src/clean.py` 改变，即使 raw data 没变，也必须使：
+可选的 `config` 字段只追踪真正影响该 step 的 `research.yaml` 路径，例如：
+
+```yaml
+config:
+  - economics.estimand
+  - economics.fixed_effects
+  - economics.standard_errors
+```
+
+这样修改 bibliography 不会让数据清洗自动 stale；修改模型依赖的 economics 配置则会。
+
+运行记录写入：
 
 ```text
-clean → stale
-baseline → stale
-did → stale
-paper → stale
+runs/pipeline/<step>/<run-id>/manifest.json
 ```
 
-而仅修改 bibliography 时，不应让数据清洗与模型全部重跑。
+manifest 记录 command、signature、signature components、inputs、outputs、开始/结束时间、exit code 和执行结果。
+这些 run manifests 是 stale 判断的可追溯历史，不依赖 `.research/cache`。
 
-CLI 目标：
+CLI：
 
 ```bash
 research-pipeline status
+research-pipeline status --json
+
 research-pipeline list
 research-pipeline graph
-research-pipeline explain did
+research-pipeline graph --mermaid
+
+research-pipeline explain baseline
+research-pipeline explain baseline --json
+
 research-pipeline run
 research-pipeline run baseline
+research-pipeline run --dry-run
+research-pipeline run --force
 ```
 
-`research-pipeline explain` 必须说明 stale 原因，而不是只返回布尔状态。例如：
+状态只有两个核心语义：
 
 ```text
-did is stale because:
-
-dataset:panel
-  expected: sha256 AAA
-  current:  sha256 BBB
-
-caused by:
-  clean
-
-clean is stale because:
-  src/clean.py changed
+current
+stale
 ```
 
-Pipeline 执行时只重跑 stale 节点及其必要依赖；已经 current 的上游步骤必须跳过。
+`research-pipeline explain` 会给出具体 stale 原因，例如：
+
+```text
+baseline: stale
+- dependency clean is stale
+- input fingerprint changed
+```
+
+增量执行规则：
+
+```text
+第一次运行
+RUN clean
+RUN model
+RUN paper
+
+第二次无修改
+SKIP clean
+SKIP model
+SKIP paper
+
+修改 raw
+RUN clean
+RUN model
+RUN paper
+
+只修改 model code
+SKIP clean
+RUN model
+RUN paper
+
+只修改 paper
+SKIP clean
+SKIP model
+RUN paper
+```
+
+Pipeline DAG 会拒绝依赖环、缺失 dependency，以及多个 step 对同一个 output 的重复所有权。
+step command 成功后仍会校验声明的 output；output 缺失或 Dataset 不是 current 时，该 step 不会被记录为成功。
+
+`research-status` 聚合 Pipeline 的 Steps / Current / Stale；`research-check --full` 将 stale pipeline 作为 WARN，
+而 `research-check --release` 将其提升为 ERROR。这样日常研究允许继续迭代，但 replication release 必须来自 current pipeline。
 
 #### Phase 5 — research-run Manifest v2
 
