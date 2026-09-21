@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+archives/
+paper/_freeze/
+paper/_site/
+
+# 原始数据默认不进入 Git；保留说明文件。
+data/raw/*
+!data/raw/README.md
+
+# 本地论文 PDF 默认不进入 Git；保留目录说明。
+literature/pdfs/*.pdf
+!literature/pdfs/README.md
+
+# PDF 提取全文同样默认不进入 Git。
+literature/extracted/*.txt
+!literature/extracted/README.md

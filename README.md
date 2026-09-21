@@ -456,6 +456,80 @@ docker build --build-arg IN_CHINA=no  -t dsh:latest .
 docker build --build-arg HTTPS_PROXY=http://127.0.0.1:7890 -t dsh:latest .
 ```
 
+## Research Edition（一般科研版）
+
+Research Edition 在 Standard 镜像之上增加 Python 科研栈、Jupyter、Quarto、Pandoc、
+XeLaTeX 与可复现研究工具，不 fork DSH 核心。
+
+镜像标签：
+
+```text
+ghcr.io/paimoncai/dsh-docker-install:research
+```
+
+安装时可直接选择 **Research**；已有安装可切换：
+
+```bash
+dshd edition research
+dshd edition show
+dshd research-pack show
+dshd env
+```
+
+切换回通用版：
+
+```bash
+dshd edition standard
+```
+
+Research 容器内提供四个基础工作流命令：
+
+```bash
+research-init my-study "研究标题"
+cd my-study
+research-literature add 10.1257/aer.20181234
+research-literature verify
+research-run --name baseline -- python src/analysis.py
+research-archive
+```
+
+`research-literature` 支持 DOI、arXiv ID/URL 和本地 PDF。它会维护
+`references.bib`、`sources.jsonl`、结构化阅读笔记和 Evidence Matrix；
+`research-literature review` 可生成可追溯证据索引，`verify` 用于检查论文引用和证据链的一致性。
+
+项目采用 `literature / data / notebooks / src / results / paper / runs` 结构。
+`literature/evidence-matrix.csv` 用于维护“文献—数据—方法—结论—局限”的证据矩阵；
+`research-run` 会记录 Git 状态、运行环境、输入/输出 hash 与日志；
+`research-archive` 默认不打包 `data/raw`，避免误发布敏感或受许可限制的数据。
+
+
+经济学 / 计量研究可以切换独立的 Economics Pack：
+
+```bash
+dshd research-pack economics
+```
+
+对应镜像：
+
+```text
+ghcr.io/paimoncai/dsh-docker-install:research-economics
+```
+
+进入 Economics 镜像后可创建专用项目模板：
+
+```bash
+research-init --template economics thesis "经济学本科毕业论文"
+```
+
+它额外提供 pyfixest、linearmodels、arch、World Bank / DataReader 工具，并要求在
+`research.yaml` 明确 estimand、识别策略、固定效应、标准误/聚类层级和稳健性计划。
+
+正式回归可通过 `research-econ-model` 生成可校验的 model manifest、Markdown/CSV 回归表、系数图，并自动写入 Quarto 论文结果区；生成结果支持 `@tbl-econ-<name>` 与 `@fig-econ-<name>` 交叉引用。
+
+DiD / Event Study 使用 `research-econ-did`：先检查 treatment timing 和 cohort，再可选择 TWFE、DID2S、saturated 或 LP-DiD；结果会自动生成 treatment timing 图、动态效应图和 Quarto 引用片段。
+
+完整设计与构建说明见 `research/README.md`。
+
 ## 其他运行模式
 
 同一个镜像入口支持多种 profile：

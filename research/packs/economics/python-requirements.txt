@@ -1,0 +1,5 @@
+linearmodels
+pyfixest==0.60.0
+arch
+wbgapi
+pandas-datareader

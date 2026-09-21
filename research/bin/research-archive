@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+find_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    [[ -f "$dir/research.yaml" ]] && { printf '%s' "$dir"; return 0; }
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  command -v rsync >/dev/null
+  command -v sha256sum >/dev/null
+  echo "research-archive self-test passed"
+  exit 0
+fi
+
+include_raw=false
+case "${1:-}" in
+  --include-raw) include_raw=true ;;
+  -h|--help)
+    echo "用法: research-archive [--include-raw]"
+    echo "默认不打包 data/raw，避免误发布敏感或受许可限制的原始数据。"
+    exit 0
+    ;;
+esac
+
+root="$(find_root)" || { echo "未找到 research.yaml；请在 Research Project 内运行。" >&2; exit 1; }
+
+if command -v research-literature >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-literature verify
+  )
+fi
+if command -v research-econ-data >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-econ-data verify
+  )
+fi
+if command -v research-econ-model >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-econ-model verify
+  )
+fi
+if command -v research-econ-did >/dev/null 2>&1; then
+  (
+    cd "$root"
+    research-econ-did verify
+  )
+fi
+
+slug="$(basename "$root")"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+archive_dir="$root/archives"
+archive="$archive_dir/$slug-$stamp.tar.gz"
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+mkdir -p "$stage/project" "$archive_dir"
+
+exclude_raw=()
+[[ "$include_raw" == "true" ]] || exclude_raw+=(--exclude "data/raw")
+
+rsync -a   --exclude ".git"   --exclude ".venv"   --exclude "archives"   --exclude "__pycache__"   --exclude ".ipynb_checkpoints"   "${exclude_raw[@]}"   "$root/" "$stage/project/"
+
+mkdir -p "$stage/project/environment"
+{
+  echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "git_commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
+  echo "include_raw=$include_raw"
+} >"$stage/project/environment/archive.txt"
+python --version >"$stage/project/environment/python.txt" 2>&1 || true
+uv --version >"$stage/project/environment/uv.txt" 2>&1 || true
+quarto --version >"$stage/project/environment/quarto.txt" 2>&1 || true
+pandoc --version | head -1 >"$stage/project/environment/pandoc.txt" 2>&1 || true
+uv pip freeze --python "${DSH_RESEARCH_VENV:-/opt/dsh-research/venv}/bin/python" >"$stage/project/environment/pip-freeze.txt" 2>/dev/null || true
+git -C "$root" status --short >"$stage/project/environment/git-status.txt" 2>/dev/null || true
+git -C "$root" diff >"$stage/project/environment/git-diff.patch" 2>/dev/null || true
+
+cat >"$stage/project/REPRODUCE.md" <<EOF
+# Reproduce this research archive
+
+1. Use the DSH Research image used for the original run when possible.
+2. Inspect `research.yaml` and `environment/`.
+3. Restore licensed/private raw data into `data/raw/` if it was excluded.
+4. Re-run recorded commands from `runs/*/command.sh`.
+5. Render the paper with:
+
+   ```bash
+   quarto render paper/paper.qmd
+   ```
+
+Archive created: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Raw data included: $include_raw
+EOF
+
+(
+  cd "$stage/project"
+  find . -type f ! -name SHA256SUMS -print0     | sort -z     | xargs -0 -r sha256sum > SHA256SUMS
+)
+
+tar -C "$stage" -czf "$archive" project
+printf 'Research archive created: %s\n' "$archive"

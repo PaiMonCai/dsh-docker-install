@@ -1,0 +1,52 @@
+schema: 1
+project:
+  slug: "__PROJECT_SLUG__"
+  title: "__PROJECT_TITLE__"
+  created_at: "__CREATED_AT__"
+  language: "zh-CN"
+  template: "economics"
+
+research:
+  field: "economics"
+  question: ""
+  hypotheses: []
+
+economics:
+  population: ""
+  unit_of_observation: ""
+  sample_period: ""
+  outcome: ""
+  treatment_or_exposure: ""
+  estimand: ""
+  identification_strategy: ""
+  controls: []
+  fixed_effects: []
+  standard_errors: ""
+  weights: ""
+  nominal_real_base_year: ""
+  clustering_level: ""
+  robustness_plan: []
+  heterogeneity_plan: []
+  mechanism_plan: []
+
+  did:
+    treatment_timing_variable: ""
+    cohort_variable: ""
+    comparison_group: ""
+    reference_period: -1
+    anticipation_periods: 0
+    pretrend_assessment: ""
+
+data_policy:
+  raw_is_immutable: true
+  raw_path: "data/raw"
+  processed_path: "data/processed"
+
+reproducibility:
+  record_runs: true
+  runs_path: "runs"
+  archive_excludes_raw_by_default: true
+
+paper:
+  source: "paper/paper.qmd"
+  bibliography: "literature/references.bib"
