@@ -60,6 +60,8 @@ jobs:
           PYTHONPATH=research python research/bin/research-pipeline --self-test
           PYTHONPATH=research python research/bin/research-result --self-test
           PYTHONPATH=research python research/bin/research-dashboard --self-test
+          grep -q 'DSH_RESEARCH_FULL_SELF_TEST' research/packs/economics/bin/research-econ-model
+          grep -q 'DSH_RESEARCH_FULL_SELF_TEST' research/packs/economics/bin/research-econ-did
           node --check research/dsh_research/dashboard_assets/app.js
           node --check research/adapter/index.js
           bash -n research/adapter/dsh-wrapper
