@@ -796,6 +796,43 @@ research-archive
 
 完整科研版说明见 `research/README.md`。
 
+## Research V2 路线图
+
+V1 已经打通 Literature → Data → Run → Model / DiD → Paper → Archive。
+V2 不以“继续安装更多科研包”为核心，而是把这些对象组织成完整的 Research Project lifecycle。
+
+经过对当前仓库结构和 DSH 官方扩展机制的验证，以下方向可以在不 fork DSH 核心的前提下继续开发：
+
+| 阶段 | 重点 | 核心产物 |
+|---|---|---|
+| V2.0 | Project State + Pipeline DAG + Data Catalog + Research Check + Dashboard | 项目状态、stale detection、数据 lineage、DSH Research UI plugin |
+| V2.1 | R runtime | R + renv，与 Python 共用 processed/results/paper |
+| V2.2 | Zotero + Evidence Graph | 文献增量同步、claim ↔ evidence 显式关系 |
+| V2.3 | Advanced Economics | RDD、Synthetic Control、现代 DiD、DML、Causal ML、sensitivity |
+| V2.4 | Research Agents + Release | Planner/Reviewer 工作流、一键 replication package |
+
+V2 的关键架构原则：
+
+```text
+CLI / manifests = source of truth
+           ↑
+     Research Engine
+           ↑
+  DSH Research UI plugin
+```
+
+Research Dashboard 可以利用 DSH 官方 plugin / Web Client 扩展点实现，但 DSH 仍处于
+developer preview，因此 UI 必须保持可替换；项目不能依赖某个 Web UI API 才能恢复。
+
+R 会作为可选执行引擎加入 Economics Pack，使用 `renv.lock` 管理项目依赖；Python 仍是
+数据获取、清洗、自动化、AI/ML 和默认计量工作的主语言。Python 与 R 共用
+`data/processed/`、`results/`、`paper/` 和 `research-run` 的可复现协议。
+
+Zotero 集成计划基于 Web API v3，先做只读、幂等的 collection → BibTeX / sources /
+Evidence Matrix 同步，再考虑双向写入。API key/OAuth 不进入科研项目文件。
+
+详细设计、可行性结论和分阶段目标见 [`research/README.md`](research/README.md)。
+
 ## 其他运行模式
 
 同一个镜像入口支持多种 profile：
