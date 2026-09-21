@@ -469,7 +469,8 @@ image_contract_ok() {
   docker_cmd run --rm --entrypoint sh "$img" -c "$probe" >/dev/null 2>&1
 }
 
-pull_best_image() {  local candidates=() img
+pull_best_image() {
+  local candidates=() img
   local official="" mirror=""
 
   if [[ "$DSH_EDITION" == "research" ]]; then
