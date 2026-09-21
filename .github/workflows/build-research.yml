@@ -22,7 +22,16 @@ env:
 
 jobs:
   build:
+    name: build (${{ matrix.tag }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: research-final
+            tag: research
+          - target: research-economics
+            tag: research-economics
     permissions:
       contents: read
       packages: write
@@ -66,12 +75,14 @@ jobs:
         with:
           context: .
           file: research/Dockerfile
+          target: ${{ matrix.target }}
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             BASE_IMAGE=${{ steps.img.outputs.name }}:latest
+            RESEARCH_VERSION=${{ steps.ver.outputs.version }}
           tags: |
-            ${{ steps.img.outputs.name }}:research
-            ${{ steps.img.outputs.name }}:research-${{ steps.ver.outputs.version }}
-          cache-from: type=gha,scope=research
-          cache-to: type=gha,mode=max,scope=research
+            ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+            ${{ steps.img.outputs.name }}:${{ matrix.tag }}-${{ steps.ver.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
