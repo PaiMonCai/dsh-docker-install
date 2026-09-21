@@ -230,6 +230,10 @@ class CheckEngineTests(unittest.TestCase):
             self.assertEqual(release_result.status, "fail")
             self.assertEqual(release_result.severity, "ERROR")
             self.assertFalse(release.ok)
+            gate = release.as_dict()["release_gate"]
+            self.assertEqual(gate["policy_version"], 1)
+            self.assertFalse(gate["ready"])
+            self.assertGreater(gate["blocking_errors"], 0)
 
     def test_release_requires_clean_git_and_rendered_paper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -239,6 +243,13 @@ class CheckEngineTests(unittest.TestCase):
             failed = {r.id for r in report.results if r.status == "fail"}
             self.assertIn("release.git", failed)
             self.assertIn("release.paper", failed)
+            payload = report.as_dict()
+            self.assertIn("release_gate", payload)
+            self.assertFalse(payload["release_gate"]["ready"])
+            self.assertEqual(
+                payload["release_gate"]["blocking_errors"],
+                payload["summary"]["errors"],
+            )
 
 
 if __name__ == "__main__":
