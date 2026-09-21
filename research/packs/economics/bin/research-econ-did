@@ -470,6 +470,11 @@ def run_estimate(args, root: Path) -> int:
         source = "did2s.tidy"
 
     elif args.estimator == "saturated":
+        if controls:
+            raise DidError(
+                "PyFixest 0.60.0 的 saturated implementation 当前不会把 xfml "
+                "加入 cohort-interacted specification；为避免静默忽略协变量，本工具拒绝 --controls。"
+            )
         if att:
             raise DidError(
                 "PyFixest 0.60.0 的 saturated API 目前提供 cohort-interacted "
