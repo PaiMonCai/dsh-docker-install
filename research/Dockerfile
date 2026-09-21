@@ -70,9 +70,11 @@ RUN chmod 0755 \
       /usr/local/bin/research-init \
       /usr/local/bin/research-run \
       /usr/local/bin/research-archive \
+      /usr/local/bin/research-literature \
  && research-init --self-test \
  && research-run --self-test \
  && research-archive --self-test \
+ && research-literature --self-test \
  && pandoc --version | head -1 \
  && xelatex --version | head -1 \
  && latexmk -v | head -1 \
