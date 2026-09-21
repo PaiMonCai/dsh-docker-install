@@ -490,8 +490,13 @@ dimensions:
 
 lineage:
   inputs:
-    - dataset:raw-firms
-    - dataset:policy
+    - dataset: raw-firms
+      sha256: "..."
+    - dataset: policy
+      sha256: "..."
+  code:
+    - path: src/clean.py
+      sha256: "..."
   pipeline_step: clean
   run_id: 20260921T120000Z-clean
 
