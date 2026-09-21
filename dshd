@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.8.0"
+DSHD_VERSION="0.8.1"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -20,6 +20,7 @@ RESEARCH_ECONOMICS_MIRROR_IMAGE="ghcr.nju.edu.cn/paimoncai/dsh-docker-install:re
 DEFAULT_NAME="dsh"
 DEFAULT_PORT="3080"
 DEFAULT_BIND_ADDR="127.0.0.1"
+DEFAULT_RESEARCH_DASHBOARD_PORT="8765"
 DEFAULT_VOLUME="dsh-home"
 DEFAULT_STORAGE_MODE="bind"
 DEFAULT_SHM_SIZE="1g"
@@ -171,6 +172,7 @@ load_config() {
   DSH_NAME="${DSH_NAME:-$DEFAULT_NAME}"
   DSH_PORT="${DSH_PORT:-$DEFAULT_PORT}"
   DSH_BIND_ADDR="${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
+  DSH_RESEARCH_DASHBOARD_PORT="${DSH_RESEARCH_DASHBOARD_PORT:-$DEFAULT_RESEARCH_DASHBOARD_PORT}"
   DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
   DSH_STORAGE_MODE="${DSH_STORAGE_MODE:-}"
   DSH_DATA_DIR="${DSH_DATA_DIR:-}"
@@ -230,6 +232,8 @@ load_config() {
     esac
   fi
 
+  validate_port "$DSH_RESEARCH_DASHBOARD_PORT" \
+    || die "无效 DSH_RESEARCH_DASHBOARD_PORT=$DSH_RESEARCH_DASHBOARD_PORT"
   [[ "$DSH_EDITION" == "standard" || "$DSH_EDITION" == "research" ]] \
     || die "未知 DSH_EDITION=$DSH_EDITION（仅支持 standard/research）。"
   [[ "$DSH_RESEARCH_PACK" == "none" || "$DSH_RESEARCH_PACK" == "economics" ]] \
@@ -252,6 +256,7 @@ save_config() {
     printf 'DSH_NAME=%q\n' "$DSH_NAME"
     printf 'DSH_PORT=%q\n' "$DSH_PORT"
     printf 'DSH_BIND_ADDR=%q\n' "$DSH_BIND_ADDR"
+    printf 'DSH_RESEARCH_DASHBOARD_PORT=%q\n' "$DSH_RESEARCH_DASHBOARD_PORT"
     printf 'DSH_WORKSPACE=%q\n' "$DSH_WORKSPACE"
     printf 'DSH_STORAGE_MODE=%q\n' "$DSH_STORAGE_MODE"
     printf 'DSH_DATA_DIR=%q\n' "$DSH_DATA_DIR"
@@ -1182,6 +1187,7 @@ cmd_status() {
   printf 'Research Pack: %s\n' "$DSH_RESEARCH_PACK"
   printf '镜像:      %s\n' "$DSH_IMAGE"
   printf '端口:      %s:%s -> 3080\n' "$DSH_BIND_ADDR" "$DSH_PORT"
+  [[ "$DSH_EDITION" == "research" ]] && printf 'Dashboard: 127.0.0.1:%s（sidecar）\n' "$DSH_RESEARCH_DASHBOARD_PORT"
   printf '工作区:         %s -> /workspace\n' "$DSH_WORKSPACE"
   printf '数据存储模式:   %s\n' "$DSH_STORAGE_MODE"
   if [[ "$DSH_STORAGE_MODE" == "bind" ]]; then
@@ -1733,6 +1739,147 @@ cmd_token() {
     printf '\n'
   fi
 }
+dashboard_container_name() {
+  printf '%s-dashboard' "$DSH_NAME"
+}
+
+dashboard_project_path() {
+  local raw="${1:-.}"
+  case "$raw" in
+    *..*) return 1 ;;
+    /workspace) printf '/workspace'; return 0 ;;
+    /workspace/*) printf '%s' "$raw"; return 0 ;;
+    /*) return 1 ;;
+  esac
+  raw="${raw#./}"
+  [[ -n "$raw" && "$raw" != "." ]] && printf '/workspace/%s' "$raw" || printf '/workspace'
+}
+
+dashboard_container_exists() {
+  local name
+  name="$(dashboard_container_name)"
+  docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "$name"
+}
+
+dashboard_container_running() {
+  local name
+  name="$(dashboard_container_name)"
+  docker_cmd ps --format '{{.Names}}' | grep -Fxq "$name"
+}
+
+cmd_dashboard() {
+  load_config
+  ensure_docker
+  local action="${1:-status}"
+  shift || true
+  [[ "$DSH_EDITION" == "research" ]] || die "Research Dashboard 仅适用于 Research Edition。"
+
+  local name url
+  name="$(dashboard_container_name)"
+  url="http://127.0.0.1:${DSH_RESEARCH_DASHBOARD_PORT}/"
+
+  case "$action" in
+    status|show)
+      heading "Research Dashboard"
+      printf '容器:   %s\n' "$name"
+      printf '状态:   %s\n' "$(dashboard_container_running && echo running || echo stopped)"
+      printf 'URL:    %s\n' "$url"
+      printf '端口:   127.0.0.1:%s -> 8765\n' "$DSH_RESEARCH_DASHBOARD_PORT"
+      if dashboard_container_running && command -v curl >/dev/null 2>&1; then
+        if curl -fsS --connect-timeout 2 --max-time 4 "${url}api/meta" >/dev/null 2>&1; then
+          ok "Dashboard API 可访问"
+        else
+          warn "Dashboard 容器在运行，但 API 尚不可访问。"
+        fi
+      fi
+      return
+      ;;
+    start)
+      local raw_project="${1:-.}" project
+      project="$(dashboard_project_path "$raw_project")" \
+        || die "Dashboard project 必须位于 /workspace 内，且不能包含 '..': $raw_project"
+
+      if dashboard_container_exists; then
+        docker_cmd rm -f "$name" >/dev/null
+      fi
+      if port_in_use "$DSH_RESEARCH_DASHBOARD_PORT"; then
+        die "宿主机端口 $DSH_RESEARCH_DASHBOARD_PORT 已被占用；可执行 dshd dashboard port <PORT> 修改。"
+      fi
+
+      heading "启动 Research Dashboard"
+      info "Project: $project"
+      info "Host URL: $url"
+      docker_cmd run -d \
+        --name "$name" \
+        --restart unless-stopped \
+        -p "127.0.0.1:${DSH_RESEARCH_DASHBOARD_PORT}:8765" \
+        -e PYTHONDONTWRITEBYTECODE=1 \
+        -v "${DSH_WORKSPACE}:/workspace:ro" \
+        --entrypoint research-dashboard \
+        "$DSH_IMAGE" \
+        --project "$project" \
+        --host 0.0.0.0 \
+        --port 8765 \
+        --allow-remote \
+        --quiet >/dev/null
+
+      local i
+      for i in $(seq 1 30); do
+        if ! dashboard_container_running; then
+          err "Dashboard 容器已退出。最近日志："
+          docker_cmd logs --tail 60 "$name" 2>&1 || true
+          return 1
+        fi
+        if command -v curl >/dev/null 2>&1 \
+          && curl -fsS --connect-timeout 1 --max-time 2 "${url}api/meta" >/dev/null 2>&1; then
+          ok "Research Dashboard 已就绪: $url"
+          printf '远程 SSH 访问可使用：\n  ssh -L %s:127.0.0.1:%s <server>\n' \
+            "$DSH_RESEARCH_DASHBOARD_PORT" "$DSH_RESEARCH_DASHBOARD_PORT"
+          return 0
+        fi
+        sleep 1
+      done
+      warn "Dashboard 容器仍在运行，但 30 秒内未通过 HTTP 检查。"
+      docker_cmd logs --tail 60 "$name" 2>&1 || true
+      return 1
+      ;;
+    stop)
+      if dashboard_container_exists; then
+        docker_cmd rm -f "$name" >/dev/null
+        ok "Research Dashboard 已停止并移除。"
+      else
+        info "Research Dashboard 未运行。"
+      fi
+      return
+      ;;
+    restart)
+      local project="${1:-.}"
+      cmd_dashboard stop
+      cmd_dashboard start "$project"
+      return
+      ;;
+    logs)
+      dashboard_container_exists || die "Dashboard 容器不存在。"
+      docker_cmd logs -f --tail 200 "$name"
+      return
+      ;;
+    port)
+      local new_port="${1:-}"
+      validate_port "$new_port" || die "用法: dshd dashboard port <1-65535>"
+      DSH_RESEARCH_DASHBOARD_PORT="$new_port"
+      save_config
+      ok "Dashboard 宿主机端口已设置为 $DSH_RESEARCH_DASHBOARD_PORT。"
+      if dashboard_container_exists; then
+        warn "现有 Dashboard 需要重新 start 才能使用新端口。"
+      fi
+      return
+      ;;
+    *)
+      die "未知 dashboard 子命令: $action（可用: status/start/stop/restart/logs/port）"
+      ;;
+  esac
+}
+
 cmd_storage() {
   load_config; ensure_docker
   local action="${1:-show}"
@@ -2105,6 +2252,11 @@ dshd - DeepSeek Harness Docker 管理器
   dshd storage bind PATH   使用宿主机目录作为 DSH 数据目录
   dshd storage migrate PATH  从旧 named volume 迁移到宿主机目录
   dshd storage volume NAME 切换/回退到 Docker named volume
+  dshd dashboard status    查看 Research Dashboard
+  dshd dashboard start [PROJECT]  启动只读 Dashboard sidecar
+  dshd dashboard stop      停止 Dashboard sidecar
+  dshd dashboard logs      查看 Dashboard 日志
+  dshd dashboard port PORT 修改 Dashboard 宿主机端口
   dshd env                 查看容器开发环境版本
   dshd shell               进入容器 Shell
   dshd token               显示首次访问 URL
@@ -2156,6 +2308,7 @@ menu() {
  21) Standard / Research 版本切换
  22) Research Pack 切换
  23) 查看持久化存储
+ 24) Research Dashboard
 
   0) 退出
 EOF
@@ -2186,6 +2339,7 @@ EOF
       21) cmd_edition_menu ;;
       22) cmd_research_pack_menu ;;
       23) cmd_storage show ;;
+      24) cmd_dashboard status ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2222,6 +2376,7 @@ main() {
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
     storage|data-storage) shift; cmd_storage "$@" ;;
+    dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
     token|url) cmd_token ;;
