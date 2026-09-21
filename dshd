@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.5.1"
+DSHD_VERSION="0.5.2"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -28,6 +28,7 @@ else
   DEFAULT_WORKSPACE="$HOME/dsh-workspace"
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
+CONTAINER_ENV_FILE="${DSHD_CONTAINER_ENV_FILE:-$STATE_DIR/container.env}"
 BACKUP_DIR="${DSHD_BACKUP_DIR:-$STATE_DIR/backups}"
 
 C_RESET=$'\033[0m'
@@ -400,6 +401,10 @@ create_container() {
       --add-host "host.docker.internal:host-gateway"
       -e "DOCKER_HOST=unix:///var/run/docker.sock"
     )
+  fi
+
+  if [[ -s "$CONTAINER_ENV_FILE" ]]; then
+    args+=(--env-file "$CONTAINER_ENV_FILE")
   fi
 
   info "启动容器 $DSH_NAME ..."
@@ -1165,7 +1170,112 @@ EOF
   done
 }
 
+validate_env_name() {
+  [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+}
+
+ensure_container_env_file() {
+  ensure_state_dir
+  if [[ ! -e "$CONTAINER_ENV_FILE" ]]; then
+    : >"$CONTAINER_ENV_FILE"
+  fi
+  chmod 600 "$CONTAINER_ENV_FILE"
+}
+
+container_env_changed() {
+  ok "容器环境变量已更新。"
+  if container_exists; then
+    if is_tty && confirm "是否立即重建容器使配置生效？" Y; then
+      create_container
+    else
+      info "运行 dshd recreate 后生效。"
+    fi
+  fi
+}
+
+cmd_container_env() {
+  local action="${1:-help}" name="${2:-}" value="${3-}" tmp line key
+  load_config
+
+  case "$action" in
+    path)
+      printf '%s\n' "$CONTAINER_ENV_FILE"
+      ;;
+    show|list)
+      if [[ ! -s "$CONTAINER_ENV_FILE" ]]; then
+        info "尚未配置自定义容器环境变量。"
+        return
+      fi
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -n "$line" && "$line" != \#* ]] || continue
+        key="${line%%=*}"
+        if [[ "${key^^}" =~ (KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL) ]]; then
+          printf '%s=******\n' "$key"
+        else
+          printf '%s\n' "$line"
+        fi
+      done <"$CONTAINER_ENV_FILE"
+      ;;
+    set)
+      [[ -n "$name" ]] || die "用法: dshd env set NAME VALUE"
+      validate_env_name "$name" || die "环境变量名不合法: $name"
+      ensure_container_env_file
+      tmp="$(mktemp)"
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "${line%%=*}" == "$name" ]] || printf '%s\n' "$line"
+      done <"$CONTAINER_ENV_FILE" >"$tmp"
+      printf '%s=%s\n' "$name" "$value" >>"$tmp"
+      chmod 600 "$tmp"
+      mv "$tmp" "$CONTAINER_ENV_FILE"
+      container_env_changed
+      ;;
+    remove|unset|delete)
+      [[ -n "$name" ]] || die "用法: dshd env remove NAME"
+      validate_env_name "$name" || die "环境变量名不合法: $name"
+      ensure_container_env_file
+      tmp="$(mktemp)"
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "${line%%=*}" == "$name" ]] || printf '%s\n' "$line"
+      done <"$CONTAINER_ENV_FILE" >"$tmp"
+      chmod 600 "$tmp"
+      mv "$tmp" "$CONTAINER_ENV_FILE"
+      container_env_changed
+      ;;
+    edit)
+      ensure_container_env_file
+      "${EDITOR:-vi}" "$CONTAINER_ENV_FILE"
+      chmod 600 "$CONTAINER_ENV_FILE"
+      container_env_changed
+      ;;
+    help|-h|--help)
+      cat <<EOF
+用法:
+  dshd env                 查看容器开发环境版本
+  dshd env show            查看自定义容器环境变量（敏感值隐藏）
+  dshd env set NAME VALUE  添加或更新容器环境变量
+  dshd env remove NAME     删除容器环境变量
+  dshd env edit            编辑独立的 container.env
+  dshd env show            查看自定义容器环境变量（敏感值会隐藏）
+  dshd env set NAME VALUE  添加或更新变量
+  dshd env remove NAME     删除变量
+  dshd env edit            使用 EDITOR 编辑环境变量文件
+  dshd env path            显示环境变量文件路径
+
+配置保存在: $CONTAINER_ENV_FILE
+修改后需要重建容器才能生效。
+EOF
+      ;;
+    *)
+      die "未知 env 子命令: $action"
+      ;;
+  esac
+}
+
 cmd_env() {
+  if [[ $# -gt 0 ]]; then
+    cmd_container_env "$@"
+    return
+  fi
   load_config
   ensure_docker
   container_running || die "容器未运行。"
@@ -1389,7 +1499,7 @@ main() {
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
-    env|environment) cmd_env ;;
+    env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
     token|url) cmd_token ;;
     backup) cmd_backup ;;
