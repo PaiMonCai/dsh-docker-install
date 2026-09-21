@@ -67,7 +67,7 @@ research-archive --include-raw
 
 ## DSH-native Research Adapter
 
-从 `0.9.0-rc.2` 开始，普通用户不再需要把 `research-*` CLI 当成主要界面。
+从 `0.9.0-rc.2` 开始，普通用户不再需要把 `research-*` CLI 当成主要界面。`0.9.0-rc.3` 将这一层进一步通用化：兼容自定义 DSH profile、重复 patch、不同 CLI 书写形式以及非固定后端安装目录。
 
 ```text
 User
@@ -99,14 +99,31 @@ economics_did
 economics_model
 ```
 
-Adapter 是 Cordis plugin，通过官方 `ctx.tools.register()` 注册工具；Research 镜像中的
-`dsh` wrapper 仅在 `web` / `headless` Agent profile 上自动追加：
+Adapter 是 Cordis plugin，通过官方 `ctx.tools.register()` 注册工具。Research 镜像中的
+`dsh` wrapper 默认只对 `web,headless` 注入，但兼容层支持官方 profile shorthand、
+`--profile name` 与 `--profile=name`：
 
-```text
---patch /opt/dsh-research/adapter/cordis.patch.yml
+```bash
+DSH_RESEARCH_ADAPTER_PROFILES=web,headless,tui dsh tui
+DSH_RESEARCH_ADAPTER_PROFILES='*' dsh my-profile
 ```
 
-它不会修改持久 profile，也不会影响 Standard 镜像。
+wrapper 会保留已有 `--patch` 顺序、避免重复注入 Adapter，并对
+`--dump-default-config` / `plugin` 保持上游原语义。
+
+Research backend 搜索顺序：
+
+```text
+DSH_RESEARCH_BIN_DIR
+        ↓
+DSH_RESEARCH_BIN_PATH
+        ↓
+/usr/local/bin
+        ↓
+PATH
+```
+
+所以 Adapter 不再绑定某一个 Docker 目录结构。它不会修改持久 profile，也不会影响 Standard 镜像。
 
 ### 用户体验
 
@@ -314,7 +331,7 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发进入 Research `0.9.0-rc.2`。RC1 的第一轮真实使用发现“科研主入口脱离 DSH”属于 release blocker，因此 RC2 只增加接入层，不增加新的统计方法或第二套研究状态。RC 阶段继续只处理：
+当前开发进入 Research `0.9.0-rc.3`。RC2 已完成 DSH-native 接入；RC3 专门硬化兼容层通用性，包括 profile 解析、patch 组合、后端命令发现和自定义镜像/开发环境适配。仍不增加新的统计方法或第二套研究状态。
 
 ```text
 integration correctness
@@ -332,6 +349,8 @@ documentation / operator ergonomics
 0.9.0-rc.1   Engine / Dashboard / RC gate
      ↓
 0.9.0-rc.2   DSH-native Research Adapter
+     ↓
+0.9.0-rc.3   Adapter compatibility hardening
      ↓
 0.9.0-rc.N   仅修 dogfooding / compatibility blocker
      ↓
