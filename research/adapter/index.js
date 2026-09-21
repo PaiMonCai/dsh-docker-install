@@ -1,14 +1,29 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { accessSync, constants, existsSync, realpathSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, relative, resolve } from 'node:path'
 
 export const name = 'dsh-research-adapter'
 export const inject = ['tools', 'systemPrompt']
 
 const WORKSPACE = resolve(process.env.DSH_RESEARCH_WORKSPACE || '/workspace')
 const WORKSPACE_REAL = existsSync(WORKSPACE) ? realpathSync(WORKSPACE) : WORKSPACE
-const BIN_DIR = process.env.DSH_RESEARCH_BIN_DIR || '/usr/local/bin'
 const MAX_CAPTURE = 64 * 1024
+
+function splitPathList(value) {
+  return String(value || '')
+    .split(delimiter)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+const BIN_DIRS = [...new Set([
+  process.env.DSH_RESEARCH_BIN_DIR,
+  ...splitPathList(process.env.DSH_RESEARCH_BIN_PATH),
+  '/usr/local/bin',
+  ...splitPathList(process.env.PATH),
+].filter(Boolean).map(path => resolve(path)))]
+
+const commandCache = new Map()
 
 function jsonOutput() {
   return {
@@ -68,9 +83,36 @@ function projectRoot(value = '.') {
   return root
 }
 
+function resolveExecutable(name) {
+  if (commandCache.has(name)) return commandCache.get(name)
+
+  for (const dir of BIN_DIRS) {
+    const candidate = resolve(dir, name)
+    try {
+      accessSync(candidate, constants.X_OK)
+      commandCache.set(name, candidate)
+      return candidate
+    } catch {
+      // Continue through the compatibility search path.
+    }
+  }
+
+  commandCache.set(name, null)
+  return null
+}
+
+function commandAvailable(name) {
+  return resolveExecutable(name) !== null
+}
+
 function commandPath(name) {
-  const candidate = resolve(BIN_DIR, name)
-  return existsSync(candidate) ? candidate : name
+  const executable = resolveExecutable(name)
+  if (!executable) {
+    throw new Error(
+      `Research backend command not available: ${name}. Searched: ${BIN_DIRS.join(', ')}`,
+    )
+  }
+  return executable
 }
 
 function cleanEnv() {
@@ -227,14 +269,13 @@ export function apply(ctx) {
       },
       project: {
         type: 'string',
-        description: 'Project path relative to /workspace, or an absolute path inside /workspace. Defaults to current workspace.',
+        description: `Project path relative to ${WORKSPACE}, or an absolute path inside that workspace. Defaults to the workspace root.`,
       },
       slug: { type: 'string', description: 'New project slug for action=create.' },
       title: { type: 'string', description: 'Human-readable project title for action=create.' },
       template: {
         type: 'string',
-        enum: ['default', 'economics'],
-        description: 'Project template for action=create.',
+        description: 'Project template name for action=create. Defaults to default; custom installed templates are allowed.',
       },
       mode: {
         type: 'string',
@@ -399,7 +440,7 @@ export function apply(ctx) {
     },
   })
 
-  if (existsSync(commandPath('research-econ-did'))) {
+  if (commandAvailable('research-econ-did')) {
     register(ctx, {
       name: 'economics_did',
       description:
@@ -459,7 +500,7 @@ export function apply(ctx) {
     })
   }
 
-  if (existsSync(commandPath('research-econ-model'))) {
+  if (commandAvailable('research-econ-model')) {
     register(ctx, {
       name: 'economics_model',
       description:
