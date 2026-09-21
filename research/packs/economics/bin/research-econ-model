@@ -49,6 +49,16 @@ def safe_name(value: str) -> str:
         raise EconModelError("name 只能包含字母、数字、点、下划线和短横线，且必须以字母或数字开头。")
     return value
 
+def sync_result_registry(root: Path) -> None:
+    """Refresh the unified V2 Result Registry when the shared engine is available."""
+    try:
+        from dsh_research.project import ResearchProject
+        from dsh_research.results import sync_legacy_results
+    except ImportError:
+        return
+    sync_legacy_results(ResearchProject(root.resolve()))
+
+
 
 def git_state(root: Path) -> dict[str, Any]:
     try:
@@ -441,6 +451,7 @@ def run_feols(args, root: Path) -> int:
         encoding="utf-8",
     )
     generated = render_index(root)
+    sync_result_registry(root)
 
     print(f"[ok] model: {paths['manifest']}")
     print(f"[ok] table: {paths['table_md']}")
@@ -594,6 +605,7 @@ def run_compare(args, root: Path) -> int:
         encoding="utf-8",
     )
     generated = render_index(root)
+    sync_result_registry(root)
 
     print(f"[ok] comparison: {paths['manifest']}")
     print(f"[ok] table: {paths['table_md']}")

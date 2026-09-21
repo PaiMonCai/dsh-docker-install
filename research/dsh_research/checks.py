@@ -16,6 +16,7 @@ from .hashing import sha256_file
 from .manifests import read_jsonl
 from .pipeline import load_pipeline, step_statuses
 from .project import ResearchProject
+from .results import verify_registry
 from .schema import CURRENT_PROJECT_SCHEMA, infer_template, validate_project_schema
 from .vcs import git_state
 
@@ -417,6 +418,36 @@ def run_checks(project: ResearchProject, mode: str = "full") -> CheckReport:
                 path="pipeline.yaml",
             )
         )
+
+    result_statuses = verify_registry(project)
+    if not result_statuses:
+        results.append(
+            _pass(
+                "result.registry",
+                "No unified Research Results are registered yet.",
+                path="results/registry",
+            )
+        )
+    else:
+        bad_results = [item for item in result_statuses if item.status != "current"]
+        if bad_results:
+            results.append(
+                _fail(
+                    "result.registry",
+                    "ERROR",
+                    f"{len(bad_results)} registered result(s) are stale, missing, or invalid.",
+                    path="results/registry",
+                    details={"results": [item.as_dict() for item in bad_results]},
+                )
+            )
+        else:
+            results.append(
+                _pass(
+                    "result.registry",
+                    f"{len(result_statuses)} registered result(s) match provenance and artifacts.",
+                    path="results/registry",
+                )
+            )
 
     literature = root / "literature"
     bib_path = literature / "references.bib"

@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+from dsh_research.results import (
+    load_result_manifest,
+    register_result,
+    result_status,
+    result_type_counts,
+    sync_legacy_results,
+    verify_registry,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-result",
+        description="DSH Research Result Registry：统一登记、校验和索引科研结果。",
+    )
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    register = sub.add_parser("register", help="登记一个 Research Result")
+    register.add_argument("--id", required=True, dest="result_id")
+    register.add_argument("--type", required=True, dest="result_type")
+    register.add_argument("--title", default="")
+    register.add_argument("--manifest", default="", help="方法自身 manifest，例如 model.json")
+    register.add_argument("--run", default="", help="research-run 或 pipeline run id")
+    register.add_argument("--run-manifest", default="", help="显式 run manifest 路径")
+    register.add_argument("--input-dataset", action="append", default=[])
+    register.add_argument("--input-file", action="append", default=[])
+    register.add_argument("--artifact", action="append", default=[])
+    register.add_argument("--force", action="store_true")
+
+    list_cmd = sub.add_parser("list", help="列出统一 Result Registry")
+    list_cmd.add_argument("--type", dest="filter_type", default="")
+    list_cmd.add_argument("--json", action="store_true")
+
+    show = sub.add_parser("show", help="显示一个 Result manifest")
+    show.add_argument("result_id")
+    show.add_argument("--json", action="store_true")
+
+    verify = sub.add_parser("verify", help="校验 Result provenance 与 artifacts")
+    verify.add_argument("result_id", nargs="?")
+    verify.add_argument("--json", action="store_true")
+
+    sync = sub.add_parser("sync", help="把已有 model/comparison/DiD manifests 同步进 Registry")
+    sync.add_argument("--json", action="store_true")
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        (root / "research.yaml").write_text(
+            "schema: 2\nproject:\n  slug: smoke\n  title: Smoke\n  template: default\n  status: active\n",
+            encoding="utf-8",
+        )
+        results = root / "results" / "tables"
+        results.mkdir(parents=True)
+        (results / "summary.csv").write_text("x\n1\n", encoding="utf-8")
+        project = ResearchProject(root)
+        register_result(
+            project,
+            result_id="summary",
+            result_type="table",
+            artifacts=["results/tables/summary.csv"],
+        )
+        status = result_status(project, "summary")
+        assert status.status == "current"
+        assert status.artifacts == 1
+    print("research-result self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    try:
+        project = ResearchProject.discover()
+
+        if args.command == "register":
+            path = register_result(
+                project,
+                result_id=args.result_id,
+                result_type=args.result_type,
+                title=args.title,
+                source_manifest=args.manifest,
+                run_id=args.run,
+                run_manifest=args.run_manifest,
+                input_datasets=args.input_dataset,
+                input_files=args.input_file,
+                artifacts=args.artifact,
+                force=args.force,
+            )
+            status = result_status(project, args.result_id)
+            print(f"[ok] result registered: {args.result_id}")
+            print(f"[ok] manifest: {path.relative_to(project.root)}")
+            print(f"[ok] hash: {status.hash}")
+            return 0
+
+        if args.command == "list":
+            statuses = verify_registry(project)
+            if args.filter_type:
+                statuses = [x for x in statuses if x.result_type == args.filter_type]
+            if args.json:
+                print(json.dumps(
+                    {
+                        "result_schema": 1,
+                        "counts": result_type_counts(statuses),
+                        "results": [x.as_dict() for x in statuses],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            elif not statuses:
+                print("尚无统一 Research Result。")
+            else:
+                for item in statuses:
+                    print(
+                        f"{item.result_id:28} "
+                        f"{(item.result_type or '-'):18} "
+                        f"{item.status:8} "
+                        f"artifacts={item.artifacts}"
+                    )
+            return 0
+
+        if args.command == "show":
+            manifest = load_result_manifest(project, args.result_id)
+            status = result_status(project, args.result_id)
+            payload = {"manifest": manifest, "status": status.as_dict()}
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                import yaml
+                print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), end="")
+            return 0
+
+        if args.command == "verify":
+            statuses = verify_registry(project)
+            if args.result_id:
+                statuses = [x for x in statuses if x.result_id == args.result_id]
+                if not statuses:
+                    raise ResearchError(f"Result manifest 不存在: {args.result_id}")
+            bad = [x for x in statuses if x.status != "current"]
+            if args.json:
+                print(json.dumps(
+                    {
+                        "result_schema": 1,
+                        "ok": not bad,
+                        "results": [x.as_dict() for x in statuses],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            else:
+                if not statuses:
+                    print("[ok] no registered results")
+                for item in statuses:
+                    prefix = "[ok]" if item.status == "current" else "[error]"
+                    print(f"{prefix} {item.result_id}: {item.status} — {item.message}")
+            return 1 if bad else 0
+
+        if args.command == "sync":
+            changes = sync_legacy_results(project)
+            statuses = verify_registry(project)
+            bad = [x for x in statuses if x.status != "current"]
+            if args.json:
+                print(json.dumps(
+                    {
+                        "result_schema": 1,
+                        "changes": changes,
+                        "ok": not bad,
+                        "results": [x.as_dict() for x in statuses],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+            else:
+                if not changes:
+                    print("[ok] no legacy economics results to sync")
+                for item in changes:
+                    print(f"[{item['action']}] {item['id']} <- {item['source']}")
+                print(f"[ok] registry contains {len(statuses)} result(s)")
+            return 1 if bad else 0
+
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
