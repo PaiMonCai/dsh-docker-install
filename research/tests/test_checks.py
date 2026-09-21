@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dsh_research.checks import run_checks
 from dsh_research.config import write_yaml
+from dsh_research.datasets import register_dataset
 from dsh_research.hashing import sha256_file
 from dsh_research.project import ResearchProject
 
@@ -135,6 +136,25 @@ class CheckEngineTests(unittest.TestCase):
             raw = next(r for r in report.results if r.id == "data.raw.git-tracking")
             self.assertEqual(raw.status, "fail")
             self.assertEqual(raw.severity, "ERROR")
+
+    def test_stale_registered_dataset_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            make_project(root)
+            data_path = root / "data" / "processed" / "panel.csv"
+            data_path.write_text("id,y\n1,2\n", encoding="utf-8")
+            project = ResearchProject(root)
+            register_dataset(
+                project,
+                dataset_id="panel",
+                path="data/processed/panel.csv",
+                kind="processed",
+            )
+            data_path.write_text("id,y\n1,99\n", encoding="utf-8")
+            report = run_checks(project, "full")
+            catalog = next(r for r in report.results if r.id == "data.catalog")
+            self.assertEqual(catalog.status, "fail")
+            self.assertEqual(catalog.severity, "ERROR")
 
     def test_model_input_hash_change_is_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
