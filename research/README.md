@@ -11,8 +11,10 @@ Literature → Question → Data → Analysis → Results → Paper → Archive
 - Python 科研环境：NumPy / pandas / Polars / SciPy / statsmodels / scikit-learn / SymPy / PyArrow / DuckDB。
 - JupyterLab / Jupytext / nbconvert。
 - Pandoc + Quarto。
-- XeLaTeX + latexmk + Noto CJK 字体。
+- XeLaTeX / LuaLaTeX + luaotfload + latexmk + Noto CJK 字体。
 - PDF 工具：Poppler / qpdf。
+- R runtime + knitr / rmarkdown；Quarto 同时支持 Python/Jupyter 与 R/Knitr。
+- Chrome Headless Shell 通过 Playwright 浏览器包提供给 Quarto。
 - Research Project 标准目录。
 - Evidence Matrix 文献证据矩阵。
 - `research-literature`：DOI / arXiv / PDF → BibTeX → 结构化笔记 → Evidence Matrix → 引用校验。
@@ -59,6 +61,28 @@ quarto render paper/paper.qmd
 research-archive
 ```
 
+## 运行时可写层与低内存默认
+
+Research `0.9.0-rc.4` 把镜像内置 Python 环境视为只读基线；容器启动时会在
+`$DSH_HOME/research-runtime/venv` 建立一个轻量、可写的运行时 venv，并通过 `.pth`
+继承 `/opt/dsh-research/venv` 中预装的科研包。这样 `pip` / `uv pip` 安装用户包时
+不会尝试修改只读的镜像层，也不会污染 `/workspace`。
+
+运行期缓存默认进入 `/tmp/dsh-research-cache`，包括 uv、pip、Jupyter、Matplotlib、
+Numba、Deno/Quarto 与 TeX/luaotfload 缓存。即使根文件系统被沙箱设为只读，
+`quarto render` 与 LuaLaTeX 仍应可以在 `/workspace` 项目中正常输出。
+
+为了避免小内存 VPS 上数值库各自拉满线程，Research 镜像默认将 OpenBLAS / OMP / MKL /
+NumExpr / Numba / Polars 线程设为 1，并将 Quarto Deno V8 默认上限设为 512 MiB。
+这些值都可以通过容器环境变量显式覆盖。
+
+Economics Pack 切换时，`dshd` 会额外检查 `research-econ-data`、`research-econ-model`、
+`research-econ-did` 是否真的存在；拉取到陈旧或错误的 Economics 镜像时不会再静默接受。
+
+CI 还会在只读 root filesystem、1 GiB memory limit 下启动最终 Research / Economics 镜像，
+实际验证 Python 可写 overlay、uv/pip、Quarto HTML/PDF、LuaLaTeX、R/Knitr、Chrome Headless Shell
+以及 Economics 三个 CLI 的 self-test。
+
 默认归档不包含 `data/raw`。只有明确确认原始数据允许分发时才使用：
 
 ```bash
@@ -67,7 +91,7 @@ research-archive --include-raw
 
 ## DSH-native Research Adapter
 
-从 `0.9.0-rc.2` 开始，普通用户不再需要把 `research-*` CLI 当成主要界面。`0.9.0-rc.3` 将这一层进一步通用化：兼容自定义 DSH profile、重复 patch、不同 CLI 书写形式以及非固定后端安装目录。
+从 `0.9.0-rc.2` 开始，普通用户不再需要把 `research-*` CLI 当成主要界面。`0.9.0-rc.3` 将这一层进一步通用化；`0.9.0-rc.4` 进一步修复真实容器 dogfooding 中暴露的只读运行时、Quarto/LaTeX、浏览器、R、Economics Pack 契约与低内存问题。
 
 ```text
 User
@@ -254,13 +278,13 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.9.0-rc.3，更新于 2026-09-22）：RC2 已完成 DSH-native Research Adapter；RC3 专门硬化兼容层通用性，包括任意 profile 书写形式、可配置 profile allowlist、patch 去重/顺序保持、后端命令多路径发现和自定义镜像/源码环境适配。
+> 当前开发状态（Research 0.9.0-rc.4，更新于 2026-09-22）：RC4 聚焦真实容器运行时硬化，包括只读 root 下的可写 Python overlay/cache、LuaLaTeX、Chrome Headless Shell、R/Knitr、Economics Pack 镜像契约和 1 GiB 运行时 smoke。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 99% | 0.9.0-rc.3：Adapter compatibility hardening；继续真实 Agent dogfooding |
+| V2.0 Research Project Engine | 约 99% | 0.9.0-rc.4：runtime hardening；继续真实 Agent dogfooding |
 | 完整 V2 Roadmap | 约 55%–60% | V2.0 接近稳定；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
@@ -331,7 +355,7 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发进入 Research `0.9.0-rc.3`。RC2 已完成 DSH-native 接入；RC3 专门硬化兼容层通用性，包括 profile 解析、patch 组合、后端命令发现和自定义镜像/开发环境适配。仍不增加新的统计方法或第二套研究状态。
+当前开发进入 Research `0.9.0-rc.4`。RC4 不增加新的统计方法或第二套研究状态，重点修复真实 Economics 镜像 dogfooding 暴露出的运行时可写性、渲染工具链、Pack 完整性和内存边界问题。
 
 ```text
 integration correctness
@@ -351,6 +375,8 @@ documentation / operator ergonomics
 0.9.0-rc.2   DSH-native Research Adapter
      ↓
 0.9.0-rc.3   Adapter compatibility hardening
+     ↓
+0.9.0-rc.4   Runtime hardening / constrained-container smoke
      ↓
 0.9.0-rc.N   仅修 dogfooding / compatibility blocker
      ↓
