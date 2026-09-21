@@ -17,8 +17,10 @@ fi
 
 profile_allowed() {
   local profile="$1" item normalized
+  local items=()
   normalized="${PROFILE_SPEC//,/ }"
-  for item in $normalized; do
+  read -r -a items <<<"$normalized"
+  for item in "${items[@]}"; do
     [[ "$item" == "*" || "$item" == "$profile" ]] && return 0
   done
   return 1
