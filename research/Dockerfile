@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
 ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS research-core
 
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.18
+ARG RESEARCH_VERSION=0.2.0
 
 LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
       org.opencontainers.image.description="DSH research environment with Python, Jupyter, Quarto, LaTeX and reproducible research helpers" \
       org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install" \
-      org.opencontainers.image.version="0.1.0" \
-      io.caicailo.dsh.edition="research"
+      org.opencontainers.image.version="${RESEARCH_VERSION}" \
+      io.caicailo.dsh.edition="research" \
+      io.caicailo.dsh.research.pack="none"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_RESEARCH_HOME=/opt/dsh-research \
@@ -91,4 +93,23 @@ RUN chmod 0755 \
  && test -s /tmp/research-smoke.pdf \
  && rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf
 
+WORKDIR /workspace
+
+FROM research-core AS research-economics
+
+ENV DSH_RESEARCH_PACK=economics
+
+LABEL io.caicailo.dsh.edition="research" \
+      io.caicailo.dsh.research.pack="economics"
+
+COPY research/packs/economics/python-requirements.txt /opt/dsh-research/economics-requirements.txt
+
+RUN uv pip install --python /opt/dsh-research/venv/bin/python \
+      -r /opt/dsh-research/economics-requirements.txt \
+ && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')"
+
+WORKDIR /workspace
+
+# 默认本地构建仍得到通用 Research 版；CI 可显式 --target research-economics。
+FROM research-core AS research-final
 WORKDIR /workspace
