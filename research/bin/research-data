@@ -60,7 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("name")
     show.add_argument("--json", action="store_true")
 
-    verify = sub.add_parser("verify", help="校验所有 Dataset manifest 与文件 hash")
+    verify = sub.add_parser("verify", help="校验 Dataset manifest 与文件 hash")
+    verify.add_argument("name", nargs="?", help="可选 dataset id；不填则校验全部")
     verify.add_argument("--json", action="store_true")
 
     lineage = sub.add_parser("lineage", help="显示 dataset 上游血缘")
@@ -163,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "verify":
             statuses = verify_catalog(project)
+            if args.name:
+                statuses = [item for item in statuses if item.dataset_id == args.name]
+                if not statuses:
+                    raise ResearchError(f"Dataset manifest 不存在: {args.name}")
             failures = [item for item in statuses if item.status != "current"]
             if args.json:
                 print(
@@ -191,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(render_lineage(tree))
             def bad(node):
-                if node.get("status") in {"missing", "cycle", "invalid"}:
+                if node.get("status") in {"missing", "cycle", "invalid", "stale"}:
                     return True
                 return any(bad(child) for child in node.get("inputs", []))
             return 1 if bad(tree) else 0
