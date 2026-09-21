@@ -1,3 +1,6 @@
+# Research schema migration backups are local safety copies.
+research.yaml.bak.schema*
+
 .venv/
 __pycache__/
 *.pyc
