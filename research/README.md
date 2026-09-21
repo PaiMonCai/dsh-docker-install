@@ -152,14 +152,14 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.8.0，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection、Run Manifest v2 与统一 Result Registry。核心对象链已经从 Dataset 闭环到 Result / Artifact / Paper；下一阶段进入 Stable JSON Interfaces 与 Research Dashboard。
+> 当前开发状态（Research 0.8.1，更新于 2026-09-22）：V2.0 已完成 Shared Research Engine、Project Schema v2 / Project State、Research Check、Data Catalog / Lineage、Pipeline DAG / stale detection、Run Manifest v2、Result Registry 与 Stable JSON API v1。核心对象链与机器接口均已闭环；V2.0 只剩 Research Dashboard。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 75%–80% | Phase 0–6 已完成；Phase 7 部分已有；Phase 8 待开发 |
-| 完整 V2 Roadmap | 约 45%–50% | V2.0 核心接近完成；V2.1–V2.4 尚未系统展开 |
+| V2.0 Research Project Engine | 约 85%–90% | Phase 0–7 已完成；Phase 8 Dashboard 待开发 |
+| 完整 V2 Roadmap | 约 50%–55% | V2.0 核心协议基本完成；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
 
@@ -171,7 +171,7 @@ Phase 3  Data Catalog + Lineage       ✓
 Phase 4  Pipeline DAG + Stale         ✓
 Phase 5  research-run Manifest v2     ✓
 Phase 6  Result Registry              ✓
-Phase 7  Stable JSON Interfaces       △ 部分已有
+Phase 7  Stable JSON Interfaces       ✓
 Phase 8  Research Dashboard           ○
 ```
 
@@ -229,17 +229,15 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发停在 Research `0.8.0` / V2.0 Phase 6。后续按以下顺序推进：
+当前开发停在 Research `0.8.1` / V2.0 Phase 7。后续开发节点已经收敛为：
 
 ```text
-Phase 7  Stable JSON Interfaces
-         ↓
 Phase 8  Research Dashboard
          ↓
 V2.0 RC
 ```
 
-Phase 7 的重点不再是增加新的科研对象，而是把现有 CLI 的 JSON 输出统一成稳定协议，供 Dashboard、Agent 和 CI 直接消费。Phase 8 只做这一协议之上的可替换 UI，不建立第二套科研数据库。
+Phase 8 只消费 Stable JSON API v1，不直接解析终端文本、不直接读取内部 Python 对象，也不建立第二套科研数据库。
 V2 的目标不是继续堆科研软件，而是把 V1 已经存在的 Literature / Data / Run /
 Model / DiD / Paper / Archive 对象组织成一个真正可管理、可追踪、可增量执行、可复现发布的
 **Research Project lifecycle**。
@@ -984,20 +982,132 @@ Paper
 ```
 
 以后 RDD、Synthetic Control、DML 等高级方法只需要提供自己的方法 manifest、diagnostics 和 artifacts，再注册成新的 Result type；不需要修改 ProjectState 的核心数据结构。
-#### Phase 7 — JSON Interfaces
+#### Phase 7 — Stable JSON Interfaces
 
-V2 核心 CLI 必须同时支持人类可读输出与稳定 JSON：
+**Implemented in Research 0.8.1.** V2 核心 CLI 现在共享 **Stable JSON API v1**。
+
+统一顶层 envelope：
+
+```json
+{
+  "api": {
+    "name": "dsh-research",
+    "version": 1
+  },
+  "command": "research-data",
+  "operation": "list",
+  "ok": true,
+  "data": {},
+  "error": null
+}
+```
+
+顶层字段顺序和语义固定：
+
+```text
+api        协议名与协议版本
+command    CLI 名称
+operation  子命令 / 操作
+ok         本次操作是否成功
+data       命令自身的领域 payload
+error      成功时 null；失败时为结构化 error object
+```
+
+失败响应：
+
+```json
+{
+  "api": {"name": "dsh-research", "version": 1},
+  "command": "research-result",
+  "operation": "verify",
+  "ok": false,
+  "data": {
+    "result_schema": 1,
+    "results": []
+  },
+  "error": {
+    "code": "VERIFY_FAILED",
+    "message": "1 result(s) are not current",
+    "details": {"failures": 1}
+  }
+}
+```
+
+错误对象稳定字段：
+
+```text
+code       机器可判断的错误代码
+message    人类可读说明
+type       可选，底层异常类型
+details    可选，结构化补充信息
+```
+
+统一机器模式退出码：
+
+```text
+0  成功 / 验证通过
+1  领域结果失败，例如 verify/check/run command failed
+2  参数、项目发现、配置、协议或内部执行错误
+```
+
+`research-run` 为保持 V1 兼容有一个特例：普通文本模式继续返回被执行命令的原始 exit code；`--json` 模式统一映射为 0/1，并在 `data.command_exit_code` 中保留真实子命令退出码。
+
+已纳入 Stable JSON API v1 的核心命令：
 
 ```bash
 research-status --json
+research-check --quick --json
 research-check --json
+research-check --release --json
+
+research-data register ... --json
 research-data list --json
+research-data show <dataset> --json
+research-data verify [dataset] --json
+research-data lineage <dataset> --json
+
 research-pipeline status --json
+research-pipeline list --json
+research-pipeline graph --json
+research-pipeline explain <step> --json
+research-pipeline run --json
+research-pipeline run --dry-run --json
+
+research-run --json --name baseline -- python src/analysis.py
+
+research-result register ... --json
+research-result list --json
+research-result show <result> --json
+research-result verify [result] --json
+research-result sync --json
 ```
 
-JSON 是 Dashboard、DSH Agent、CI 和未来其他客户端的稳定接口；
-不要让 UI 直接解析终端文本。
+命令自己的领域 schema 保留在 `data` 中，例如：
 
+```text
+state_schema
+check_schema
+dataset_schema
+pipeline_schema
+run_schema
+result_schema
+```
+
+这样 JSON API envelope 可以独立演进，而 Dataset / Pipeline / Run / Result 的领域 manifest schema 不需要绑在同一个版本号上。
+
+在 `0.8.1` 之前，各 CLI 的 `--json` 仍属于实验接口；从 Stable JSON API v1 开始，Dashboard、Agent、CI 和外部客户端应只依赖 envelope 与明确记录的领域字段，不再解析终端文本。
+
+契约测试会真实启动核心 CLI，验证：
+
+```text
+success envelope
+error envelope
+API name/version
+top-level field layout
+exit-code semantics
+JSON-only stdout
+research-run child stdout/stderr isolation
+```
 #### Phase 8 — Research Dashboard
 
 Dashboard 是 V2.0 的最后一层，而不是最先开发的部分。
@@ -1333,7 +1443,8 @@ PR N   feat: Planner / Reviewer + replication release
 0.6.0  Data Catalog + Lineage
 0.7.0  Pipeline DAG + stale detection
 0.8.0  Result Registry
-0.8.x  Stable JSON Interfaces + Dashboard preview
+0.8.1  Stable JSON API v1
+0.8.x  Dashboard preview
 0.9.0  V2 release candidate
 2.0.0  Stable V2
 ```
