@@ -17,6 +17,27 @@ BIND_PATCH="${DSH_BIND_PATCH:-/opt/dsh/dsh-bind.patch.yml}"
 
 log() { printf 'dsh-entrypoint: %s\n' "$*" >&2; }
 
+# dsh 的 SessionHeader.cwd 会跨容器重建持久化，但旧版/历史会话可能记录 /root/dsh。
+# 当前镜像的标准持久工作区是 /workspace；如果旧 cwd 随 overlay2 消失，Node spawn
+# 会因为 cwd 不存在而统一报 ENOENT（bash / landlock-run / rg 看起来都会“起不来”）。
+# session-persistence-jsonl 会按 projectKey(cwd) 分组，/root/dsh 对应 --root-dsh--，
+# 因此无需改写不可变 SessionHeader，只在确有历史会话时补一个运行时软链接。
+repair_stale_workspace_cwd() {
+    local canonical="/workspace"
+    local legacy="/root/dsh"
+    local legacy_sessions="$DSH_HOME/sessions/--root-dsh--"
+
+    [[ -d "$canonical" ]] || return 0
+    [[ ! -e "$legacy" && ! -L "$legacy" ]] || return 0
+    [[ -d "$legacy_sessions" ]] || return 0
+
+    if ln -s "$canonical" "$legacy"; then
+        log "检测到历史会话 cwd=$legacy 已失效，已自动修复：$legacy -> $canonical"
+    else
+        log "警告：检测到历史会话 cwd=$legacy 已失效，但自动修复失败"
+    fi
+}
+
 run_web() {
     local args=(web --patch "$BIND_PATCH" --no-open)
 
@@ -38,6 +59,8 @@ run_web() {
     log "启动 Web GUI（DSH_HOME=$DSH_HOME, bind=${DSH_BIND_HOST:-0.0.0.0}, workspace=$(pwd)）"
     exec dsh "${args[@]}" "$@"
 }
+
+repair_stale_workspace_cwd
 
 case "${1:-web}" in
     web)
