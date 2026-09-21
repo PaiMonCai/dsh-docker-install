@@ -1,0 +1,25 @@
+schema: 1
+project:
+  slug: "__PROJECT_SLUG__"
+  title: "__PROJECT_TITLE__"
+  created_at: "__CREATED_AT__"
+  language: "zh-CN"
+
+research:
+  field: ""
+  question: ""
+  hypotheses: []
+
+data_policy:
+  raw_is_immutable: true
+  raw_path: "data/raw"
+  processed_path: "data/processed"
+
+reproducibility:
+  record_runs: true
+  runs_path: "runs"
+  archive_excludes_raw_by_default: true
+
+paper:
+  source: "paper/paper.qmd"
+  bibliography: "literature/references.bib"
