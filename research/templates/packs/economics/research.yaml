@@ -1,10 +1,11 @@
-schema: 1
+schema: 2
 project:
   slug: "__PROJECT_SLUG__"
   title: "__PROJECT_TITLE__"
   created_at: "__CREATED_AT__"
   language: "zh-CN"
   template: "economics"
+  status: "active"
 
 research:
   field: "economics"
