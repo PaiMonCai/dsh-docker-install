@@ -16,6 +16,7 @@ LABEL org.opencontainers.image.title="DeepSeek Harness Research Edition" \
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_RESEARCH_HOME=/opt/dsh-research \
     DSH_RESEARCH_VENV=/opt/dsh-research/venv \
+    PYTHONPATH=/opt/dsh-research \
     PATH=/opt/dsh-research/venv/bin:${PATH}
 
 USER root
@@ -65,6 +66,7 @@ RUN uv venv --seed /opt/dsh-research/venv \
  && python -c "import numpy, pandas, scipy, statsmodels, sklearn, sympy, pyarrow, duckdb" \
  && jupyter --version
 
+COPY research/dsh_research/ /opt/dsh-research/dsh_research/
 COPY research/bin/ /usr/local/bin/
 COPY research/templates/ /opt/dsh-research/templates/
 
@@ -73,6 +75,7 @@ RUN chmod 0755 \
       /usr/local/bin/research-run \
       /usr/local/bin/research-archive \
       /usr/local/bin/research-literature \
+ && python -c "import dsh_research; from dsh_research.project import ResearchProject; print('Research engine import passed')" \
  && research-init --self-test \
  && research-run --self-test \
  && research-archive --self-test \

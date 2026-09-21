@@ -45,6 +45,8 @@ jobs:
           bash -n research/bin/research-run
           bash -n research/bin/research-archive
           python -m py_compile research/bin/research-literature
+          PYTHONPATH=research python -m compileall -q research/dsh_research
+          PYTHONPATH=research python -m unittest discover -s research/tests -p 'test_*.py' -v
           python -m py_compile research/packs/economics/bin/research-econ-data
           python -m py_compile research/packs/economics/bin/research-econ-model
           python -m py_compile research/packs/economics/bin/research-econ-did
