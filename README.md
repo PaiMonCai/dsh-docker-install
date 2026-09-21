@@ -51,9 +51,9 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 - 未安装 Docker 时询问是否自动安装；
 - 检测 GitHub Raw、GHCR、Docker Hub 以及网络区域特征；
 - **首次安装强制明确填写 Docker 容器名和 Web UI 宿主机端口**（不再直接回车使用默认值）；
-- 交互配置监听地址、工作区、数据卷、Trusted Hosts，并选择 DeepSeek 官方 API 或自定义 Base URL，再配置 API Key；
+- 交互配置监听地址、工作区、持久化存储、Trusted Hosts，并选择 DeepSeek 官方 API 或自定义 Base URL，再配置 API Key；
 - 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
-- 创建持久卷和工作区，默认设置 `Asia/Shanghai` 时区、`1g` 共享内存与沙箱可写的 npm cache，启动容器并等待 Web UI；
+- 创建持久化目录和工作区；新安装默认使用 `/opt/dsh/data -> /root/.dsh` 与 `/opt/dsh/workspace -> /workspace`（非 root 为 `~/dsh/...`），同时保留 named volume 兼容模式；
 - 询问是否开启 **Docker 项目管理模式**；开启后 DSH 可通过宿主机 Docker Socket 构建、部署和测试 Docker 应用；
 - 将管理器安装为 `/usr/local/bin/dshd`，以后直接输入 `dshd` 管理。
 
@@ -87,6 +87,9 @@ dshd docker          # Docker 项目管理权限菜单
 dshd docker on       # 允许 DSH 管理宿主机 Docker
 dshd docker off      # 关闭宿主机 Docker 权限
 dshd docker status   # 检查 Docker Socket / Compose
+dshd storage show         # 查看 /root/.dsh 的宿主机存储
+dshd storage bind /opt/dsh/data     # 采用已有宿主机数据目录
+dshd storage migrate /opt/dsh/data  # 从旧 named volume 自动迁移
 dshd edition show    # 查看 Standard / Research Edition
 dshd edition research # 切换到 Research Core
 dshd edition standard # 切换回 Standard
@@ -152,6 +155,50 @@ export DSHD_UPDATE_URL=https://example.com/dshd
 Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS），同时安装完成页保留
 `127.0.0.1:<端口>` 的本地回退地址。例如 `dsh.example.com` 会显示为
 `https://dsh.example.com/?token=...`。
+
+### 持久化目录
+
+从 dshd 0.8.0 开始，新安装默认使用可直接查看的宿主机 bind mount：
+
+```text
+宿主机 /opt/dsh/data       -> 容器 /root/.dsh
+宿主机 /opt/dsh/workspace  -> 容器 /workspace
+```
+
+其中：
+
+- `/opt/dsh/data` 保存 sessions、credentials、profiles、插件和 DSH 内部状态；
+- `/opt/dsh/workspace` 保存代码、项目、Research Project 和需要直接管理的文件；
+- 非 root 安装默认使用 `~/dsh/data` 与 `~/dsh/workspace`；
+- 历史安装如果仍使用 `dsh-home` named volume，不会被静默切换，继续保持兼容。
+
+查看当前存储：
+
+```bash
+dshd storage show
+```
+
+旧安装自动迁移：
+
+```bash
+dshd storage migrate /opt/dsh/data
+```
+
+迁移时会先停止容器，复制 named volume 内容，再切换到 bind mount；旧 volume 不会自动删除，可作为回退。
+
+如果已经手工把 `dsh-home` 内容复制到了 `/opt/dsh/data`，直接采用现有目录：
+
+```bash
+dshd storage bind /opt/dsh/data
+```
+
+切回已有 named volume：
+
+```bash
+dshd storage volume dsh-home
+```
+
+`dshd backup`、`dshd restore` 和 `dshd uninstall` 会根据当前 `DSH_STORAGE_MODE=bind|volume` 自动选择正确的数据源。
 
 ### 自定义容器环境变量
 
