@@ -33,6 +33,7 @@ try {
 
   const makeContext = () => {
     const definitions = new Map()
+    const promptSections = new Map()
     const ctx = {
       tools: {
         register(definition) {
@@ -44,15 +45,29 @@ try {
           return () => definitions.delete(definition.name)
         },
       },
+      systemPrompt: {
+        section(section) {
+          assert.equal(typeof section.name, 'string')
+          assert.equal(Number.isFinite(section.order), true)
+          assert.equal(typeof section.text, 'string')
+          promptSections.set(section.name, section)
+          return () => promptSections.delete(section.name)
+        },
+      },
     }
-    return { ctx, definitions }
+    return { ctx, definitions, promptSections }
   }
 
   // Core image: only general Research tools are registered.
   {
     const adapter = await loadAdapter('core-' + Date.now())
-    const { ctx, definitions } = makeContext()
+    const { ctx, definitions, promptSections } = makeContext()
     adapter.apply(ctx)
+
+    const guidance = promptSections.get('research:native-adapter-guidance')
+    assert.ok(guidance, 'missing native Research prompt guidance')
+    assert.match(guidance.text, /Prefer research_project/)
+    assert.match(guidance.text, /Do not fabricate/)
 
     for (const name of [
       'research_project',
