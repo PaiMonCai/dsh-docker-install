@@ -106,7 +106,13 @@ COPY research/packs/economics/python-requirements.txt /opt/dsh-research/economic
 
 RUN uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/economics-requirements.txt \
- && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')"
+ && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')" \
+ && tmp="$(mktemp -d)" \
+ && research-init --template economics economics-smoke "Economics Smoke Test" "$tmp/project" \
+ && grep -q 'template: "economics"' "$tmp/project/research.yaml" \
+ && grep -q 'Economics research rules' "$tmp/project/AGENTS.md" \
+ && python "$tmp/project/src/econometrics.py" \
+ && rm -rf "$tmp"
 
 WORKDIR /workspace
 
