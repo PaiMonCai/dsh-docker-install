@@ -227,7 +227,22 @@ def dataset_status(project: ResearchProject, dataset_id: str) -> DatasetStatus:
 
 
 def all_dataset_statuses(project: ResearchProject) -> list[DatasetStatus]:
-    return [dataset_status(project, dataset_id) for dataset_id in list_dataset_ids(project)]
+    statuses: list[DatasetStatus] = []
+    for dataset_id in list_dataset_ids(project):
+        try:
+            statuses.append(dataset_status(project, dataset_id))
+        except Exception as exc:
+            statuses.append(
+                DatasetStatus(
+                    dataset_id,
+                    "invalid",
+                    None,
+                    None,
+                    None,
+                    f"{type(exc).__name__}: {exc}",
+                )
+            )
+    return statuses
 
 
 def register_dataset(
@@ -241,6 +256,7 @@ def register_dataset(
     license_name: str = "",
     distributable: bool | None = None,
     inputs: Iterable[str] = (),
+    code: Iterable[str] = (),
     pipeline_step: str = "",
     run_id: str = "",
     force: bool = False,
@@ -266,6 +282,13 @@ def register_dataset(
     if dataset_id in input_ids:
         raise ManifestError("Dataset 不能把自己作为 lineage input。")
 
+    code_refs: list[dict[str, str]] = []
+    for value in code:
+        code_path, code_relative = _relative_project_path(project, value)
+        if not code_path.is_file():
+            raise ManifestError(f"Lineage code 文件不存在: {code_path}")
+        code_refs.append({"path": code_relative, "sha256": sha256_file(code_path)})
+
     fmt = infer_format(data_path)
     dimensions = inspect_dimensions(data_path, fmt)
     access: dict[str, Any] = {}
@@ -290,6 +313,7 @@ def register_dataset(
         "dimensions": dimensions,
         "lineage": {
             "inputs": [{"dataset": value} for value in input_ids],
+            "code": code_refs,
             "pipeline_step": pipeline_step.strip() or None,
             "run_id": run_id.strip() or None,
         },
@@ -308,6 +332,19 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
     statuses = all_dataset_statuses(project)
     ids = set(list_dataset_ids(project))
     rewritten: list[DatasetStatus] = []
+
+    def tree_problem(node: dict[str, Any]) -> str | None:
+        status = node.get("status")
+        if status == "cycle":
+            return "lineage cycle: " + " -> ".join(node.get("cycle") or [])
+        if status == "missing":
+            return f"missing lineage dataset: {node.get('dataset')}"
+        for child in node.get("inputs", []):
+            problem = tree_problem(child)
+            if problem:
+                return problem
+        return None
+
     for status in statuses:
         if status.status != "current":
             rewritten.append(status)
@@ -333,6 +370,52 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
                         status.expected_sha256,
                         status.current_sha256,
                         "missing lineage dataset(s): " + ", ".join(missing),
+                    )
+                )
+                continue
+
+            code_refs = lineage.get("code") if isinstance(lineage.get("code"), list) else []
+            code_problem = None
+            for item in code_refs:
+                if not isinstance(item, dict):
+                    code_problem = "invalid lineage code entry"
+                    break
+                code_value = str(item.get("path") or "")
+                expected = str(item.get("sha256") or "")
+                try:
+                    code_path, _ = _relative_project_path(project, code_value)
+                except Exception:
+                    code_problem = f"invalid lineage code path: {code_value}"
+                    break
+                if not code_path.is_file():
+                    code_problem = f"lineage code missing: {code_value}"
+                    break
+                if expected and sha256_file(code_path) != expected:
+                    code_problem = f"lineage code SHA256 changed: {code_value}"
+                    break
+            if code_problem:
+                rewritten.append(
+                    DatasetStatus(
+                        status.dataset_id,
+                        "stale",
+                        status.path,
+                        status.expected_sha256,
+                        status.current_sha256,
+                        code_problem,
+                    )
+                )
+                continue
+
+            problem = tree_problem(lineage_tree(project, status.dataset_id))
+            if problem:
+                rewritten.append(
+                    DatasetStatus(
+                        status.dataset_id,
+                        "invalid",
+                        status.path,
+                        status.expected_sha256,
+                        status.current_sha256,
+                        problem,
                     )
                 )
             else:
