@@ -12,7 +12,7 @@ You are working inside a reproducible research project. Optimize for traceabilit
 
 ## Literature
 
-- Prefer `research-literature add <DOI|arXiv|PDF>` to register papers instead of inventing metadata by hand.
+- Prefer `research-literature add <DOI|arXiv|PDF>` to register papers instead of inventing metadata by hand.\n- For a local PDF, use `research-literature extract <citation_key>` when page-aware text would make claims easier to verify.
 - Maintain `literature/evidence-matrix.csv` for papers that materially support the project.
 - Record at least the paper identity, research question, data, method, key finding, limitation, and relevance.
 - Put BibTeX entries in `literature/references.bib`; keep structured paper notes under `literature/notes/`.
