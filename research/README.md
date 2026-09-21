@@ -65,6 +65,91 @@ research-archive
 research-archive --include-raw
 ```
 
+## DSH-native Research Adapter
+
+从 `0.9.0-rc.2` 开始，普通用户不再需要把 `research-*` CLI 当成主要界面。
+
+```text
+User
+  ↓ natural language
+DSH Agent (web / headless)
+  ↓
+DSH-native Research Adapter
+  ↓
+research-* CLI / Stable JSON API v1
+  ↓
+Research Engine
+  ↓
+files + manifests
+```
+
+Research Core 暴露四个高层 model-callable tools：
+
+```text
+research_project
+research_data
+research_pipeline
+research_results
+```
+
+Economics Pack 额外暴露：
+
+```text
+economics_did
+economics_model
+```
+
+Adapter 是 Cordis plugin，通过官方 `ctx.tools.register()` 注册工具；Research 镜像中的
+`dsh` wrapper 仅在 `web` / `headless` Agent profile 上自动追加：
+
+```text
+--patch /opt/dsh-research/adapter/cordis.patch.yml
+```
+
+它不会修改持久 profile，也不会影响 Standard 镜像。
+
+### 用户体验
+
+CLI Agent：
+
+```bash
+cd /workspace
+dsh headless "创建一个 economics 项目 policy-did。先定义研究问题、estimand 和 DiD 识别策略，不要直接估计。"
+```
+
+Web Agent：
+
+```text
+我已经把数据放在 policy-did/data/raw/firms.csv。
+先检查数据和 treatment timing，告诉我目前是否适合做 DiD。
+```
+
+理想调用链是：
+
+```text
+Agent
+  → research_project(status/check)
+  → research_data(register/verify)
+  → economics_did(check)
+  → 向用户解释设计问题
+  → 用户要求执行
+  → economics_did(estimate)
+  → research_results(list/verify)
+```
+
+而不是要求用户自己记住几十个 `research-econ-*` 参数。
+
+### Adapter 边界
+
+- 只调用 allow-listed Research CLI，不允许任意 shell command。
+- subprocess 使用 argv 数组，不经过 shell interpolation。
+- 项目路径必须位于 `/workspace` 内。
+- 调 Research 子进程时剥离 API key / token / secret / password / credential 类环境变量。
+- `research_pipeline(action="run")` 默认 dry-run，真实执行需要 Agent 明确选择。
+- Economics tools 只在 Economics Pack 存在时注册。
+- `research-*` CLI 继续作为 CI / Dashboard / 自动化 / recovery 的稳定协议。
+- 设置 `DSH_RESEARCH_ADAPTER_DISABLE=1` 可临时绕过 Adapter 做上游兼容性排查。
+
 ## 文献管线
 
 `research-literature` 把文献管理做成可检查的项目数据，而不是只保留聊天中的总结：
@@ -152,13 +237,13 @@ Economics 模板会在通用 Research Project 的基础上增加：
 
 ## V2 开发方向与实施方案
 
-> 当前开发状态（Research 0.9.0-rc.1，更新于 2026-09-22）：V2.0 Phase 0–8 已全部落地，并进入 Release Candidate 硬化。RC1 不扩张功能面，重点验证 schema1→2 升级、Dataset→Pipeline→Run→Result→Dashboard→Release Gate 的真实端到端生命周期，以及 stale propagation、机器接口和安全边界。
+> 当前开发状态（Research 0.9.0-rc.2，更新于 2026-09-22）：真实 dogfooding 暴露出 RC1 的关键产品问题——Research 能力虽然完整，但用户仍需绕开 DSH 手敲 `research-*`。RC2 增加 DSH-native Research Adapter，把现有 Engine/CLI 作为 Agent 的稳定后端工具层，而不是另造研究逻辑。
 
 ### V2 当前进度
 
 | 范围 | 当前进度 | 状态 |
 |---|---:|---|
-| V2.0 Research Project Engine | 约 98% | 0.9.0-rc.1：功能层闭环，RC gate / 升级兼容 / release-readiness 语义已进入验收 |
+| V2.0 Research Project Engine | 约 99% | 0.9.0-rc.2：DSH-native Adapter 接入；进入真实 Agent dogfooding |
 | 完整 V2 Roadmap | 约 55%–60% | V2.0 接近稳定；V2.1–V2.4 尚未系统展开 |
 
 V2.0 当前实施状态：
@@ -229,7 +314,7 @@ research-migrate --to 2
 
 ### 下一开发节点
 
-当前开发进入 Research `0.9.0-rc.1`。V2.0 的功能开发已经停止扩张，RC 阶段只处理：
+当前开发进入 Research `0.9.0-rc.2`。RC1 的第一轮真实使用发现“科研主入口脱离 DSH”属于 release blocker，因此 RC2 只增加接入层，不增加新的统计方法或第二套研究状态。RC 阶段继续只处理：
 
 ```text
 integration correctness
@@ -244,9 +329,11 @@ documentation / operator ergonomics
 版本路径：
 
 ```text
-0.9.0-rc.1
+0.9.0-rc.1   Engine / Dashboard / RC gate
      ↓
-0.9.0-rc.N   仅修 RC blocker
+0.9.0-rc.2   DSH-native Research Adapter
+     ↓
+0.9.0-rc.N   仅修 dogfooding / compatibility blocker
      ↓
 2.0.0        Stable V2
 ```
