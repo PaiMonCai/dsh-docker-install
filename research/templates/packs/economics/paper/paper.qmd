@@ -1,0 +1,72 @@
+---
+title: "__PROJECT_TITLE__"
+author: ""
+lang: zh-CN
+bibliography: ../literature/references.bib
+format:
+  html:
+    toc: true
+  pdf:
+    pdf-engine: xelatex
+    toc: true
+    mainfont: "Noto Serif CJK SC"
+    sansfont: "Noto Sans CJK SC"
+execute:
+  echo: false
+  warning: false
+  freeze: auto
+---
+
+# 摘要
+
+说明研究问题、数据、识别/经验策略、主要结果和边界。不要把相关性写成因果。
+
+# 1. 引言
+
+明确研究问题、经济学机制、边际贡献以及本文真正能够识别的对象。
+
+# 2. 制度背景与理论机制
+
+只保留与经验识别和可检验假设有关的制度背景或经济机制。
+
+# 3. 文献综述
+
+使用 `research-literature` 维护 Evidence Matrix，再从可追溯文献证据组织综述。
+
+# 4. 数据与样本
+
+说明数据来源、样本期、观察单位、合并规则、排除条件、缺失值处理、变量单位和描述统计。
+
+# 5. 经验策略
+
+明确：
+
+- estimand；
+- outcome 与 treatment/exposure；
+- 基准回归式；
+- controls；
+- fixed effects；
+- standard errors / clustering；
+- 识别假设；
+- 对识别假设的主要威胁。
+
+# 6. 基准结果
+
+报告效应量、标准误/置信区间和经济意义。表格应由代码生成。
+
+# 7. 识别检验与稳健性
+
+根据设计报告平行趋势、placebo、带宽、替代变量、样本规则或其他必要检验。
+失败或不支持预期结论的结果也应记录。
+
+# 8. 异质性与机制
+
+区分预先提出的机制/异质性分析与探索性分析，避免把事后切样本包装成确认性证据。
+
+# 9. 局限与外部有效性
+
+讨论测量误差、样本选择、剩余内生性、统计功效以及结论能外推到什么总体/时期。
+
+# 10. 结论
+
+总结证据，不超过研究设计允许的解释范围。
