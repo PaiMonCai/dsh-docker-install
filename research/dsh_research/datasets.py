@@ -350,6 +350,10 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
             return "lineage cycle: " + " -> ".join(node.get("cycle") or [])
         if status == "missing":
             return f"missing lineage dataset: {node.get('dataset')}"
+        if status == "invalid":
+            return f"invalid lineage dataset: {node.get('dataset')}"
+        if status == "stale":
+            return f"upstream lineage is stale: {node.get('dataset')}"
         for child in node.get("inputs", []):
             problem = tree_problem(child)
             if problem:
@@ -439,12 +443,14 @@ def verify_catalog(project: ResearchProject) -> list[DatasetStatus]:
                 )
                 continue
 
-            problem = tree_problem(lineage_tree(project, status.dataset_id))
+            tree = lineage_tree(project, status.dataset_id)
+            problem = tree_problem(tree)
             if problem:
+                problem_status = "stale" if "stale" in problem else "invalid"
                 rewritten.append(
                     DatasetStatus(
                         status.dataset_id,
-                        "invalid",
+                        problem_status,
                         status.path,
                         status.expected_sha256,
                         status.current_sha256,
