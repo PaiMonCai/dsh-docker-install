@@ -146,8 +146,10 @@ class ProjectStateTests(unittest.TestCase):
             self.assertEqual(state.data["raw_files"], 1)
             self.assertEqual(state.data["processed_files"], 1)
             self.assertEqual(state.runs["total"], 1)
-            self.assertEqual(state.results["models"], 1)
-            self.assertEqual(state.results["did"], 1)
+            self.assertEqual(state.results["registered"], 0)
+            self.assertEqual(state.results["current"], 0)
+            self.assertEqual(state.results["legacy"]["models"], 1)
+            self.assertEqual(state.results["legacy"]["did"], 1)
             self.assertTrue(state.paper["source_exists"])
 
 
