@@ -100,6 +100,19 @@ class CheckEngineTests(unittest.TestCase):
             self.assertEqual(result.status, "fail")
             self.assertEqual(result.severity, "ERROR")
 
+    def test_quarto_crossrefs_are_not_bibliography_citations(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            make_project(root)
+            (root / "paper" / "paper.qmd").write_text(
+                "See @tbl-econ-baseline and @fig-did-main-event.\n",
+                encoding="utf-8",
+            )
+            report = run_checks(ResearchProject(root), "full")
+            citations = next(r for r in report.results if r.id == "paper.citations")
+            self.assertEqual(citations.status, "pass")
+            self.assertTrue(report.ok)
+
     def test_source_without_evidence_is_warning_not_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td).resolve()
