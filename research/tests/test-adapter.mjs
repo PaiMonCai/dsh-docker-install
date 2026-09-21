@@ -25,96 +25,146 @@ for (const name of [
 }
 
 try {
-  const moduleUrl = pathToFileURL(join(researchRoot, 'adapter', 'index.js'))
-  moduleUrl.searchParams.set('test', String(Date.now()))
-  const adapter = await import(moduleUrl.href)
+  const loadAdapter = async (tag) => {
+    const moduleUrl = pathToFileURL(join(researchRoot, 'adapter', 'index.js'))
+    moduleUrl.searchParams.set('test', tag)
+    return import(moduleUrl.href)
+  }
 
-  const definitions = new Map()
-  const ctx = {
-    tools: {
-      register(definition) {
-        assert.equal(typeof definition.name, 'string')
-        assert.equal(typeof definition.execute, 'function')
-        assert.equal(definition.parameters?.type, 'object')
-        assert.equal(definition.output?.schema?.type, 'object')
-        definitions.set(definition.name, definition)
-        return () => definitions.delete(definition.name)
+  const makeContext = () => {
+    const definitions = new Map()
+    const ctx = {
+      tools: {
+        register(definition) {
+          assert.equal(typeof definition.name, 'string')
+          assert.equal(typeof definition.execute, 'function')
+          assert.equal(definition.parameters?.type, 'object')
+          assert.equal(definition.output?.schema?.type, 'object')
+          definitions.set(definition.name, definition)
+          return () => definitions.delete(definition.name)
+        },
       },
-    },
+    }
+    return { ctx, definitions }
   }
 
-  adapter.apply(ctx)
+  // Core image: only general Research tools are registered.
+  {
+    const adapter = await loadAdapter('core-' + Date.now())
+    const { ctx, definitions } = makeContext()
+    adapter.apply(ctx)
 
-  for (const name of [
-    'research_project',
-    'research_data',
-    'research_pipeline',
-    'research_results',
-    'economics_did',
-    'economics_model',
-  ]) {
-    assert.ok(definitions.has(name), `missing native tool: ${name}`)
+    for (const name of [
+      'research_project',
+      'research_data',
+      'research_pipeline',
+      'research_results',
+    ]) {
+      assert.ok(definitions.has(name), `missing native tool: ${name}`)
+    }
+    assert.equal(definitions.has('economics_did'), false)
+    assert.equal(definitions.has('economics_model'), false)
+
+    const exec = { signal: new AbortController().signal }
+
+    const created = await definitions.get('research_project').execute({
+      action: 'create',
+      slug: 'adapter-smoke',
+      title: 'Adapter Smoke',
+      template: 'default',
+    }, exec)
+    assert.equal(created.ok, true)
+    assert.match(created.stdout, /Research project created:/)
+
+    const status = await definitions.get('research_project').execute({
+      action: 'status',
+      project: 'adapter-smoke',
+    }, exec)
+    assert.equal(status.ok, true)
+    assert.equal(status.api?.name, 'dsh-research')
+    assert.equal(status.data?.project?.slug, 'adapter-smoke')
+
+    const data = await definitions.get('research_data').execute({
+      action: 'list',
+      project: 'adapter-smoke',
+    }, exec)
+    assert.equal(data.ok, true)
+    assert.deepEqual(data.data?.datasets, [])
+
+    const pipeline = await definitions.get('research_pipeline').execute({
+      action: 'status',
+      project: 'adapter-smoke',
+    }, exec)
+    assert.equal(pipeline.ok, true)
+    assert.deepEqual(pipeline.data?.steps, [])
+
+    const results = await definitions.get('research_results').execute({
+      action: 'list',
+      project: 'adapter-smoke',
+    }, exec)
+    assert.equal(results.ok, true)
+    assert.deepEqual(results.data?.results, [])
+
+    await assert.rejects(
+      definitions.get('research_project').execute({
+        action: 'status',
+        project: '../escape',
+      }, exec),
+      /inside/,
+    )
+
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-research-adapter-outside-'))
+    await symlink(outside, join(workspace, 'escape-link'))
+    await assert.rejects(
+      definitions.get('research_project').execute({
+        action: 'status',
+        project: 'escape-link',
+      }, exec),
+      /physically inside/,
+    )
+    await rm(outside, { recursive: true, force: true })
   }
 
-  const exec = { signal: new AbortController().signal }
+  // Economics image: simulate installed /usr/local/bin by exposing economics
+  // binaries through a temporary bin directory and re-importing the plugin.
+  {
+    const econBin = await mkdtemp(join(tmpdir(), 'dsh-research-econ-bin-'))
+    try {
+      for (const name of [
+        'research-init',
+        'research-status',
+        'research-data',
+        'research-pipeline',
+        'research-result',
+      ]) {
+        await symlink(join(researchRoot, 'bin', name), join(econBin, name))
+      }
+      for (const name of ['research-econ-did', 'research-econ-model']) {
+        await symlink(
+          join(researchRoot, 'packs', 'economics', 'bin', name),
+          join(econBin, name),
+        )
+      }
 
-  const created = await definitions.get('research_project').execute({
-    action: 'create',
-    slug: 'adapter-smoke',
-    title: 'Adapter Smoke',
-    template: 'default',
-  }, exec)
-  assert.equal(created.ok, true)
-  assert.match(created.stdout, /Research project created:/)
+      process.env.DSH_RESEARCH_BIN_DIR = econBin
+      const adapter = await loadAdapter('economics-' + Date.now())
+      const { ctx, definitions } = makeContext()
+      adapter.apply(ctx)
 
-  const status = await definitions.get('research_project').execute({
-    action: 'status',
-    project: 'adapter-smoke',
-  }, exec)
-  assert.equal(status.ok, true)
-  assert.equal(status.api?.name, 'dsh-research')
-  assert.equal(status.data?.project?.slug, 'adapter-smoke')
-
-  const data = await definitions.get('research_data').execute({
-    action: 'list',
-    project: 'adapter-smoke',
-  }, exec)
-  assert.equal(data.ok, true)
-  assert.deepEqual(data.data?.datasets, [])
-
-  const pipeline = await definitions.get('research_pipeline').execute({
-    action: 'status',
-    project: 'adapter-smoke',
-  }, exec)
-  assert.equal(pipeline.ok, true)
-  assert.deepEqual(pipeline.data?.steps, [])
-
-  const results = await definitions.get('research_results').execute({
-    action: 'list',
-    project: 'adapter-smoke',
-  }, exec)
-  assert.equal(results.ok, true)
-  assert.deepEqual(results.data?.results, [])
-
-  await assert.rejects(
-    definitions.get('research_project').execute({
-      action: 'status',
-      project: '../escape',
-    }, exec),
-    /inside/,
-  )
-
-  const outside = await mkdtemp(join(tmpdir(), 'dsh-research-adapter-outside-'))
-  await symlink(outside, join(workspace, 'escape-link'))
-  await assert.rejects(
-    definitions.get('research_project').execute({
-      action: 'status',
-      project: 'escape-link',
-    }, exec),
-    /physically inside/,
-  )
-  await rm(outside, { recursive: true, force: true })
-
+      for (const name of [
+        'research_project',
+        'research_data',
+        'research_pipeline',
+        'research_results',
+        'economics_did',
+        'economics_model',
+      ]) {
+        assert.ok(definitions.has(name), `missing native economics tool: ${name}`)
+      }
+    } finally {
+      await rm(econBin, { recursive: true, force: true })
+    }
+  }
   console.log('[✓] DSH-native Research Adapter contract passed')
 } finally {
   await rm(workspace, { recursive: true, force: true })
