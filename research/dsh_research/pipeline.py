@@ -575,6 +575,21 @@ def execute_pipeline(
     order = topological_order(pipeline, [target] if target else None)
     decisions: list[dict[str, Any]] = []
 
+    if dry_run:
+        statuses = step_statuses(project, pipeline)
+        for name in order:
+            status = statuses[name]
+            action = "RUN" if force or status.status != "current" else "SKIP"
+            item: dict[str, Any] = {
+                "step": name,
+                "action": action,
+                "status": status.status,
+            }
+            if action == "RUN":
+                item["reasons"] = list(status.reasons)
+            decisions.append(item)
+        return decisions
+
     for name in order:
         statuses = step_statuses(project, pipeline)
         status = statuses[name]
@@ -604,9 +619,6 @@ def execute_pipeline(
                 "reasons": list(status.reasons),
             }
         )
-        if dry_run:
-            continue
-
         run_id = _run_id()
         started = _iso()
         env = os.environ.copy()
