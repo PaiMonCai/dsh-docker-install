@@ -54,6 +54,11 @@ execute:
 
 报告效应量、标准误/置信区间和经济意义。表格应由代码生成。
 
+{{< include generated/economics-results.qmd >}}
+
+在正文中可以使用 `@tbl-econ-<name>` 和 `@fig-econ-<name>` 引用由
+`research-econ-model` 登记的回归表与系数图。
+
 # 7. 识别检验与稳健性
 
 根据设计报告平行趋势、placebo、带宽、替代变量、样本规则或其他必要检验。
