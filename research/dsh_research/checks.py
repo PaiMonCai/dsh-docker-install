@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import load_research_config
+from .datasets import verify_catalog
 from .hashing import sha256_file
 from .manifests import read_jsonl
 from .project import ResearchProject
@@ -338,6 +339,36 @@ def run_checks(project: ResearchProject, mode: str = "full") -> CheckReport:
 
     if mode == "quick":
         return CheckReport(mode, tuple(results))
+
+    dataset_statuses = verify_catalog(project)
+    if not dataset_statuses:
+        results.append(
+            _pass(
+                "data.catalog",
+                "No datasets are registered yet.",
+                path="data/catalog",
+            )
+        )
+    else:
+        bad = [item for item in dataset_statuses if item.status != "current"]
+        if bad:
+            results.append(
+                _fail(
+                    "data.catalog",
+                    "ERROR",
+                    f"{len(bad)} registered dataset(s) are stale, missing, or invalid.",
+                    path="data/catalog",
+                    details={"datasets": [item.as_dict() for item in bad]},
+                )
+            )
+        else:
+            results.append(
+                _pass(
+                    "data.catalog",
+                    f"{len(dataset_statuses)} registered dataset(s) match their manifests and lineage.",
+                    path="data/catalog",
+                )
+            )
 
     literature = root / "literature"
     bib_path = literature / "references.bib"

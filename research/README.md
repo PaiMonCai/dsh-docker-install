@@ -447,6 +447,8 @@ CLI exit code 应稳定，便于 CI 直接使用 `research-check --release` 作�
 
 #### Phase 3 — Data Catalog + Lineage
 
+**Implemented in Research 0.6.0.** 这一阶段已经提供可运行的 Dataset Catalog、hash 校验与显式血缘追踪。
+
 新增：
 
 ```text
@@ -488,8 +490,13 @@ dimensions:
 
 lineage:
   inputs:
-    - dataset:raw-firms
-    - dataset:policy
+    - dataset: raw-firms
+      sha256: "..."
+    - dataset: policy
+      sha256: "..."
+  code:
+    - path: src/clean.py
+      sha256: "..."
   pipeline_step: clean
   run_id: 20260921T120000Z-clean
 
@@ -520,6 +527,38 @@ Processed Dataset
         ↓
 Model / Result
 ```
+
+
+当前实现支持：
+
+```bash
+research-data register data/raw/source.csv --name source --kind raw
+research-data register data/processed/panel.parquet \
+  --name panel \
+  --kind processed \
+  --input source \
+  --code src/clean.py \
+  --pipeline-step clean \
+  --run-id 20260921T120000Z-clean
+
+research-data list
+research-data show panel
+research-data verify
+research-data lineage panel
+```
+
+当前 Dataset 状态统一为：
+
+```text
+current
+stale
+missing
+invalid
+```
+
+不仅 dataset 文件本身的 SHA256 会参与状态判断，上游 Dataset fingerprint 与生成代码 SHA256 也会写入 lineage；
+上游数据重新登记或生成代码变化后，下游 Dataset 会自动变成 `stale`。这个协议将直接作为 V2.0 Phase 4
+Pipeline DAG / stale propagation 的输入基础。
 
 #### Phase 4 — Pipeline DAG + Stale Detection
 

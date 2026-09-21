@@ -7,6 +7,16 @@ and manifest protocol instead of reimplementing it independently.
 
 from .checks import CheckReport, CheckResult, run_checks
 from .config import load_research_config, load_yaml, write_yaml
+from .datasets import (
+    DATASET_SCHEMA,
+    DatasetStatus,
+    all_dataset_statuses,
+    dataset_status,
+    lineage_tree,
+    load_dataset_manifest,
+    register_dataset,
+    verify_catalog,
+)
 from .hashing import FileFingerprint, fingerprint_file, sha256_file, tree_digest
 from .manifests import load_json, read_jsonl, write_json, write_jsonl
 from .project import ResearchProject, find_project_root
@@ -17,26 +27,34 @@ from .vcs import GitState, git_state
 __all__ = [
     "CheckReport",
     "CheckResult",
+    "DATASET_SCHEMA",
+    "DatasetStatus",
     "FileFingerprint",
     "GitState",
     "ResearchProject",
     "ProjectState",
     "CURRENT_PROJECT_SCHEMA",
+    "all_dataset_statuses",
     "build_project_state",
+    "dataset_status",
     "find_project_root",
     "fingerprint_file",
     "git_state",
+    "lineage_tree",
+    "load_dataset_manifest",
     "load_json",
     "load_research_config",
     "load_yaml",
     "migrate_config",
     "migrate_project",
     "read_jsonl",
+    "register_dataset",
     "run_checks",
     "sha256_file",
     "tree_digest",
     "write_json",
     "write_jsonl",
     "validate_project_schema",
+    "verify_catalog",
     "write_yaml",
 ]

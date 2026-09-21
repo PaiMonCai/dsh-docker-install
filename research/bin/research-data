@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from dsh_research.datasets import (
+    all_dataset_statuses,
+    dataset_status,
+    lineage_tree,
+    list_dataset_ids,
+    load_dataset_manifest,
+    register_dataset,
+    render_lineage,
+    verify_catalog,
+)
+from dsh_research.errors import ResearchError
+from dsh_research.project import ResearchProject
+
+
+def _distributable(value: str) -> bool:
+    value = value.strip().lower()
+    if value in {"yes", "true", "1"}:
+        return True
+    if value in {"no", "false", "0"}:
+        return False
+    raise argparse.ArgumentTypeError("必须是 yes/no 或 true/false")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-data",
+        description="DSH Research Dataset Catalog 与数据血缘管理。",
+    )
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    register = sub.add_parser("register", help="登记一个项目内 dataset")
+    register.add_argument("path", help="项目内数据文件路径")
+    register.add_argument("--name", required=True, help="dataset id")
+    register.add_argument("--title", default="", help="可读标题")
+    register.add_argument(
+        "--kind", required=True, choices=["raw", "processed", "interim", "external"]
+    )
+    register.add_argument("--source", default="", help="来源说明或 URL")
+    register.add_argument("--license", dest="license_name", default="", help="许可/授权说明")
+    register.add_argument("--distributable", type=_distributable, default=None)
+    register.add_argument("--input", action="append", default=[], help="上游 dataset id，可重复")
+    register.add_argument("--code", action="append", default=[], help="生成该 dataset 的代码文件，可重复")
+    register.add_argument("--pipeline-step", default="")
+    register.add_argument("--run-id", default="")
+    register.add_argument("--force", action="store_true", help="显式更新已有 manifest")
+
+    list_cmd = sub.add_parser("list", help="列出 Dataset Catalog")
+    list_cmd.add_argument("--json", action="store_true")
+
+    show = sub.add_parser("show", help="显示一个 Dataset manifest")
+    show.add_argument("name")
+    show.add_argument("--json", action="store_true")
+
+    verify = sub.add_parser("verify", help="校验 Dataset manifest 与文件 hash")
+    verify.add_argument("name", nargs="?", help="可选 dataset id；不填则校验全部")
+    verify.add_argument("--json", action="store_true")
+
+    lineage = sub.add_parser("lineage", help="显示 dataset 上游血缘")
+    lineage.add_argument("name")
+    lineage.add_argument("--json", action="store_true")
+    return parser
+
+
+def self_test() -> int:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td).resolve()
+        (root / "research.yaml").write_text(
+            "schema: 2\nproject:\n  slug: smoke\n  title: Smoke\n  template: default\n  status: active\n",
+            encoding="utf-8",
+        )
+        raw = root / "data" / "raw"
+        processed = root / "data" / "processed"
+        raw.mkdir(parents=True)
+        processed.mkdir(parents=True)
+        (raw / "source.csv").write_text("id,x\n1,2\n", encoding="utf-8")
+        (processed / "panel.csv").write_text("id,y\n1,3\n", encoding="utf-8")
+        project = ResearchProject(root)
+        register_dataset(project, dataset_id="source", path="data/raw/source.csv", kind="raw")
+        register_dataset(
+            project,
+            dataset_id="panel",
+            path="data/processed/panel.csv",
+            kind="processed",
+            inputs=["source"],
+            pipeline_step="clean",
+        )
+        assert dataset_status(project, "panel").status == "current"
+        assert lineage_tree(project, "panel")["inputs"][0]["dataset"] == "source"
+        assert all(item.status == "current" for item in verify_catalog(project))
+    print("research-data self-test passed")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        build_parser().print_help()
+        return 2
+
+    try:
+        project = ResearchProject.discover()
+
+        if args.command == "register":
+            path = register_dataset(
+                project,
+                dataset_id=args.name,
+                path=args.path,
+                kind=args.kind,
+                title=args.title,
+                source=args.source,
+                license_name=args.license_name,
+                distributable=args.distributable,
+                inputs=args.input,
+                code=args.code,
+                pipeline_step=args.pipeline_step,
+                run_id=args.run_id,
+                force=args.force,
+            )
+            status = dataset_status(project, args.name)
+            print(f"[ok] dataset registered: {args.name}")
+            print(f"[ok] manifest: {path.relative_to(project.root)}")
+            print(f"[ok] sha256: {status.current_sha256}")
+            return 0
+
+        if args.command == "list":
+            rows = [item.as_dict() for item in verify_catalog(project)]
+            if args.json:
+                print(json.dumps({"dataset_schema": 1, "datasets": rows}, ensure_ascii=False, indent=2))
+            elif not rows:
+                print("尚无已登记 Dataset。")
+            else:
+                for item in rows:
+                    print(
+                        f"{item['dataset_id']:24} "
+                        f"{item['status']:8} "
+                        f"{item.get('path') or '-'}"
+                    )
+            return 0
+
+        if args.command == "show":
+            manifest = load_dataset_manifest(project, args.name)
+            status_map = {item.dataset_id: item for item in verify_catalog(project)}
+            status = status_map[args.name].as_dict()
+            payload = {"manifest": manifest, "status": status}
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                import yaml
+                print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), end="")
+            return 0
+
+        if args.command == "verify":
+            statuses = verify_catalog(project)
+            if args.name:
+                statuses = [item for item in statuses if item.dataset_id == args.name]
+                if not statuses:
+                    raise ResearchError(f"Dataset manifest 不存在: {args.name}")
+            failures = [item for item in statuses if item.status != "current"]
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "dataset_schema": 1,
+                            "ok": not failures,
+                            "datasets": [item.as_dict() for item in statuses],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                for item in statuses:
+                    prefix = "[ok]" if item.status == "current" else "[error]"
+                    print(f"{prefix} {item.dataset_id}: {item.status} — {item.message}")
+                if not statuses:
+                    print("[ok] no registered datasets")
+            return 1 if failures else 0
+
+        if args.command == "lineage":
+            tree = lineage_tree(project, args.name)
+            if args.json:
+                print(json.dumps(tree, ensure_ascii=False, indent=2))
+            else:
+                print(render_lineage(tree))
+            def bad(node):
+                if node.get("status") in {"missing", "cycle", "invalid", "stale"}:
+                    return True
+                return any(bad(child) for child in node.get("inputs", []))
+            return 1 if bad(tree) else 0
+
+    except ResearchError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

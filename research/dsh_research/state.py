@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import load_research_config
+from .datasets import verify_catalog
 from .manifests import read_jsonl
 from .project import ResearchProject
 from .schema import infer_template, validate_project_schema
@@ -118,6 +119,12 @@ def build_project_state(project: ResearchProject) -> ProjectState:
     paper_source = root / str(paper_cfg.get("source", "paper/paper.qmd"))
     bibliography = root / str(paper_cfg.get("bibliography", "literature/references.bib"))
 
+    dataset_statuses = verify_catalog(project)
+    dataset_counts = {
+        key: sum(1 for item in dataset_statuses if item.status == key)
+        for key in ("current", "stale", "missing", "invalid")
+    }
+
     vcs = git_state(root).as_dict()
     return ProjectState(
         state_schema=1,
@@ -145,7 +152,11 @@ def build_project_state(project: ResearchProject) -> ProjectState:
         },
         data={
             "catalog_available": (root / "data" / "catalog").is_dir(),
-            "registered_datasets": _glob_count(root / "data" / "catalog", "*.yaml"),
+            "registered_datasets": len(dataset_statuses),
+            "current": dataset_counts["current"],
+            "stale": dataset_counts["stale"],
+            "missing": dataset_counts["missing"],
+            "invalid": dataset_counts["invalid"],
             "raw_files": _count_files(raw_path, ignore_names={"README.md"}),
             "processed_files": _count_files(processed_path, ignore_names={"README.md"}),
         },
@@ -222,6 +233,10 @@ def render_project_state(state: ProjectState) -> str:
         "",
         "Data",
         f"  Registered datasets    {d['data']['registered_datasets']}",
+        f"  Current                {d['data']['current']}",
+        f"  Stale                  {d['data']['stale']}",
+        f"  Missing                {d['data']['missing']}",
+        f"  Invalid                {d['data']['invalid']}",
         f"  Raw files              {d['data']['raw_files']}",
         f"  Processed files        {d['data']['processed_files']}",
         "",
