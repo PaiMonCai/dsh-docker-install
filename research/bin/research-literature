@@ -1,0 +1,877 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unicodedata
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+EVIDENCE_FIELDS = [
+    "citation_key",
+    "title",
+    "authors",
+    "year",
+    "question",
+    "data",
+    "method",
+    "key_variables",
+    "finding",
+    "limitation",
+    "relevance",
+    "notes",
+]
+
+DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.I)
+ARXIV_RE = re.compile(r"(?:(?:arxiv:)?)(\d{4}\.\d{4,5})(?:v\d+)?$", re.I)
+BIB_KEY_RE = re.compile(r"@\w+\s*\{\s*([^,\s]+)\s*,", re.I)
+PAPER_CITE_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9_.:+-]+)")
+
+
+class LiteratureError(RuntimeError):
+    pass
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def find_root(start: Path | None = None) -> Path:
+    current = (start or Path.cwd()).resolve()
+    while True:
+        if (current / "research.yaml").is_file():
+            return current
+        if current.parent == current:
+            raise LiteratureError("未找到 research.yaml；请在 Research Project 内运行。")
+        current = current.parent
+
+
+def normalize_doi(value: str) -> str:
+    value = value.strip()
+    value = re.sub(r"^doi:\s*", "", value, flags=re.I)
+    value = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", value, flags=re.I)
+    match = DOI_RE.search(value)
+    if not match:
+        raise LiteratureError(f"无法识别 DOI: {value}")
+    return match.group(0).rstrip(".,;").lower()
+
+
+def normalize_arxiv(value: str) -> str:
+    value = value.strip()
+    value = re.sub(r"^https?://arxiv\.org/(?:abs|pdf)/", "", value, flags=re.I)
+    value = re.sub(r"\.pdf$", "", value, flags=re.I)
+    value = re.sub(r"^arxiv:\s*", "", value, flags=re.I)
+    match = ARXIV_RE.match(value)
+    if not match:
+        raise LiteratureError(
+            "当前 V1 支持新式 arXiv ID（例如 2401.01234 / arXiv:2401.01234）。"
+        )
+    return match.group(1)
+
+
+def classify_source(value: str) -> tuple[str, str]:
+    p = Path(value).expanduser()
+    if p.is_file() and p.suffix.lower() == ".pdf":
+        return "pdf", str(p.resolve())
+    if "doi.org/" in value.lower() or value.lower().startswith("doi:") or DOI_RE.fullmatch(value.strip()):
+        return "doi", normalize_doi(value)
+    if "arxiv.org/" in value.lower() or value.lower().startswith("arxiv:") or ARXIV_RE.fullmatch(value.strip()):
+        return "arxiv", normalize_arxiv(value)
+    raise LiteratureError(
+        "无法识别来源。请提供 DOI、arXiv ID/URL 或本地 PDF 路径。"
+    )
+
+
+def httpx_client():
+    try:
+        import httpx
+    except ImportError as exc:
+        raise LiteratureError("Research 环境缺少 httpx。") from exc
+    return httpx.Client(
+        timeout=20.0,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "DSH-Research/0.1 (+https://github.com/PaiMonCai/dsh-docker-install)"
+        },
+    )
+
+
+def crossref_metadata(doi: str) -> tuple[dict[str, Any], str | None]:
+    with httpx_client() as client:
+        response = client.get(f"https://api.crossref.org/works/{doi}")
+        response.raise_for_status()
+        message = response.json()["message"]
+
+        authors = []
+        for author in message.get("author", []):
+            name = " ".join(
+                part for part in [author.get("given", ""), author.get("family", "")] if part
+            ).strip()
+            if name:
+                authors.append(name)
+
+        year = ""
+        for field in ("published-print", "published-online", "issued", "created"):
+            parts = message.get(field, {}).get("date-parts")
+            if parts and parts[0]:
+                year = str(parts[0][0])
+                break
+
+        title = " ".join(message.get("title") or []).strip()
+        url = message.get("URL") or f"https://doi.org/{doi}"
+        metadata = {
+            "source_type": "doi",
+            "identifier": doi,
+            "title": title,
+            "authors": authors,
+            "year": year,
+            "doi": doi,
+            "arxiv_id": "",
+            "url": url,
+            "container_title": " ".join(message.get("container-title") or []).strip(),
+            "publisher": message.get("publisher", ""),
+            "type": message.get("type", ""),
+            "metadata_provider": "Crossref",
+        }
+
+        bibtex = None
+        try:
+            bib = client.get(
+                f"https://doi.org/{doi}",
+                headers={
+                    "Accept": "application/x-bibtex",
+                    "User-Agent": "DSH-Research/0.1 (+https://github.com/PaiMonCai/dsh-docker-install)",
+                },
+            )
+            if bib.is_success and bib.text.lstrip().startswith("@"):
+                bibtex = bib.text.strip()
+        except Exception:
+            bibtex = None
+
+        return metadata, bibtex
+
+
+def arxiv_metadata(arxiv_id: str) -> tuple[dict[str, Any], str | None]:
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    with httpx_client() as client:
+        response = client.get(
+            "https://export.arxiv.org/api/query",
+            params={"id_list": arxiv_id},
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.text)
+        entry = root.find("atom:entry", ns)
+        if entry is None:
+            raise LiteratureError(f"arXiv 未返回条目: {arxiv_id}")
+
+        title = " ".join((entry.findtext("atom:title", default="", namespaces=ns)).split())
+        authors = [
+            " ".join((a.findtext("atom:name", default="", namespaces=ns)).split())
+            for a in entry.findall("atom:author", ns)
+        ]
+        published = entry.findtext("atom:published", default="", namespaces=ns)
+        year = published[:4] if published else ""
+        primary = ""
+        for child in list(entry):
+            if child.tag.endswith("primary_category"):
+                primary = child.attrib.get("term", "")
+                break
+
+        metadata = {
+            "source_type": "arxiv",
+            "identifier": arxiv_id,
+            "title": title,
+            "authors": [a for a in authors if a],
+            "year": year,
+            "doi": "",
+            "arxiv_id": arxiv_id,
+            "url": f"https://arxiv.org/abs/{arxiv_id}",
+            "container_title": "arXiv",
+            "publisher": "",
+            "type": "preprint",
+            "primary_class": primary,
+            "metadata_provider": "arXiv",
+        }
+        return metadata, None
+
+
+def pdf_local_metadata(path: Path) -> tuple[dict[str, Any], str | None]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise LiteratureError("Research 环境缺少 pypdf。") from exc
+
+    reader = PdfReader(str(path))
+    md = reader.metadata or {}
+    title = str(getattr(md, "title", "") or md.get("/Title", "") or path.stem).strip()
+    author = str(getattr(md, "author", "") or md.get("/Author", "") or "").strip()
+    sample_parts: list[str] = []
+    for page in reader.pages[:5]:
+        try:
+            sample_parts.append(page.extract_text() or "")
+        except Exception:
+            continue
+    sample = "\n".join(sample_parts)
+    doi_match = DOI_RE.search(sample)
+
+    metadata = {
+        "source_type": "pdf",
+        "identifier": str(path.resolve()),
+        "title": title,
+        "authors": [author] if author else [],
+        "year": "",
+        "doi": doi_match.group(0).rstrip(".,;").lower() if doi_match else "",
+        "arxiv_id": "",
+        "url": "",
+        "container_title": "",
+        "publisher": "",
+        "type": "local-pdf",
+        "metadata_provider": "PDF metadata",
+    }
+    return metadata, None
+
+
+def slug(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii").lower()
+    value = re.sub(r"[^a-z0-9]+", "", value)
+    return value
+
+
+def source_uid(metadata: dict[str, Any]) -> str:
+    if metadata.get("doi"):
+        return f"doi:{metadata['doi']}"
+    if metadata.get("arxiv_id"):
+        return f"arxiv:{metadata['arxiv_id']}"
+    return f"{metadata.get('source_type','source')}:{metadata.get('identifier','')}"
+
+
+def load_registry(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise LiteratureError(f"sources.jsonl 损坏: {exc}") from exc
+    return records
+
+
+def choose_citation_key(metadata: dict[str, Any], registry: list[dict[str, Any]], bib_text: str) -> str:
+    uid = source_uid(metadata)
+    for record in registry:
+        if record.get("source_uid") == uid and record.get("citation_key"):
+            return str(record["citation_key"])
+
+    authors = metadata.get("authors") or []
+    first_author = authors[0] if authors else ""
+    family = first_author.split()[-1] if first_author else ""
+    year = str(metadata.get("year") or "nd")
+    words = re.findall(r"[A-Za-z0-9]+", metadata.get("title") or "")
+    title_word = words[0] if words else ""
+    base = f"{slug(family) or 'paper'}{slug(year) or 'nd'}{slug(title_word)}"
+    digest = hashlib.sha1(uid.encode("utf-8")).hexdigest()[:6]
+    candidate = base or f"paper{digest}"
+
+    existing = set(BIB_KEY_RE.findall(bib_text))
+    registry_keys = {str(r.get("citation_key")) for r in registry if r.get("citation_key")}
+    if candidate in existing or candidate in registry_keys:
+        candidate = f"{candidate}{digest}"
+    return candidate
+
+
+def latex_escape(value: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "#": r"\#",
+        "_": r"\_",
+    }
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    return value
+
+
+def manual_bibtex(metadata: dict[str, Any], key: str) -> str:
+    entry_type = "article" if metadata.get("source_type") in {"doi", "arxiv"} else "misc"
+    fields: list[tuple[str, str]] = []
+    if metadata.get("title"):
+        fields.append(("title", latex_escape(str(metadata["title"]))))
+    if metadata.get("authors"):
+        fields.append(("author", " and ".join(latex_escape(a) for a in metadata["authors"])))
+    if metadata.get("year"):
+        fields.append(("year", str(metadata["year"])))
+    if metadata.get("container_title"):
+        fields.append(("journal", latex_escape(str(metadata["container_title"]))))
+    if metadata.get("doi"):
+        fields.append(("doi", str(metadata["doi"])))
+    if metadata.get("arxiv_id"):
+        fields.extend(
+            [
+                ("eprint", str(metadata["arxiv_id"])),
+                ("archivePrefix", "arXiv"),
+            ]
+        )
+        if metadata.get("primary_class"):
+            fields.append(("primaryClass", str(metadata["primary_class"])))
+    if metadata.get("url"):
+        fields.append(("url", str(metadata["url"])))
+
+    body = ",\n".join(f"  {name} = {{{value}}}" for name, value in fields)
+    return f"@{entry_type}{{{key},\n{body}\n}}"
+
+
+def rekey_bibtex(bibtex: str, key: str) -> str:
+    return re.sub(
+        r"(@\w+\s*\{)\s*[^,]+,",
+        lambda m: f"{m.group(1)}{key},",
+        bibtex,
+        count=1,
+        flags=re.I,
+    )
+
+
+def ensure_layout(root: Path) -> dict[str, Path]:
+    literature = root / "literature"
+    paths = {
+        "literature": literature,
+        "bib": literature / "references.bib",
+        "matrix": literature / "evidence-matrix.csv",
+        "registry": literature / "sources.jsonl",
+        "notes": literature / "notes",
+        "pdfs": literature / "pdfs",
+    }
+    paths["notes"].mkdir(parents=True, exist_ok=True)
+    paths["pdfs"].mkdir(parents=True, exist_ok=True)
+    if not paths["bib"].exists():
+        paths["bib"].write_text("% Managed by DSH Research.\n", encoding="utf-8")
+    if not paths["matrix"].exists():
+        with paths["matrix"].open("w", encoding="utf-8", newline="") as f:
+            csv.DictWriter(f, fieldnames=EVIDENCE_FIELDS).writeheader()
+    if not paths["registry"].exists():
+        paths["registry"].write_text("", encoding="utf-8")
+    return paths
+
+
+def upsert_bib(path: Path, key: str, entry: str) -> bool:
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    keys = BIB_KEY_RE.findall(text)
+    if key in keys:
+        return False
+    with path.open("a", encoding="utf-8") as f:
+        if text and not text.endswith("\n"):
+            f.write("\n")
+        f.write("\n" + entry.rstrip() + "\n")
+    return True
+
+
+def upsert_registry(path: Path, record: dict[str, Any]) -> None:
+    records = load_registry(path)
+    uid = record["source_uid"]
+    found = False
+    for idx, item in enumerate(records):
+        if item.get("source_uid") == uid:
+            preserved = dict(item)
+            preserved.update(record)
+            records[idx] = preserved
+            found = True
+            break
+    if not found:
+        records.append(record)
+    with path.open("w", encoding="utf-8") as f:
+        for item in records:
+            f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def upsert_evidence(path: Path, metadata: dict[str, Any], key: str) -> None:
+    rows: list[dict[str, str]] = []
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rows.append({field: row.get(field, "") for field in EVIDENCE_FIELDS})
+
+    values = {
+        "citation_key": key,
+        "title": str(metadata.get("title") or ""),
+        "authors": "; ".join(metadata.get("authors") or []),
+        "year": str(metadata.get("year") or ""),
+    }
+    for row in rows:
+        if row["citation_key"] == key:
+            for field, value in values.items():
+                if value and not row.get(field):
+                    row[field] = value
+            break
+    else:
+        row = {field: "" for field in EVIDENCE_FIELDS}
+        row.update(values)
+        rows.append(row)
+
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=EVIDENCE_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def make_note(path: Path, metadata: dict[str, Any], key: str, project_pdf: str) -> bool:
+    if path.exists():
+        return False
+    authors = "; ".join(metadata.get("authors") or [])
+    note = f"""# {metadata.get('title') or key}
+
+## Metadata
+
+- Citation key: `{key}`
+- Authors: {authors}
+- Year: {metadata.get('year') or ''}
+- DOI: {metadata.get('doi') or ''}
+- arXiv: {metadata.get('arxiv_id') or ''}
+- URL: {metadata.get('url') or ''}
+- Local PDF: {project_pdf}
+- Imported: {utc_now()}
+- Metadata provider: {metadata.get('metadata_provider') or ''}
+
+## Research question
+
+<!-- 用自己的话写论文试图回答什么。 -->
+
+## Data
+
+<!-- 数据来源、样本范围、时间、单位、关键筛选。 -->
+
+## Method
+
+<!-- 描述方法；因果研究需单列识别策略和关键假设。 -->
+
+## Key variables
+
+<!-- outcome / treatment / controls / units。 -->
+
+## Findings
+
+<!-- 只记录论文实际报告且已核对的结果；定量结论保留表/图/页码。 -->
+
+## Identification and assumptions
+
+<!-- 区分相关、预测与因果；记录识别假设。 -->
+
+## Limitations
+
+<!-- 作者承认的局限 + 你识别出的外推/测量/识别风险。 -->
+
+## Relevance to this project
+
+<!-- 这篇文献为什么与当前 research.yaml 中的问题有关。 -->
+
+## Traceable excerpts
+
+<!-- 只放必要短摘录；记录页码/章节。不要把长段原文当作笔记。 -->
+"""
+    path.write_text(note, encoding="utf-8")
+    return True
+
+
+def ingest(
+    root: Path,
+    kind: str,
+    value: str,
+    offline: bool = False,
+    copy_pdf: bool = True,
+    title_override: str = "",
+    authors_override: str = "",
+    year_override: str = "",
+) -> dict[str, Any]:
+    paths = ensure_layout(root)
+    project_pdf = ""
+    raw_bib = None
+
+    if kind == "doi":
+        doi = normalize_doi(value)
+        if offline:
+            metadata = {
+                "source_type": "doi",
+                "identifier": doi,
+                "title": "",
+                "authors": [],
+                "year": "",
+                "doi": doi,
+                "arxiv_id": "",
+                "url": f"https://doi.org/{doi}",
+                "container_title": "",
+                "publisher": "",
+                "type": "article",
+                "metadata_provider": "offline",
+            }
+        else:
+            metadata, raw_bib = crossref_metadata(doi)
+    elif kind == "arxiv":
+        arxiv_id = normalize_arxiv(value)
+        if offline:
+            metadata = {
+                "source_type": "arxiv",
+                "identifier": arxiv_id,
+                "title": "",
+                "authors": [],
+                "year": "",
+                "doi": "",
+                "arxiv_id": arxiv_id,
+                "url": f"https://arxiv.org/abs/{arxiv_id}",
+                "container_title": "arXiv",
+                "publisher": "",
+                "type": "preprint",
+                "metadata_provider": "offline",
+            }
+        else:
+            metadata, raw_bib = arxiv_metadata(arxiv_id)
+    elif kind == "pdf":
+        pdf_path = Path(value).expanduser().resolve()
+        if not pdf_path.is_file():
+            raise LiteratureError(f"PDF 不存在: {pdf_path}")
+        metadata, raw_bib = pdf_local_metadata(pdf_path)
+        detected_doi = metadata.get("doi")
+        if detected_doi and not offline:
+            try:
+                remote, raw_bib = crossref_metadata(str(detected_doi))
+                remote["source_type"] = "pdf+doi"
+                remote["identifier"] = str(pdf_path)
+                remote["local_source"] = str(pdf_path)
+                metadata = remote
+            except Exception as exc:
+                print(f"[warn] PDF 中检测到 DOI，但 Crossref 查询失败：{exc}", file=sys.stderr)
+        metadata["local_source"] = str(pdf_path)
+    else:
+        raise LiteratureError(f"未知来源类型: {kind}")
+
+    if title_override:
+        metadata["title"] = title_override
+    if authors_override:
+        metadata["authors"] = [x.strip() for x in authors_override.split(";") if x.strip()]
+    if year_override:
+        metadata["year"] = year_override
+
+    bib_text = paths["bib"].read_text(encoding="utf-8")
+    registry = load_registry(paths["registry"])
+    key = choose_citation_key(metadata, registry, bib_text)
+
+    if kind == "pdf" and copy_pdf:
+        source = Path(value).expanduser().resolve()
+        dest = paths["pdfs"] / f"{key}.pdf"
+        if source != dest:
+            shutil.copy2(source, dest)
+        project_pdf = str(dest.relative_to(root))
+        metadata["project_pdf"] = project_pdf
+
+    bib_entry = rekey_bibtex(raw_bib, key) if raw_bib else manual_bibtex(metadata, key)
+    bib_added = upsert_bib(paths["bib"], key, bib_entry)
+    upsert_evidence(paths["matrix"], metadata, key)
+
+    note_path = paths["notes"] / f"{key}.md"
+    note_added = make_note(note_path, metadata, key, project_pdf)
+
+    record = {
+        "schema": 1,
+        "source_uid": source_uid(metadata),
+        "citation_key": key,
+        "source_type": metadata.get("source_type", kind),
+        "identifier": metadata.get("identifier", value),
+        "title": metadata.get("title", ""),
+        "authors": metadata.get("authors", []),
+        "year": metadata.get("year", ""),
+        "doi": metadata.get("doi", ""),
+        "arxiv_id": metadata.get("arxiv_id", ""),
+        "url": metadata.get("url", ""),
+        "project_pdf": project_pdf or metadata.get("project_pdf", ""),
+        "metadata_provider": metadata.get("metadata_provider", ""),
+        "imported_at": utc_now(),
+    }
+    upsert_registry(paths["registry"], record)
+    return {
+        "citation_key": key,
+        "title": metadata.get("title", ""),
+        "bib_added": bib_added,
+        "note_added": note_added,
+        "note": str(note_path.relative_to(root)),
+        "pdf": project_pdf,
+        "source_uid": record["source_uid"],
+    }
+
+
+def load_evidence(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def write_review(root: Path, output: Path | None = None) -> Path:
+    paths = ensure_layout(root)
+    rows = load_evidence(paths["matrix"])
+    output = output or paths["literature"] / "review.md"
+
+    def cell(v: str) -> str:
+        return (v or "").replace("|", "\\|").replace("\n", " ").strip()
+
+    lines = [
+        "# Literature Evidence Review",
+        "",
+        "> 该文件由 `research-literature review` 从 Evidence Matrix 生成。它是证据索引，不替代人工核对论文。",
+        "",
+        f"Generated: {utc_now()}",
+        "",
+        "| Citation | Title | Question | Method | Finding | Limitation | Relevance |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"@{cell(row.get('citation_key',''))}",
+                    cell(row.get("title", "")),
+                    cell(row.get("question", "")),
+                    cell(row.get("method", "")),
+                    cell(row.get("finding", "")),
+                    cell(row.get("limitation", "")),
+                    cell(row.get("relevance", "")),
+                ]
+            )
+            + " |"
+        )
+
+    incomplete = []
+    critical = ["question", "method", "finding", "limitation", "relevance"]
+    for row in rows:
+        missing = [field for field in critical if not (row.get(field) or "").strip()]
+        if missing:
+            incomplete.append((row.get("citation_key", ""), missing))
+
+    lines += ["", "## Evidence gaps", ""]
+    if not rows:
+        lines.append("- 尚未导入文献。")
+    elif not incomplete:
+        lines.append("- Evidence Matrix 的核心字段均已填写。")
+    else:
+        for key, missing in incomplete:
+            lines.append(f"- `{key}`: missing {', '.join(missing)}")
+
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output
+
+
+def verify(root: Path, quiet: bool = False) -> tuple[list[str], list[str]]:
+    paths = ensure_layout(root)
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    bib_text = paths["bib"].read_text(encoding="utf-8")
+    bib_keys = BIB_KEY_RE.findall(bib_text)
+    key_set = set(bib_keys)
+    if len(bib_keys) != len(key_set):
+        errors.append("references.bib 存在重复 citation key。")
+
+    rows = load_evidence(paths["matrix"])
+    evidence_keys: set[str] = set()
+    for row in rows:
+        key = (row.get("citation_key") or "").strip()
+        if not key:
+            errors.append("Evidence Matrix 存在空 citation_key。")
+            continue
+        if key in evidence_keys:
+            errors.append(f"Evidence Matrix 重复 citation key: {key}")
+        evidence_keys.add(key)
+        if key not in key_set:
+            errors.append(f"Evidence Matrix 的 {key} 不存在于 references.bib。")
+        if not (paths["notes"] / f"{key}.md").is_file():
+            warnings.append(f"{key} 缺少结构化笔记 literature/notes/{key}.md。")
+
+    registry = load_registry(paths["registry"])
+    for record in registry:
+        key = str(record.get("citation_key") or "")
+        if key and key not in key_set:
+            errors.append(f"sources.jsonl 的 {key} 不存在于 references.bib。")
+
+    paper_dir = root / "paper"
+    cited: set[str] = set()
+    if paper_dir.is_dir():
+        for qmd in paper_dir.rglob("*.qmd"):
+            text = qmd.read_text(encoding="utf-8", errors="ignore")
+            cited.update(PAPER_CITE_RE.findall(text))
+    for key in sorted(cited - key_set):
+        errors.append(f"论文引用 @{key} 不存在于 references.bib。")
+    for key in sorted(evidence_keys - cited):
+        warnings.append(f"{key} 已进入 Evidence Matrix，但当前 paper/*.qmd 尚未引用。")
+
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "data/raw"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        bad = [p for p in tracked if p and p != "data/raw/README.md"]
+        if bad:
+            errors.append("data/raw 中存在被 Git 跟踪的原始数据: " + ", ".join(bad))
+    except OSError:
+        warnings.append("无法执行 git，跳过 data/raw 跟踪检查。")
+
+    if not quiet:
+        for message in warnings:
+            print(f"[warn] {message}")
+        for message in errors:
+            print(f"[error] {message}")
+        if not errors:
+            print(f"[ok] literature verify passed ({len(rows)} evidence rows, {len(key_set)} bib entries)")
+    return errors, warnings
+
+
+def list_sources(root: Path) -> None:
+    paths = ensure_layout(root)
+    records = load_registry(paths["registry"])
+    if not records:
+        print("尚未导入文献。")
+        return
+    for item in records:
+        print(
+            f"{item.get('citation_key',''):24} "
+            f"{item.get('year',''):6} "
+            f"{item.get('source_type',''):10} "
+            f"{item.get('title','')}"
+        )
+
+
+def self_test() -> int:
+    assert normalize_doi("https://doi.org/10.1000/XYZ.123") == "10.1000/xyz.123"
+    assert normalize_arxiv("https://arxiv.org/abs/2401.01234v2") == "2401.01234"
+    assert classify_source("doi:10.1000/test")[0] == "doi"
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "research.yaml").write_text("schema: 1\n", encoding="utf-8")
+        paths = ensure_layout(root)
+        metadata = {
+            "source_type": "doi",
+            "identifier": "10.1000/test",
+            "title": "A Reproducible Test",
+            "authors": ["Ada Lovelace"],
+            "year": "1843",
+            "doi": "10.1000/test",
+            "arxiv_id": "",
+            "url": "https://doi.org/10.1000/test",
+            "container_title": "Test Journal",
+            "metadata_provider": "self-test",
+        }
+        key = choose_citation_key(metadata, [], paths["bib"].read_text(encoding="utf-8"))
+        assert key.startswith("lovelace1843")
+        assert upsert_bib(paths["bib"], key, manual_bibtex(metadata, key))
+        upsert_evidence(paths["matrix"], metadata, key)
+        make_note(paths["notes"] / f"{key}.md", metadata, key, "")
+        upsert_registry(
+            paths["registry"],
+            {
+                "schema": 1,
+                "source_uid": source_uid(metadata),
+                "citation_key": key,
+                "title": metadata["title"],
+            },
+        )
+        errors, _ = verify(root, quiet=True)
+        assert not errors, errors
+        review = write_review(root)
+        assert review.is_file()
+        assert key in review.read_text(encoding="utf-8")
+    print("research-literature self-test passed")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-literature",
+        description="DSH Research 文献导入、Evidence Matrix 与引用一致性工具。",
+    )
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command")
+
+    add = sub.add_parser("add", help="导入 DOI、arXiv 或本地 PDF")
+    add.add_argument("source", help="DOI / arXiv ID 或 URL / 本地 PDF 路径")
+    add.add_argument("--offline", action="store_true", help="不请求 Crossref/arXiv，仅记录可解析的本地元数据")
+    add.add_argument("--no-copy-pdf", action="store_true", help="PDF 不复制到 literature/pdfs/")
+    add.add_argument("--title", default="", help="覆盖标题")
+    add.add_argument("--authors", default="", help="覆盖作者，多个作者用分号分隔")
+    add.add_argument("--year", default="", help="覆盖年份")
+
+    sub.add_parser("list", help="列出已导入来源")
+
+    review = sub.add_parser("review", help="从 Evidence Matrix 生成可追溯证据综述索引")
+    review.add_argument("--output", default="", help="输出 Markdown 路径")
+
+    sub.add_parser("verify", help="检查 BibTeX / Evidence Matrix / notes / paper 引用一致性")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    try:
+        root = find_root()
+        if args.command == "add":
+            kind, value = classify_source(args.source)
+            result = ingest(
+                root,
+                kind,
+                value,
+                offline=args.offline,
+                copy_pdf=not args.no_copy_pdf,
+                title_override=args.title,
+                authors_override=args.authors,
+                year_override=args.year,
+            )
+            print(f"[ok] imported: {result['citation_key']}  {result['title']}")
+            print(f"     note: {result['note']}")
+            if result["pdf"]:
+                print(f"     pdf:  {result['pdf']}")
+            print(f"     cite: [@{result['citation_key']}]")
+            return 0
+        if args.command == "list":
+            list_sources(root)
+            return 0
+        if args.command == "review":
+            output = Path(args.output).expanduser() if args.output else None
+            if output and not output.is_absolute():
+                output = root / output
+            path = write_review(root, output)
+            print(f"[ok] review: {path}")
+            return 0
+        if args.command == "verify":
+            errors, _ = verify(root)
+            return 1 if errors else 0
+    except LiteratureError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
