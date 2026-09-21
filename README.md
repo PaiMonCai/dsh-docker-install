@@ -96,6 +96,9 @@ dshd edition standard # 切换回 Standard
 dshd research-pack show      # 查看 Research Pack
 dshd research-pack economics # 启用 Economics Pack
 dshd research-pack none      # 回到 Research Core
+dshd dashboard start my-study # 启动 Research Dashboard sidecar
+dshd dashboard status         # 查看 Dashboard 状态
+dshd dashboard stop           # 停止 Dashboard
 dshd env             # 查看 Node/Python/Go/Docker 等开发环境版本
 dshd env show        # 查看自定义容器环境变量（敏感值隐藏）
 dshd env set NAME VALUE # 添加或更新容器环境变量
@@ -199,6 +202,53 @@ dshd storage volume dsh-home
 ```
 
 `dshd backup`、`dshd restore` 和 `dshd uninstall` 会根据当前 `DSH_STORAGE_MODE=bind|volume` 自动选择正确的数据源。
+
+### Research Dashboard
+
+Research Edition 0.8.2 起提供只读 Dashboard。推荐通过 `dshd` 启动独立 sidecar，不修改主 DSH 容器：
+
+```bash
+# /opt/dsh/workspace/my-study 是 Research Project
+dshd dashboard start my-study
+
+dshd dashboard status
+dshd dashboard logs
+dshd dashboard stop
+```
+
+Dashboard sidecar 使用当前 Research / Research Economics 镜像，并把宿主机工作区只读挂载：
+
+```text
+/opt/dsh/workspace  ->  /workspace:ro
+```
+
+默认宿主机端口：
+
+```text
+127.0.0.1:8765 -> Dashboard:8765
+```
+
+端口可以修改：
+
+```bash
+dshd dashboard port 9876
+```
+
+如果 DSH 部署在远程服务器，推荐从本地电脑建立 SSH 隧道：
+
+```bash
+ssh -L 8765:127.0.0.1:8765 root@your-server
+```
+
+然后本地浏览器打开：
+
+```text
+http://127.0.0.1:8765/
+```
+
+也可以由服务器上的 Nginx / OpenResty 反代 `127.0.0.1:8765`，并由反代层提供 HTTPS 与身份认证。
+
+Dashboard Preview 本身不提供登录认证，也不会默认监听公网地址。页面只通过 Stable JSON API v1 读取 Project / Check / Data / Pipeline / Result 状态，不提供任意 shell、模型运行或数据修改接口。
 
 ### 自定义容器环境变量
 
