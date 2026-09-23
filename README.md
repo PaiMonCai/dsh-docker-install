@@ -725,8 +725,10 @@ models:
 Models 页滑轨只负责声明该自定义模型可用的 `reasoningEfforts`。Composer 里则额外提供
 一个类似 `dsh-better-reasoning-effort` 的运行时滑块：打开右下角「模型 · 推理等级」菜单时，
 原来的「模型 / 推理等级」两级根菜单会显示为渐变推理滑块 + 一行「模型名 · 当前等级 ›」。
-拖动后直接通过 DSH 当前 Session 的 `ModelDirectory.select()` 提交
-`{ provider, model, reasoningEffort }`，所以 /model、官方 Composer 选择器和滑块看到的是同一份会话状态。
+拖动后直接通过 DSH 当前 Session 的 `ModelDirectory.select()` 提交，所以 /model、官方 Composer
+选择器和滑块看到的是同一份会话状态。若该模型没有声明默认推理档位，滑块会保留一个
+**Default** 位置；选中它时只提交 `{ provider, model }`，不带 `reasoningEffort`，语义与官方
+「Provider default」完全一致。
 
 DSH 当前没有公开 Composer 根菜单的 replacement slot，因此只有**视觉挂载这一层**使用受约束的
 DOM 适配：通过 `data-composer-card`、`aria-controls` 和 `role=menu` 找到官方菜单，
