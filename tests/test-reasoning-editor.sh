@@ -46,7 +46,8 @@ grep -Fq "[data-composer-card]" "$CLIENT"
 grep -Fq 'button[aria-haspopup="menu"][aria-controls]' "$CLIENT"
 grep -Fq "modelDirectories" "$CLIENT"
 grep -Fq "directoryFor(sessionId)" "$CLIENT"
-grep -Fq "mount.directory.select({" "$CLIENT"
+grep -Fq "mount.directory.select(selection)" "$CLIENT"
+grep -Fq "if (chosen.id !== undefined) selection.reasoningEffort = chosen.id" "$CLIENT"
 grep -Fq "input.type = 'range'" "$CLIENT"
 
 # The DOM mount is presentation-only: no parallel persistence or direct API.
