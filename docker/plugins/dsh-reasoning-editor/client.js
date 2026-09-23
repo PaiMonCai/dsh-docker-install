@@ -95,7 +95,10 @@ window.__ModuleLoader__.load({
 
     function draftOf(model) {
       const declared = model && model.reasoningEfforts
-      if (declared === false) return { mode: 'disabled', values: {} }
+      const defaultEffort = model && typeof model.defaultReasoningEffort === 'string'
+        ? model.defaultReasoningEffort
+        : ''
+      if (declared === false) return { mode: 'disabled', values: {}, defaultEffort: '' }
       if (isRecord(declared)) {
         const values = {}
         for (const level of LEVELS) {
@@ -103,14 +106,18 @@ window.__ModuleLoader__.load({
           const value = declared[level]
           values[level] = value === null ? '' : String(value)
         }
-        return { mode: 'custom', values }
+        return {
+          mode: 'custom',
+          values,
+          defaultEffort: Object.prototype.hasOwnProperty.call(values, defaultEffort) ? defaultEffort : '',
+        }
       }
-      return { mode: 'inherit', values: {} }
+      return { mode: 'inherit', values: {}, defaultEffort: '' }
     }
 
     function encodedDraft(draft) {
-      if (!draft || draft.mode === 'inherit') return { kind: 'unset' }
-      if (draft.mode === 'disabled') return { kind: 'set', value: false }
+      if (!draft || draft.mode === 'inherit') return { kind: 'unset', defaultEffort: '' }
+      if (draft.mode === 'disabled') return { kind: 'set', value: false, defaultEffort: '' }
 
       const selected = Object.keys(draft.values || {}).filter(level => LEVELS.includes(level))
       if (!selected.some(level => level !== 'off')) {
@@ -124,7 +131,10 @@ window.__ModuleLoader__.load({
         if (level === 'off') value[level] = wire.length === 0 ? null : wire
         else value[level] = wire.length === 0 ? level : wire
       }
-      return { kind: 'set', value }
+      const defaultEffort = selected.includes(draft.defaultEffort) && draft.defaultEffort !== 'off'
+        ? draft.defaultEffort
+        : ''
+      return { kind: 'set', value, defaultEffort }
     }
 
     function applyDesired(models, desiredById) {
@@ -135,6 +145,8 @@ window.__ModuleLoader__.load({
         const next = { ...model }
         if (desired.kind === 'unset') delete next.reasoningEfforts
         else next.reasoningEfforts = cloneJson(desired.value)
+        if (desired.defaultEffort) next.defaultReasoningEffort = desired.defaultEffort
+        else delete next.defaultReasoningEffort
         return next
       })
     }
