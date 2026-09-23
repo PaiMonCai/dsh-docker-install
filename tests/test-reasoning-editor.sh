@@ -26,10 +26,16 @@ grep -Fq "settings.models.provider-card" "$CLIENT"
 grep -Fq "remote.settings" "$CLIENT"
 grep -Fq "settings.mutate(" "$CLIENT"
 grep -Fq "reasoningEfforts" "$CLIENT"
-grep -Fq "defaultReasoningEffort" "$CLIENT"
-grep -Fq "type: 'range'" "$CLIENT"
-grep -Fq "'aria-pressed': active" "$CLIENT"
+grep -Fq "sliderRail" "$CLIENT"
+grep -Fq "'aria-pressed': selected" "$CLIENT"
 grep -Fq "provider.declared !== true" "$CLIENT"
+
+# llm-pi-ai model profiles do not accept a model-level defaultReasoningEffort;
+# provider/session defaults remain owned by upstream DSH.
+if grep -Fq "defaultReasoningEffort" "$CLIENT"; then
+  echo "reasoning editor must not write unsupported model-level defaultReasoningEffort" >&2
+  exit 1
+fi
 
 # Do not regress to DOM scraping/patching or invent another persistence layer.
 if grep -Eq "MutationObserver|querySelector|localStorage|indexedDB|fetch\(" "$CLIENT"; then
