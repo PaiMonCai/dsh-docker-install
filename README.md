@@ -707,9 +707,10 @@ llm-pi-ai / providers.<route>.models[*].reasoningEfforts
 
 - **未声明**：删除该模型的 `reasoningEfforts`，继续采用 DSH catalog / 端点默认行为；
 - **非推理模型**：写入 `reasoningEfforts: false`；
-- **自定义等级**：从 `off / minimal / low / medium / high / xhigh / max` 中选择，
-  并可为每个档位指定网关实际接收的 `reasoning_effort` 拼写。非 `off` 档位留空时，
-  默认发送档位名本身。
+- **自定义等级**：使用类似 `dsh-better-reasoning-effort` 的离散滑轨，
+  点击 `off / minimal / low / medium / high / xhigh / max` 节点声明模型支持的档位；
+  已启用档位下方提供真正的离散滑块选择 `defaultReasoningEffort`，`Auto` 表示继续使用
+  Provider 默认值。高级映射默认折叠，仅在网关需要不同拼写时展开，例如 `max → xhigh`。
 
 例如把 DSH 的 `max` 映射为网关的 `xhigh`，最终仍写回 DSH 官方配置：
 
@@ -722,8 +723,9 @@ models:
       max: xhigh
 ```
 
-编辑器不会自动猜测模型能力、不会探测网关、不会修改 API Key / Base URL / 输入模态 /
-compat 配置。保存使用 DSH Settings 的 revision fence；发生并发修改时会重读并重试一次，
+滑轨只负责声明可用档位，默认等级滑块只写 DSH 官方 `defaultReasoningEffort`；
+两者都不会改变当前已运行 Session 的显式选择。编辑器不会自动猜测模型能力、不会探测网关、
+不会修改 API Key / Base URL / 输入模态 / compat 配置。保存使用 DSH Settings 的 revision fence；发生并发修改时会重读并重试一次，
 且始终以当前 user-layer `models` 数组为基线保留其他字段。
 
 > `off:` 留空表示不发送 `reasoning_effort`。如果某个 DeepSeek 兼容端点默认就会思考，
