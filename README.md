@@ -498,7 +498,7 @@ API 配置保存在 dshd 配置文件中，权限为 600。状态页只显示 AP
 ```bash
 docker build -t dsh:latest .
 # 或指定 dsh 版本
-docker build --build-arg DSH_VERSION=0.1.7-alpha.1 -t dsh:latest .
+docker build --build-arg DSH_VERSION=0.1.7-alpha.2 -t dsh:latest .
 ```
 
 ### 2. 运行
