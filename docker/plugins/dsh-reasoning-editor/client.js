@@ -212,6 +212,8 @@ window.__ModuleLoader__.load({
         levelHint: '点击滑轨节点启用或关闭 DSH 中要显示的档位。',
         advanced: '高级映射',
         mappingHint: '仅当网关使用不同拼写时修改；留空使用标准档位名。',
+        composerDefault: '默认',
+        composerNoLevels: '当前模型没有可用的多个推理等级',
         genericError: '读取或保存失败',
       } : {
         title: 'Reasoning effort',
@@ -236,6 +238,8 @@ window.__ModuleLoader__.load({
         levelHint: 'Click slider stops to enable or disable the levels DSH should offer.',
         advanced: 'Advanced mapping',
         mappingHint: 'Override only when the gateway uses different spelling; blank uses the standard level name.',
+        composerDefault: 'Default',
+        composerNoLevels: 'This model does not expose multiple reasoning levels.',
         genericError: 'Unable to read or save settings',
       }
     }
@@ -607,7 +611,7 @@ window.__ModuleLoader__.load({
         ? current.reasoningEffort
         : reasoning && reasoning.defaultEffort
 
-      return { state, current, model, levels, effective }
+      return { state, current, model, reasoning, levels, effective }
     }
 
     function installComposerStyles() {
@@ -675,25 +679,30 @@ window.__ModuleLoader__.load({
 
       const render = mount => {
         if (disposed || mount !== mounted || !mount.wrapper.isConnected) return
-        const { state, current, model, levels, effective } = composerModelState(mount.directory)
+        const { state, current, model, reasoning, levels, effective } = composerModelState(mount.directory)
         const busy = state && state.status === 'selecting'
-        const effectiveIndex = Math.max(0, levels.findIndex(level => level.id === effective))
-        const selectedIndex = levels.length > 0
-          ? (levels.findIndex(level => level.id === effective) >= 0 ? levels.findIndex(level => level.id === effective) : 0)
-          : 0
+        const copy = localeText()
+        const choices = [
+          ...(reasoning && reasoning.defaultEffort === undefined
+            ? [{ id: undefined, name: copy.composerDefault }]
+            : []),
+          ...levels,
+        ]
+        const selectedIndexRaw = choices.findIndex(choice => choice.id === effective)
+        const selectedIndex = selectedIndexRaw >= 0 ? selectedIndexRaw : 0
         const modelLabel = model && model.name
           ? model.name
           : current
             ? current.model
             : 'Model'
-        const effortLabel = levels[effectiveIndex] && levels[effectiveIndex].name
-          ? levels[effectiveIndex].name
-          : effective || 'Default'
+        const effortLabel = choices[selectedIndex] && choices[selectedIndex].name
+          ? choices[selectedIndex].name
+          : copy.composerDefault
 
         mount.wrapper.replaceChildren()
         mount.wrapper.className = 'dre-composer-body'
 
-        if (levels.length >= 2 && current) {
+        if (choices.length >= 2 && current) {
           const pad = document.createElement('div')
           pad.className = 'dre-composer-slider-pad'
 
@@ -704,7 +713,7 @@ window.__ModuleLoader__.load({
           input.type = 'range'
           input.className = 'dre-composer-range'
           input.min = '0'
-          input.max = String(levels.length - 1)
+          input.max = String(choices.length - 1)
           input.step = '1'
           input.value = String(selectedIndex)
           input.disabled = Boolean(busy)
@@ -712,9 +721,9 @@ window.__ModuleLoader__.load({
           input.setAttribute('aria-valuetext', effortLabel)
 
           const syncPreview = raw => {
-            const index = Math.max(0, Math.min(levels.length - 1, Math.round(Number(raw))))
+            const index = Math.max(0, Math.min(choices.length - 1, Math.round(Number(raw))))
             input.value = String(index)
-            const selected = levels[index]
+            const selected = choices[index]
             input.setAttribute('aria-valuetext', selected && (selected.name || selected.id) || '')
             const rowEffort = mount.wrapper.querySelector('.dre-composer-effort')
             if (rowEffort) rowEffort.textContent = selected && (selected.name || selected.id) || ''
@@ -725,18 +734,19 @@ window.__ModuleLoader__.load({
           })
 
           input.addEventListener('change', async event => {
-            const index = Math.max(0, Math.min(levels.length - 1, Math.round(Number(event.currentTarget.value))))
-            const chosen = levels[index]
+            const index = Math.max(0, Math.min(choices.length - 1, Math.round(Number(event.currentTarget.value))))
+            const chosen = choices[index]
             if (!chosen || !current || mount.committing) return
             mount.committing = true
             input.disabled = true
             mount.error = ''
             try {
-              const result = await mount.directory.select({
+              const selection = {
                 provider: current.provider,
                 model: current.model,
-                reasoningEffort: chosen.id,
-              })
+              }
+              if (chosen.id !== undefined) selection.reasoningEffort = chosen.id
+              const result = await mount.directory.select(selection)
               if (result && result.ok === false) {
                 throw new Error(result.error && result.error.message || 'Reasoning effort selection failed')
               }
@@ -755,7 +765,7 @@ window.__ModuleLoader__.load({
         } else {
           const hint = document.createElement('div')
           hint.className = 'dre-composer-hint'
-          hint.textContent = '当前模型没有可用的多个推理等级'
+          hint.textContent = copy.composerNoLevels
           mount.wrapper.appendChild(hint)
         }
 
@@ -842,7 +852,10 @@ window.__ModuleLoader__.load({
         }
 
         const directory = currentDirectory(ctx)
-        if (!directory) return
+        if (!directory) {
+          teardownMount()
+          return
+        }
 
         if (mounted
           && mounted.menu === menu
