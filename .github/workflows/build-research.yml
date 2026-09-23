@@ -12,9 +12,23 @@ on:
       - research/**
       - .github/workflows/build-research.yml
   workflow_dispatch:
+    inputs:
+      base_image:
+        description: 覆盖 Research 基础镜像（留空则使用当前 latest）
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      base_image:
+        description: 已发布的基础镜像引用，推荐使用 digest 固定依赖
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Called workflows inherit the caller's github.workflow value. Use a
+  # dedicated prefix so Research cannot cancel its own base-image caller.
+  group: research-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -92,6 +106,20 @@ jobs:
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
 
+      - name: Resolve Research base image
+        id: base
+        shell: bash
+        env:
+          REQUESTED_BASE_IMAGE: ${{ inputs.base_image }}
+          DEFAULT_BASE_IMAGE: ${{ steps.img.outputs.name }}:latest
+        run: |
+          base="$REQUESTED_BASE_IMAGE"
+          if [ -z "$base" ]; then
+            base="$DEFAULT_BASE_IMAGE"
+          fi
+          echo "Research base image: $base"
+          echo "image=$base" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
@@ -110,8 +138,9 @@ jobs:
           target: ${{ matrix.target }}
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
+          pull: true
           build-args: |
-            BASE_IMAGE=${{ steps.img.outputs.name }}:latest
+            BASE_IMAGE=${{ steps.base.outputs.image }}
             RESEARCH_VERSION=${{ steps.ver.outputs.version }}
           tags: |
             ${{ steps.img.outputs.name }}:${{ matrix.tag }}
