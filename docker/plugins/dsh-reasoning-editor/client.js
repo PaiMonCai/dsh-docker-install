@@ -628,8 +628,7 @@ window.__ModuleLoader__.load({
         '.dre-composer-range::-moz-range-thumb{width:56px;height:56px;border-radius:50%;border:1px solid rgba(130,170,215,.35);background:#fff;box-shadow:0 2px 9px rgba(53,92,139,.24)}',
         'body[data-ds-dark-theme] .dre-composer-range::-webkit-slider-runnable-track{background:linear-gradient(90deg,rgba(41,54,88,.94),rgba(65,91,160,.96) 48%,rgba(83,68,206,.96));box-shadow:inset 0 0 0 7px rgba(31,39,67,.72),0 3px 14px rgba(10,14,31,.34)}',
         'body[data-ds-dark-theme] .dre-composer-range::-moz-range-track{background:linear-gradient(90deg,rgba(41,54,88,.94),rgba(65,91,160,.96) 48%,rgba(83,68,206,.96));box-shadow:inset 0 0 0 7px rgba(31,39,67,.72),0 3px 14px rgba(10,14,31,.34)}',
-        '.dre-composer-levels{display:flex;justify-content:space-between;gap:4px;margin-top:7px;padding:0 7px;color:var(--dsw-alias-label-tertiary,#8b9099);font-size:10px}',
-        '.dre-composer-levels span[data-active="true"]{color:var(--dsw-static-deepseek-500,#4d70ff);font-weight:600}',
+
         '.dre-composer-separator{height:1px;background:var(--dsw-alias-stroke-secondary,rgba(121,126,145,.16))}',
         '.dre-composer-model-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;min-height:48px;padding:0 14px;width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
         '.dre-composer-model-row:hover{background:var(--dsw-alias-fill-tertiary,rgba(120,125,140,.09))}',
@@ -712,17 +711,11 @@ window.__ModuleLoader__.load({
           input.setAttribute('aria-label', 'Reasoning effort')
           input.setAttribute('aria-valuetext', effortLabel)
 
-          const labels = document.createElement('div')
-          labels.className = 'dre-composer-levels'
-
           const syncPreview = raw => {
             const index = Math.max(0, Math.min(levels.length - 1, Math.round(Number(raw))))
             input.value = String(index)
             const selected = levels[index]
             input.setAttribute('aria-valuetext', selected && (selected.name || selected.id) || '')
-            for (const [position, label] of Array.from(labels.children).entries()) {
-              label.dataset.active = position === index ? 'true' : 'false'
-            }
             const rowEffort = mount.wrapper.querySelector('.dre-composer-effort')
             if (rowEffort) rowEffort.textContent = selected && (selected.name || selected.id) || ''
           }
@@ -758,13 +751,6 @@ window.__ModuleLoader__.load({
           wrap.appendChild(input)
           pad.appendChild(wrap)
 
-          for (const [index, level] of levels.entries()) {
-            const label = document.createElement('span')
-            label.textContent = level.name || level.id
-            label.dataset.active = index === selectedIndex ? 'true' : 'false'
-            labels.appendChild(label)
-          }
-          pad.appendChild(labels)
           mount.wrapper.appendChild(pad)
         } else {
           const hint = document.createElement('div')
@@ -828,7 +814,7 @@ window.__ModuleLoader__.load({
           directory,
           wrapper,
           unsubscribe: directory.store.subscribe(() => {
-            if (mounted && mounted.directory === directory) render(mounted)
+            if (mounted && mounted.directory === directory && !mounted.committing) render(mounted)
           }),
           committing: false,
           error: '',
