@@ -722,11 +722,22 @@ models:
       max: xhigh
 ```
 
-滑轨只负责声明该自定义模型可用的 `reasoningEfforts`，不会改变当前已运行 Session 的
-显式推理等级选择。DSH 当前 `llm-pi-ai` 的模型配置 schema 不接受模型级
-`defaultReasoningEffort`，因此内置编辑器不会写入这个字段。编辑器也不会自动猜测模型能力、
-不会探测网关、不会修改 API Key / Base URL / 输入模态 / compat 配置。保存使用 DSH Settings 的 revision fence；发生并发修改时会重读并重试一次，
-且始终以当前 user-layer `models` 数组为基线保留其他字段。
+Models 页滑轨只负责声明该自定义模型可用的 `reasoningEfforts`。Composer 里则额外提供
+一个类似 `dsh-better-reasoning-effort` 的运行时滑块：打开右下角「模型 · 推理等级」菜单时，
+原来的「模型 / 推理等级」两级根菜单会显示为渐变推理滑块 + 一行「模型名 · 当前等级 ›」。
+拖动后直接通过 DSH 当前 Session 的 `ModelDirectory.select()` 提交
+`{ provider, model, reasoningEffort }`，所以 /model、官方 Composer 选择器和滑块看到的是同一份会话状态。
+
+DSH 当前没有公开 Composer 根菜单的 replacement slot，因此只有**视觉挂载这一层**使用受约束的
+DOM 适配：通过 `data-composer-card`、`aria-controls` 和 `role=menu` 找到官方菜单，
+再用 `MutationObserver` 跟随 React 重渲染。它不会直接调用 Session HTTP API，也不使用
+localStorage / IndexedDB 记忆第二份状态；模型目录、当前选择和提交仍全部由 DSH 官方
+`modelDirectories` 服务负责。若上游以后提供 Composer slot，应优先迁移到官方 slot 并删除这层 DOM 适配。
+
+DSH 当前 `llm-pi-ai` 的模型配置 schema 不接受模型级 `defaultReasoningEffort`，因此内置编辑器
+不会写入这个字段。编辑器也不会自动猜测模型能力、不会探测网关、不会修改 API Key / Base URL /
+输入模态 / compat 配置。Models 页保存仍使用 DSH Settings 的 revision fence；发生并发修改时会重读
+并重试一次，且始终以当前 user-layer `models` 数组为基线保留其他字段。
 
 > `off:` 留空表示不发送 `reasoning_effort`。如果某个 DeepSeek 兼容端点默认就会思考，
 > 需要显式关闭时仍应按 DSH 官方约定设置 `compat.thinkingFormat: deepseek`。
