@@ -151,9 +151,13 @@ RUN . /usr/local/bin/cn-mirror \
       /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-remote-settings.js
 
+COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
+COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-editor
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
-RUN chmod 0755 /usr/local/bin/dsh-entrypoint
+RUN node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
+ && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
+ && chmod 0755 /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
