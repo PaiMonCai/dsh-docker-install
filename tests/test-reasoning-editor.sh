@@ -37,22 +37,9 @@ if grep -Fq "defaultReasoningEffort" "$CLIENT"; then
   exit 1
 fi
 
-# The Models-page editor must stay on the official slot/settings contract.
-# Composer currently exposes no replacement slot, so the only DOM-coupled
-# surface is the narrowly-scoped composer menu mount. Model/session state must
-# still come from DSH's ModelDirectory and selection must use directory.select().
-grep -Fq "MutationObserver" "$CLIENT"
-grep -Fq "[data-composer-card]" "$CLIENT"
-grep -Fq 'button[aria-haspopup="menu"][aria-controls]' "$CLIENT"
-grep -Fq "modelDirectories" "$CLIENT"
-grep -Fq "directoryFor(sessionId)" "$CLIENT"
-grep -Fq "mount.directory.select(selection)" "$CLIENT"
-grep -Fq "if (chosen.id !== undefined) selection.reasoningEffort = chosen.id" "$CLIENT"
-grep -Fq "input.type = 'range'" "$CLIENT"
-
-# The DOM mount is presentation-only: no parallel persistence or direct API.
-if grep -Eq "localStorage|indexedDB|fetch\(" "$CLIENT"; then
-  echo "composer slider must not introduce browser persistence or direct network calls" >&2
+# Do not regress to DOM scraping/patching or invent another persistence layer.
+if grep -Eq "MutationObserver|querySelector|localStorage|indexedDB|fetch\(" "$CLIENT"; then
+  echo "reasoning editor must use the official slot/settings contract, not DOM/network/local persistence" >&2
   exit 1
 fi
 
