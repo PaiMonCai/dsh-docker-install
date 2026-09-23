@@ -1,0 +1,5 @@
+# DSH Docker built-in custom-model reasoning editor.
+# The host row is intentionally inert; package metadata exposes the Web client.
+- insert:
+    - id: dsh-docker-reasoning-editor
+      name: dsh-docker-reasoning-editor
