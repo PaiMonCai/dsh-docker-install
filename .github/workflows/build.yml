@@ -60,8 +60,13 @@ jobs:
           bash tests/test-dshd-storage.sh
           bash -n tests/test-dshd-dashboard.sh
           bash tests/test-dshd-dashboard.sh
+          bash -n tests/test-reasoning-editor.sh
+          bash tests/test-reasoning-editor.sh
           bash -n docker/entrypoint.sh
+          bash -n docker/ensure-reasoning-editor.sh
           sh -n docker/cn-mirror.sh
+          node --check docker/plugins/dsh-reasoning-editor/index.js
+          node --check docker/plugins/dsh-reasoning-editor/client.js
           node --check docker/patch-remote-settings.js
           node --check docker/patch-plugin-hub-origin.js
           node docker/patch-plugin-hub-origin.js --self-test
@@ -130,6 +135,24 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
+            test -f /opt/dsh/plugins/dsh-reasoning-editor/package.json
+            test -x /usr/local/bin/ensure-dsh-reasoning-editor
+            reasoning_home="$(mktemp -d)"
+            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=true /usr/local/bin/ensure-dsh-reasoning-editor
+            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
+          const fs = require("fs")
+          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
+          if (!p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
+          if (!p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
+          NODE
+            DSH_HOME="$reasoning_home" dsh --profile web --dump-config | grep -q "dsh-docker-reasoning-editor"
+            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=false /usr/local/bin/ensure-dsh-reasoning-editor
+            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
+          const fs = require("fs")
+          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
+          if (p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
+          if (p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
+          NODE
             test ! -e /usr/local/go/doc
             test ! -e /usr/local/go/test
             test ! -e /usr/local/bin/cn-mirror

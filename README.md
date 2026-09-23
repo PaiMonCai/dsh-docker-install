@@ -690,6 +690,52 @@ dshd env
 
 查看当前运行容器中的实际版本。
 
+## 自定义模型推理等级
+
+镜像内置一个很薄的 DSH Web 扩展，用于补齐官方「自定义模型 API」目前没有暴露的
+`reasoningEfforts` 编辑能力。它不 fork DSH，也不维护第二套模型配置：
+
+```text
+DSH 官方 Models 页面
+        ↓ official settings.models.provider-card slot
+DSH Docker Reasoning Editor
+        ↓ remote.settings.mutate()
+llm-pi-ai / providers.<route>.models[*].reasoningEfforts
+```
+
+只对 `llm-pi-ai` 管理的**手工声明自定义 Provider**显示。每个模型可以选择：
+
+- **未声明**：删除该模型的 `reasoningEfforts`，继续采用 DSH catalog / 端点默认行为；
+- **非推理模型**：写入 `reasoningEfforts: false`；
+- **自定义等级**：使用类似 `dsh-better-reasoning-effort` 的离散滑轨，
+  点击 `off / minimal / low / medium / high / xhigh / max` 节点声明模型支持的档位。
+  高级映射默认折叠，仅在网关需要不同拼写时展开，例如 `max → xhigh`。
+
+例如把 DSH 的 `max` 映射为网关的 `xhigh`，最终仍写回 DSH 官方配置：
+
+```yaml
+models:
+  - id: my-reasoner
+    reasoningEfforts:
+      off:
+      high: high
+      max: xhigh
+```
+
+滑轨只负责声明该自定义模型可用的 `reasoningEfforts`，不会改变当前已运行 Session 的
+显式推理等级选择。DSH 当前 `llm-pi-ai` 的模型配置 schema 不接受模型级
+`defaultReasoningEffort`，因此内置编辑器不会写入这个字段。编辑器也不会自动猜测模型能力、
+不会探测网关、不会修改 API Key / Base URL / 输入模态 / compat 配置。保存使用 DSH Settings 的 revision fence；发生并发修改时会重读并重试一次，
+且始终以当前 user-layer `models` 数组为基线保留其他字段。
+
+> `off:` 留空表示不发送 `reasoning_effort`。如果某个 DeepSeek 兼容端点默认就会思考，
+> 需要显式关闭时仍应按 DSH 官方约定设置 `compat.thinkingFormat: deepseek`。
+
+该扩展作为镜像内本地 bundle 随版本发布，容器启动 Web profile 时仅通过现有
+`dsh plugin` 生命周期幂等接入，不直接改写 `profiles/web/package.json`。默认开启；
+设置 `DSH_REASONING_EDITOR=false` 后会通过同一个 Plugin Manager 从 Web profile 移除。
+使用 `dshd` 管理部署时可执行 `dshd env set DSH_REASONING_EDITOR false`，随后按提示重建容器。
+
 ## Docker 项目管理模式
 
 DSH 容器内只安装 **Docker 客户端**，不运行第二套 dockerd。需要让 DSH 部署和测试
@@ -1184,6 +1230,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_PORT` | `3080` | 监听端口（命令行 `--port` 优先） |
 | `DSH_BIND_HOST` | `0.0.0.0` | bind host（patch 层读取；改成 127.0.0.1 仅容器内可访问） |
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
+| `DSH_REASONING_EDITOR` | `true` | 是否启用内置自定义模型 `reasoningEfforts` 编辑器；`false` 时通过 DSH Plugin Manager 移除 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
 | `DSH_SHM_SIZE` | `1g` | 容器 `/dev/shm` 大小；为 Chromium/Playwright 预留足够共享内存 |

@@ -54,8 +54,23 @@ repair_stale_workspace_cwd() {
     fi
 }
 
+ensure_reasoning_editor() {
+    local reconciler="/usr/local/bin/ensure-dsh-reasoning-editor"
+    [[ -x "$reconciler" ]] || return 0
+
+    if "$reconciler"; then
+        return 0
+    fi
+
+    # UI enhancement failure must not make the core DSH runtime unavailable.
+    # The error remains visible in logs and can be repaired with `dsh plugin`.
+    log "警告：内置自定义模型推理等级编辑器未能完成 profile 对账；DSH 将继续启动"
+}
+
 run_web() {
     local args=(web --patch "$BIND_PATCH" --no-open)
+
+    ensure_reasoning_editor
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then
