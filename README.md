@@ -4,8 +4,7 @@
 
 这是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。它不 fork DSH Core，而是把官方 npm 包稳定地封装成可安装、可更新、可持久化、可反代的容器，并在此基础上提供可选的 Research Edition。
 
-当前基础 DSH：`0.1.7-alpha.2`  
-当前 Research Edition：`0.9.0-rc.3`
+版本来源保持单一：基础 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 版本见 [research/VERSION](research/VERSION)。
 
 ## 你应该用哪个版本
 
