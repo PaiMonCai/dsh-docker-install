@@ -142,10 +142,7 @@ window.__ModuleLoader__.load({
 
     function draftOf(model) {
       const declared = model && model.reasoningEfforts
-      const defaultEffort = model && typeof model.defaultReasoningEffort === 'string'
-        ? model.defaultReasoningEffort
-        : ''
-      if (declared === false) return { mode: 'disabled', values: {}, defaultEffort: '' }
+      if (declared === false) return { mode: 'disabled', values: {} }
       if (isRecord(declared)) {
         const values = {}
         for (const level of LEVELS) {
@@ -153,18 +150,14 @@ window.__ModuleLoader__.load({
           const value = declared[level]
           values[level] = value === null ? '' : String(value)
         }
-        return {
-          mode: 'custom',
-          values,
-          defaultEffort: Object.prototype.hasOwnProperty.call(values, defaultEffort) ? defaultEffort : '',
-        }
+        return { mode: 'custom', values }
       }
-      return { mode: 'inherit', values: {}, defaultEffort: '' }
+      return { mode: 'inherit', values: {} }
     }
 
     function encodedDraft(draft) {
-      if (!draft || draft.mode === 'inherit') return { kind: 'unset', defaultEffort: '' }
-      if (draft.mode === 'disabled') return { kind: 'set', value: false, defaultEffort: '' }
+      if (!draft || draft.mode === 'inherit') return { kind: 'unset' }
+      if (draft.mode === 'disabled') return { kind: 'set', value: false }
 
       const selected = Object.keys(draft.values || {}).filter(level => LEVELS.includes(level))
       if (!selected.some(level => level !== 'off')) {
@@ -178,10 +171,7 @@ window.__ModuleLoader__.load({
         if (level === 'off') value[level] = wire.length === 0 ? null : wire
         else value[level] = wire.length === 0 ? level : wire
       }
-      const defaultEffort = selected.includes(draft.defaultEffort) && draft.defaultEffort !== 'off'
-        ? draft.defaultEffort
-        : ''
-      return { kind: 'set', value, defaultEffort }
+      return { kind: 'set', value }
     }
 
     function applyDesired(models, desiredById) {
@@ -192,8 +182,6 @@ window.__ModuleLoader__.load({
         const next = { ...model }
         if (desired.kind === 'unset') delete next.reasoningEfforts
         else next.reasoningEfforts = cloneJson(desired.value)
-        if (desired.defaultEffort) next.defaultReasoningEffort = desired.defaultEffort
-        else delete next.defaultReasoningEffort
         return next
       })
     }
@@ -222,8 +210,6 @@ window.__ModuleLoader__.load({
         missingModel: '保存时模型列表已变化；请重新打开后再保存。',
         offHint: 'Off 留空表示不发送 reasoning_effort。默认思考的 DeepSeek 兼容端点若需要显式关闭，仍应配置 compat.thinkingFormat: deepseek。',
         levelHint: '点击滑轨节点启用或关闭 DSH 中要显示的档位。',
-        defaultLevel: '默认推理等级',
-        auto: '自动',
         advanced: '高级映射',
         mappingHint: '仅当网关使用不同拼写时修改；留空使用标准档位名。',
         genericError: '读取或保存失败',
@@ -248,8 +234,6 @@ window.__ModuleLoader__.load({
         missingModel: 'The model list changed while saving. Reopen and save again.',
         offHint: 'A blank Off sends no reasoning_effort. DeepSeek-compatible endpoints that reason by default still need compat.thinkingFormat: deepseek for explicit disable.',
         levelHint: 'Click slider stops to enable or disable the levels DSH should offer.',
-        defaultLevel: 'Default reasoning effort',
-        auto: 'Auto',
         advanced: 'Advanced mapping',
         mappingHint: 'Override only when the gateway uses different spelling; blank uses the standard level name.',
         genericError: 'Unable to read or save settings',
@@ -278,6 +262,7 @@ window.__ModuleLoader__.load({
         return null
       }
 
+      const pathKey = JSON.stringify(provider.settingsPath || [])
       const copy = useMemo(localeText, [])
       const [open, setOpen] = useState(false)
       const [loading, setLoading] = useState(false)
@@ -288,6 +273,7 @@ window.__ModuleLoader__.load({
       const [models, setModels] = useState([])
       const [rawAvailable, setRawAvailable] = useState(false)
       const [drafts, setDrafts] = useState({})
+      const [mappingOpen, setMappingOpen] = useState({})
 
       const read = useCallback(async () => {
         setLoading(true)
@@ -314,62 +300,43 @@ window.__ModuleLoader__.load({
         } finally {
           setLoading(false)
         }
-      }, [copy.genericError, props.settings, provider.provider])
+      }, [copy.genericError, props.settings, provider.provider, pathKey])
 
       useEffect(() => {
         if (open) void read()
       }, [open, read])
 
       const setMode = (id, mode) => {
-        setDrafts(current => {
-          const previous = current[id]
-          return {
-            ...current,
-            [id]: {
-              mode,
-              values: mode === 'custom' && previous && previous.mode === 'custom'
-                ? previous.values
-                : {},
-              defaultEffort: mode === 'custom' && previous && previous.mode === 'custom'
-                ? previous.defaultEffort || ''
-                : '',
-            },
-          }
-        })
+        setDrafts(current => ({
+          ...current,
+          [id]: {
+            mode,
+            values: mode === 'custom' && current[id] && current[id].mode === 'custom'
+              ? current[id].values
+              : {},
+          },
+        }))
         setNotice('')
       }
 
       const toggleLevel = (id, level, checked) => {
         setDrafts(current => {
-          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
+          const draft = current[id] || { mode: 'custom', values: {} }
           const values = { ...(draft.values || {}) }
           if (checked) values[level] = values[level] ?? ''
           else delete values[level]
-          const defaultEffort = !checked && draft.defaultEffort === level ? '' : (draft.defaultEffort || '')
-          return { ...current, [id]: { mode: 'custom', values, defaultEffort } }
+          return { ...current, [id]: { mode: 'custom', values } }
         })
         setNotice('')
       }
 
       const setWire = (id, level, value) => {
         setDrafts(current => {
-          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
+          const draft = current[id] || { mode: 'custom', values: {} }
           return {
             ...current,
-            [id]: {
-              mode: 'custom',
-              values: { ...(draft.values || {}), [level]: value },
-              defaultEffort: draft.defaultEffort || '',
-            },
+            [id]: { mode: 'custom', values: { ...(draft.values || {}), [level]: value } },
           }
-        })
-        setNotice('')
-      }
-
-      const setDefaultEffort = (id, value) => {
-        setDrafts(current => {
-          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
-          return { ...current, [id]: { ...draft, defaultEffort: value } }
         })
         setNotice('')
       }
@@ -426,11 +393,10 @@ window.__ModuleLoader__.load({
       }
 
       const levelEditor = (model) => {
-        const draft = drafts[model.id] || { mode: 'inherit', values: {}, defaultEffort: '' }
-        const selected = LEVELS.filter(level => Object.prototype.hasOwnProperty.call(draft.values || {}, level))
-        const defaultChoices = [''].concat(selected.filter(level => level !== 'off'))
-        const defaultIndex = Math.max(0, defaultChoices.indexOf(draft.defaultEffort || ''))
-        const controlsDisabled = saving || !writable || !rawAvailable
+        const draft = drafts[model.id] || { mode: 'inherit', values: {} }
+        const selectedLevels = LEVELS.filter(level =>
+          Object.prototype.hasOwnProperty.call(draft.values || {}, level))
+        const showMapping = Boolean(mappingOpen[model.id])
 
         return h('div', { key: model.id, style: palette.model },
           h('div', { style: palette.modelTitle }, model.name ? model.name + ' · ' + model.id : model.id),
@@ -439,7 +405,7 @@ window.__ModuleLoader__.load({
             h('select', {
               style: palette.select,
               value: draft.mode,
-              disabled: controlsDisabled,
+              disabled: saving || !writable || !rawAvailable,
               onChange: event => setMode(model.id, event.target.value),
             },
             h('option', { value: 'inherit' }, copy.inherited),
@@ -448,88 +414,65 @@ window.__ModuleLoader__.load({
           ),
           draft.mode !== 'custom' ? null : h('div', null,
             h('div', { style: { ...palette.hint, marginTop: '7px' } }, copy.levelHint),
-            h('div', { style: palette.slider },
+            h('div', { style: palette.slider, role: 'group', 'aria-label': copy.title },
               h('div', { style: palette.sliderRail }),
               ...LEVELS.map((level, index) => {
-                const active = selected.includes(level)
+                const selected = Object.prototype.hasOwnProperty.call(draft.values || {}, level)
+                const left = LEVELS.length === 1 ? 50 : (index / (LEVELS.length - 1)) * 100
                 return h('button', {
                   key: level,
                   type: 'button',
-                  title: (active ? 'Disable ' : 'Enable ') + level,
-                  'aria-label': level,
-                  'aria-pressed': active,
-                  disabled: controlsDisabled,
                   style: {
                     ...palette.sliderStop,
-                    left: (index / (LEVELS.length - 1) * 100) + '%',
-                    opacity: controlsDisabled ? .55 : 1,
+                    left: left + '%',
+                    opacity: saving || !writable || !rawAvailable ? .45 : 1,
                   },
-                  onClick: () => toggleLevel(model.id, level, !active),
+                  disabled: saving || !writable || !rawAvailable,
+                  'aria-pressed': selected,
+                  'aria-label': level,
+                  onClick: () => toggleLevel(model.id, level, !selected),
                 },
                 h('span', {
                   style: {
                     ...palette.sliderDot,
-                    background: active
+                    background: selected
                       ? 'var(--dsw-alias-brand-primary, #4d6bfe)'
-                      : palette.sliderDot.background,
-                    borderColor: active
+                      : 'var(--dsw-alias-bg-primary, #fff)',
+                    borderColor: selected
                       ? 'var(--dsw-alias-brand-primary, #4d6bfe)'
                       : 'var(--dsw-alias-separator-primary, #aaa)',
-                    boxShadow: active ? '0 0 0 4px rgba(77,107,254,.12)' : 'none',
                   },
                 }),
-                h('span', {
-                  style: { ...palette.sliderLabel, fontWeight: active ? 600 : 400, opacity: active ? 1 : .55 },
-                }, level))
+                h('span', { style: palette.sliderLabel }, level))
               }),
             ),
-            selected.some(level => level !== 'off')
-              ? h('div', { style: { marginTop: '12px' } },
-                  h('div', { style: { ...palette.row, justifyContent: 'space-between' } },
-                    h('span', { style: palette.hint }, copy.defaultLevel),
-                    h('strong', { style: { fontSize: '12px' } },
-                      draft.defaultEffort ? draft.defaultEffort : copy.auto),
-                  ),
+            h('div', { style: palette.row },
+              h('span', { style: palette.hint },
+                selectedLevels.length > 0 ? selectedLevels.join(' · ') : '—'),
+              h('button', {
+                type: 'button',
+                style: palette.button,
+                onClick: () => setMappingOpen(current => ({
+                  ...current,
+                  [model.id]: !current[model.id],
+                })),
+              }, copy.advanced),
+            ),
+            !showMapping ? null : h('div', null,
+              h('div', { style: { ...palette.hint, marginTop: '7px' } }, copy.mappingHint),
+              ...selectedLevels.map(level =>
+                h('div', { key: level, style: palette.mapping },
+                  h('label', { style: { fontSize: '12px' } }, level),
                   h('input', {
-                    type: 'range',
-                    min: 0,
-                    max: Math.max(0, defaultChoices.length - 1),
-                    step: 1,
-                    value: defaultIndex,
-                    disabled: controlsDisabled,
-                    style: palette.defaultSlider,
-                    'aria-label': copy.defaultLevel,
-                    onChange: event => {
-                      const level = defaultChoices[Number(event.target.value)] || ''
-                      setDefaultEffort(model.id, level)
-                    },
+                    type: 'text',
+                    style: palette.input,
+                    value: String(draft.values[level] ?? ''),
+                    placeholder: level === 'off' ? copy.wire : level,
+                    disabled: saving || !writable || !rawAvailable,
+                    'aria-label': level + ' ' + copy.wire,
+                    onChange: event => setWire(model.id, level, event.target.value),
                   }),
-                  h('div', {
-                    style: {
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: '4px',
-                      fontSize: '10px',
-                      opacity: .58,
-                    },
-                  }, ...defaultChoices.map(level => h('span', { key: level || 'auto' }, level || copy.auto))),
-                )
-              : null,
-            h('details', { style: { marginTop: '10px' } },
-              h('summary', { style: { cursor: 'pointer', fontSize: '12px' } }, copy.advanced),
-              h('div', { style: { ...palette.hint, marginTop: '6px' } }, copy.mappingHint),
-              ...selected.map(level => h('div', { key: level, style: palette.mapping },
-                h('label', { style: { fontSize: '12px' } }, level),
-                h('input', {
-                  type: 'text',
-                  style: palette.input,
-                  value: String(draft.values[level] ?? ''),
-                  placeholder: level === 'off' ? copy.wire : level,
-                  disabled: controlsDisabled,
-                  'aria-label': level + ' ' + copy.wire,
-                  onChange: event => setWire(model.id, level, event.target.value),
-                }),
-              )),
+                )),
             ),
             h('div', { style: { ...palette.hint, marginTop: '7px' } }, copy.offHint),
           ),
