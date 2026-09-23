@@ -26,6 +26,9 @@ grep -Fq "settings.models.provider-card" "$CLIENT"
 grep -Fq "remote.settings" "$CLIENT"
 grep -Fq "settings.mutate(" "$CLIENT"
 grep -Fq "reasoningEfforts" "$CLIENT"
+grep -Fq "defaultReasoningEffort" "$CLIENT"
+grep -Fq "type: 'range'" "$CLIENT"
+grep -Fq "'aria-pressed': active" "$CLIENT"
 grep -Fq "provider.declared !== true" "$CLIENT"
 
 # Do not regress to DOM scraping/patching or invent another persistence layer.
