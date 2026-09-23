@@ -79,19 +79,17 @@ Standard 镜像主要解决 DSH 的运行和管理问题：
 
 ## 自定义模型推理等级
 
-镜像内置一个轻量 DSH Web 扩展，用于补齐自定义模型的 `reasoningEfforts` 编辑和 Composer 推理等级滑块。
+镜像内置一个轻量 DSH Web 扩展，用于补齐自定义模型的 `reasoningEfforts` 编辑能力。
 
 ```text
 Models 页面
    ↓
 声明模型支持哪些 reasoningEfforts
-
-Composer
    ↓
-用滑块切换当前 Session 的 reasoningEffort
+DSH 原版 Composer 读取并提供推理等级选择
 ```
 
-Models 页仍通过 DSH 官方 Settings API 保存；Composer 滑块仍通过当前 Session 的 `ModelDirectory.select()` 提交，不维护第二套会话状态。
+Models 页仍通过 DSH 官方 Settings API 保存；Composer 保持 DSH 原生的“模型 / 推理等级”交互，不做 DOM 替换。
 
 详细设计、兼容边界和 `max → xhigh` 等映射方式见 [自定义模型推理等级](docs/reasoning-editor.md)。
 
