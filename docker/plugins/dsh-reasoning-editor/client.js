@@ -426,7 +426,12 @@ window.__ModuleLoader__.load({
       }
 
       const levelEditor = (model) => {
-        const draft = drafts[model.id] || { mode: 'inherit', values: {} }
+        const draft = drafts[model.id] || { mode: 'inherit', values: {}, defaultEffort: '' }
+        const selected = LEVELS.filter(level => Object.prototype.hasOwnProperty.call(draft.values || {}, level))
+        const defaultChoices = [''].concat(selected.filter(level => level !== 'off'))
+        const defaultIndex = Math.max(0, defaultChoices.indexOf(draft.defaultEffort || ''))
+        const controlsDisabled = saving || !writable || !rawAvailable
+
         return h('div', { key: model.id, style: palette.model },
           h('div', { style: palette.modelTitle }, model.name ? model.name + ' · ' + model.id : model.id),
           h('div', { style: palette.row },
@@ -434,7 +439,7 @@ window.__ModuleLoader__.load({
             h('select', {
               style: palette.select,
               value: draft.mode,
-              disabled: saving || !writable || !rawAvailable,
+              disabled: controlsDisabled,
               onChange: event => setMode(model.id, event.target.value),
             },
             h('option', { value: 'inherit' }, copy.inherited),
@@ -443,29 +448,89 @@ window.__ModuleLoader__.load({
           ),
           draft.mode !== 'custom' ? null : h('div', null,
             h('div', { style: { ...palette.hint, marginTop: '7px' } }, copy.levelHint),
-            ...LEVELS.map(level => {
-              const selected = Object.prototype.hasOwnProperty.call(draft.values || {}, level)
-              return h('div', { key: level, style: palette.level },
-                h('label', { style: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' } },
+            h('div', { style: palette.slider },
+              h('div', { style: palette.sliderRail }),
+              ...LEVELS.map((level, index) => {
+                const active = selected.includes(level)
+                return h('button', {
+                  key: level,
+                  type: 'button',
+                  title: (active ? 'Disable ' : 'Enable ') + level,
+                  'aria-label': level,
+                  'aria-pressed': active,
+                  disabled: controlsDisabled,
+                  style: {
+                    ...palette.sliderStop,
+                    left: (index / (LEVELS.length - 1) * 100) + '%',
+                    opacity: controlsDisabled ? .55 : 1,
+                  },
+                  onClick: () => toggleLevel(model.id, level, !active),
+                },
+                h('span', {
+                  style: {
+                    ...palette.sliderDot,
+                    background: active
+                      ? 'var(--dsw-alias-brand-primary, #4d6bfe)'
+                      : palette.sliderDot.background,
+                    borderColor: active
+                      ? 'var(--dsw-alias-brand-primary, #4d6bfe)'
+                      : 'var(--dsw-alias-separator-primary, #aaa)',
+                    boxShadow: active ? '0 0 0 4px rgba(77,107,254,.12)' : 'none',
+                  },
+                }),
+                h('span', {
+                  style: { ...palette.sliderLabel, fontWeight: active ? 600 : 400, opacity: active ? 1 : .55 },
+                }, level))
+              }),
+            ),
+            selected.some(level => level !== 'off')
+              ? h('div', { style: { marginTop: '12px' } },
+                  h('div', { style: { ...palette.row, justifyContent: 'space-between' } },
+                    h('span', { style: palette.hint }, copy.defaultLevel),
+                    h('strong', { style: { fontSize: '12px' } },
+                      draft.defaultEffort ? draft.defaultEffort : copy.auto),
+                  ),
                   h('input', {
-                    type: 'checkbox',
-                    checked: selected,
-                    disabled: saving || !writable || !rawAvailable,
-                    onChange: event => toggleLevel(model.id, level, event.target.checked),
+                    type: 'range',
+                    min: 0,
+                    max: Math.max(0, defaultChoices.length - 1),
+                    step: 1,
+                    value: defaultIndex,
+                    disabled: controlsDisabled,
+                    style: palette.defaultSlider,
+                    'aria-label': copy.defaultLevel,
+                    onChange: event => {
+                      const level = defaultChoices[Number(event.target.value)] || ''
+                      setDefaultEffort(model.id, level)
+                    },
                   }),
-                  level,
-                ),
+                  h('div', {
+                    style: {
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '4px',
+                      fontSize: '10px',
+                      opacity: .58,
+                    },
+                  }, ...defaultChoices.map(level => h('span', { key: level || 'auto' }, level || copy.auto))),
+                )
+              : null,
+            h('details', { style: { marginTop: '10px' } },
+              h('summary', { style: { cursor: 'pointer', fontSize: '12px' } }, copy.advanced),
+              h('div', { style: { ...palette.hint, marginTop: '6px' } }, copy.mappingHint),
+              ...selected.map(level => h('div', { key: level, style: palette.mapping },
+                h('label', { style: { fontSize: '12px' } }, level),
                 h('input', {
                   type: 'text',
                   style: palette.input,
-                  value: selected ? String(draft.values[level] ?? '') : '',
+                  value: String(draft.values[level] ?? ''),
                   placeholder: level === 'off' ? copy.wire : level,
-                  disabled: !selected || saving || !writable || !rawAvailable,
+                  disabled: controlsDisabled,
                   'aria-label': level + ' ' + copy.wire,
                   onChange: event => setWire(model.id, level, event.target.value),
                 }),
-              )
-            }),
+              )),
+            ),
             h('div', { style: { ...palette.hint, marginTop: '7px' } }, copy.offHint),
           ),
         )
