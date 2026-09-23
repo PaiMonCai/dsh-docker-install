@@ -60,6 +60,8 @@ jobs:
           bash tests/test-dshd-storage.sh
           bash -n tests/test-dshd-dashboard.sh
           bash tests/test-dshd-dashboard.sh
+          bash -n tests/test-reasoning-editor.sh
+          bash tests/test-reasoning-editor.sh
           bash -n docker/entrypoint.sh
           bash -n docker/ensure-reasoning-editor.sh
           sh -n docker/cn-mirror.sh
