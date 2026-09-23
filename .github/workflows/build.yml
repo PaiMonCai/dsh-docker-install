@@ -43,6 +43,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      base_image: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
+      dsh_version: ${{ steps.ver.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -101,7 +104,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          docker run --rm --entrypoint bash dsh-ci:pr -lc '
+          docker run --rm --entrypoint bash dsh-ci:pr -c '
             set -euo pipefail
             node --version
             npm --version
@@ -112,6 +115,7 @@ jobs:
             tmp_venv="$(mktemp -d)/venv"
             python3 -m venv "$tmp_venv"
             "$tmp_venv/bin/python" --version
+            test -x /usr/local/go/bin/go
             go version
             tmp_go="$(mktemp -d)"
             cat >"$tmp_go/main.go" <<'"'"'EOF'"'"'
@@ -178,6 +182,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        id: publish
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -189,3 +194,15 @@ jobs:
             ${{ steps.img.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+
+  research:
+    name: Rebuild Research images
+    needs: build
+    if: ${{ github.event_name != 'pull_request' }}
+    uses: ./.github/workflows/build-research.yml
+    with:
+      base_image: ${{ needs.build.outputs.base_image }}
+    permissions:
+      contents: read
+      packages: write
