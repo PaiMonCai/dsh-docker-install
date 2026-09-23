@@ -56,7 +56,54 @@ window.__ModuleLoader__.load({
         padding: '4px 7px',
         fontSize: '12px',
       },
-      level: {
+      slider: {
+        position: 'relative',
+        height: '54px',
+        margin: '8px 12px 12px',
+      },
+      sliderRail: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: '15px',
+        height: '6px',
+        borderRadius: '999px',
+        background: 'linear-gradient(90deg, rgba(77,107,254,.18), rgba(77,107,254,.8))',
+      },
+      sliderStop: {
+        position: 'absolute',
+        top: '5px',
+        transform: 'translateX(-50%)',
+        width: '28px',
+        height: '36px',
+        padding: 0,
+        border: 0,
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+      },
+      sliderDot: {
+        display: 'block',
+        width: '16px',
+        height: '16px',
+        margin: '7px auto 0',
+        borderRadius: '50%',
+        boxSizing: 'border-box',
+        background: 'var(--dsw-alias-bg-primary, #fff)',
+        border: '2px solid var(--dsw-alias-separator-primary, #aaa)',
+      },
+      sliderLabel: {
+        display: 'block',
+        marginTop: '5px',
+        fontSize: '10px',
+        whiteSpace: 'nowrap',
+        transform: 'translateX(-25%)',
+      },
+      defaultSlider: {
+        width: '100%',
+        accentColor: 'var(--dsw-alias-brand-primary, #4d6bfe)',
+      },
+      mapping: {
         display: 'grid',
         gridTemplateColumns: '82px minmax(120px, 1fr)',
         gap: '7px',
@@ -174,7 +221,11 @@ window.__ModuleLoader__.load({
         conflict: '配置同时被其他页面修改，已重读并重试；仍冲突，请重新打开后再保存。',
         missingModel: '保存时模型列表已变化；请重新打开后再保存。',
         offHint: 'Off 留空表示不发送 reasoning_effort。默认思考的 DeepSeek 兼容端点若需要显式关闭，仍应配置 compat.thinkingFormat: deepseek。',
-        levelHint: '勾选 DSH 中要显示的档位；发送值留空时使用档位名，可为网关填写自定义拼写。',
+        levelHint: '点击滑轨节点启用或关闭 DSH 中要显示的档位。',
+        defaultLevel: '默认推理等级',
+        auto: '自动',
+        advanced: '高级映射',
+        mappingHint: '仅当网关使用不同拼写时修改；留空使用标准档位名。',
         genericError: '读取或保存失败',
       } : {
         title: 'Reasoning effort',
@@ -196,7 +247,11 @@ window.__ModuleLoader__.load({
         conflict: 'Settings changed concurrently. The retry also conflicted; reopen and save again.',
         missingModel: 'The model list changed while saving. Reopen and save again.',
         offHint: 'A blank Off sends no reasoning_effort. DeepSeek-compatible endpoints that reason by default still need compat.thinkingFormat: deepseek for explicit disable.',
-        levelHint: 'Choose the levels DSH should offer. A blank wire value uses the level name; override it for gateway-specific spelling.',
+        levelHint: 'Click slider stops to enable or disable the levels DSH should offer.',
+        defaultLevel: 'Default reasoning effort',
+        auto: 'Auto',
+        advanced: 'Advanced mapping',
+        mappingHint: 'Override only when the gateway uses different spelling; blank uses the standard level name.',
         genericError: 'Unable to read or save settings',
       }
     }
@@ -266,36 +321,55 @@ window.__ModuleLoader__.load({
       }, [open, read])
 
       const setMode = (id, mode) => {
-        setDrafts(current => ({
-          ...current,
-          [id]: {
-            mode,
-            values: mode === 'custom' && current[id] && current[id].mode === 'custom'
-              ? current[id].values
-              : {},
-          },
-        }))
+        setDrafts(current => {
+          const previous = current[id]
+          return {
+            ...current,
+            [id]: {
+              mode,
+              values: mode === 'custom' && previous && previous.mode === 'custom'
+                ? previous.values
+                : {},
+              defaultEffort: mode === 'custom' && previous && previous.mode === 'custom'
+                ? previous.defaultEffort || ''
+                : '',
+            },
+          }
+        })
         setNotice('')
       }
 
       const toggleLevel = (id, level, checked) => {
         setDrafts(current => {
-          const draft = current[id] || { mode: 'custom', values: {} }
+          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
           const values = { ...(draft.values || {}) }
           if (checked) values[level] = values[level] ?? ''
           else delete values[level]
-          return { ...current, [id]: { mode: 'custom', values } }
+          const defaultEffort = !checked && draft.defaultEffort === level ? '' : (draft.defaultEffort || '')
+          return { ...current, [id]: { mode: 'custom', values, defaultEffort } }
         })
         setNotice('')
       }
 
       const setWire = (id, level, value) => {
         setDrafts(current => {
-          const draft = current[id] || { mode: 'custom', values: {} }
+          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
           return {
             ...current,
-            [id]: { mode: 'custom', values: { ...(draft.values || {}), [level]: value } },
+            [id]: {
+              mode: 'custom',
+              values: { ...(draft.values || {}), [level]: value },
+              defaultEffort: draft.defaultEffort || '',
+            },
           }
+        })
+        setNotice('')
+      }
+
+      const setDefaultEffort = (id, value) => {
+        setDrafts(current => {
+          const draft = current[id] || { mode: 'custom', values: {}, defaultEffort: '' }
+          return { ...current, [id]: { ...draft, defaultEffort: value } }
         })
         setNotice('')
       }
