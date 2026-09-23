@@ -732,6 +732,7 @@ compat 配置。保存使用 DSH Settings 的 revision fence；发生并发修�
 该扩展作为镜像内本地 bundle 随版本发布，容器启动 Web profile 时仅通过现有
 `dsh plugin` 生命周期幂等接入，不直接改写 `profiles/web/package.json`。默认开启；
 设置 `DSH_REASONING_EDITOR=false` 后会通过同一个 Plugin Manager 从 Web profile 移除。
+使用 `dshd` 管理部署时可执行 `dshd env set DSH_REASONING_EDITOR false`，随后按提示重建容器。
 
 ## Docker 项目管理模式
 
