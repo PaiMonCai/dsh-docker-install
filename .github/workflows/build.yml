@@ -104,7 +104,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          docker run --rm --entrypoint bash dsh-ci:pr -lc '
+          docker run --rm --entrypoint bash dsh-ci:pr -c '
             set -euo pipefail
             node --version
             npm --version
@@ -115,6 +115,7 @@ jobs:
             tmp_venv="$(mktemp -d)/venv"
             python3 -m venv "$tmp_venv"
             "$tmp_venv/bin/python" --version
+            test -x /usr/local/go/bin/go
             go version
             tmp_go="$(mktemp -d)"
             cat >"$tmp_go/main.go" <<'"'"'EOF'"'"'
