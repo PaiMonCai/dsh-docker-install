@@ -78,6 +78,10 @@ dshd env set NAME VALUE # 添加或更新容器环境变量
 dshd env remove NAME # 删除容器环境变量
 dshd env edit        # 编辑独立的 container.env
 dshd env path        # 显示环境变量文件路径
+dshd credentials status # 查看 Git/SSH Credentials
+dshd credentials github-ssh set ~/.ssh/id_ed25519
+dshd credentials ssh-agent set
+dshd credentials git-identity set "Your Name" you@example.com
 dshd token           # 显示首次访问 token URL
 dshd shell           # 进入容器
 dshd backup          # 备份 dsh 数据卷
@@ -262,6 +266,25 @@ dshd env remove HTTP_PROXY
 ```
 
 `/etc/dshd/config.env` 仍只保存 dshd 管理配置，不会整体传入容器，避免意外泄露管理器内部配置。
+
+### Git / SSH Credentials
+
+GitHub SSH 不建议直接作为普通环境变量保存。优先使用：
+
+```bash
+# 本机/开发机：不复制私钥，只转发 agent socket
+dshd credentials ssh-agent set
+
+# 服务器：复制到权限 600 的 dshd credentials 目录，再只读挂载进容器
+dshd credentials github-ssh set ~/.ssh/id_ed25519
+
+# 可选 Git 身份
+dshd credentials git-identity set "Your Name" you@example.com
+```
+
+纯 Docker Compose 场景仍可把私钥 Base64 后写入 `DSH_GITHUB_SSH_KEY_B64`，但它会出现在
+Docker `Config.Env` 中，因此任何拥有 Docker inspect 权限的主体都可以读取它。完整的
+优先级、known_hosts 和 GitHub Enterprise 配置见 [Git / SSH Credentials](credentials.md)。
 
 ### 容器资源与运行时默认值
 
