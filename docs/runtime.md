@@ -80,6 +80,38 @@ dshd docker on
 dshd docker off
 ```
 
+## Git / SSH Credentials
+
+镜像已包含 `git` 与 `openssh-client`。dshd 额外提供独立的 Credentials 注入层：
+
+```bash
+# 推荐：转发宿主机 ssh-agent
+dshd credentials ssh-agent set
+
+# 无人值守服务器：把专用 GitHub key 复制到 dshd 私有目录并只读挂载
+dshd credentials github-ssh set ~/.ssh/id_ed25519
+
+# Git commit identity
+dshd credentials git-identity set "Your Name" you@example.com
+
+dshd credentials status
+dshd recreate
+```
+
+运行时优先级是 `SSH Agent > 只读 key file > DSH_GITHUB_SSH_KEY_B64`。
+Base64 环境变量只作为纯 Compose 的便携兜底，因为 Docker `Config.Env` 可以被
+`docker inspect` 读取；它不是强 Secret 隔离。
+
+默认 SSH host 为 `github.com`，Host key 策略为 `accept-new`，首次接受的 key 会持久化到
+`$DSH_HOME/credentials/ssh/known_hosts`。需要严格预置时：
+
+```bash
+dshd credentials known-hosts set ./known_hosts
+dshd credentials strict-host-key set yes
+```
+
+完整说明见 [Git / SSH Credentials](credentials.md)。
+
 ## 内置浏览器
 
 镜像内通过 Playwright 安装了 Chromium（含全部系统依赖），路径
@@ -147,6 +179,12 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_MEMORY_LIMIT` | — | 可选容器内存上限，例如 `1536m` / `2g` |
 | `DSH_MEMORY_SWAP` | — | 可选 RAM+swap 总上限；仅在设置 `DSH_MEMORY_LIMIT` 时使用 |
 | `DSH_DOCKER_SOCKET` | 自动检测 | 宿主机 Docker Socket 路径 |
+| `DSH_GIT_USER_NAME` | — | 容器启动时写入 Git `user.name` |
+| `DSH_GIT_USER_EMAIL` | — | 容器启动时写入 Git `user.email` |
+| `DSH_GIT_SSH_HOST` | `github.com` | Git SSH 主机；可改为 GitHub Enterprise 域名 |
+| `DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | 仅支持 `accept-new` / `yes` |
+| `DSH_GITHUB_SSH_KEY_B64` | — | Base64 私钥兜底；会进入 Docker Config.Env，优先使用 dshd key-file/agent 模式 |
+| `DSH_SSH_AGENT_SOCKET` | — | dshd 持久化的宿主机 SSH Agent socket 路径 |
 | `DSHD_NO_SELF_UPDATE` | — | 设为 `1` 关闭 dshd 运行时的脚本自更新 |
 | `DSHD_UPDATE_URL` | — | 自定义 dshd 自更新源（默认 GitHub Raw → jsDelivr） |
 | `DSHD_CONTAINER_ENV_FILE` | 自动选择 | 自定义容器环境变量文件路径 |
