@@ -67,7 +67,7 @@ test_entrypoint_env_fallback() (
   DSH_GITHUB_SSH_KEY_B64="$b64" \
   DSH_GIT_USER_NAME="CI User" \
   DSH_GIT_USER_EMAIL="ci@example.com" \
-  "$ROOT/docker/entrypoint.sh" bash -c '
+  bash "$ROOT/docker/entrypoint.sh" bash -c '
     set -e
     test -f "$DSH_GIT_RUNTIME_DIR/id_git"
     test "$(stat -c "%a" "$DSH_GIT_RUNTIME_DIR/id_git")" = "600"
@@ -89,7 +89,7 @@ test_entrypoint_rejects_invalid_base64() (
     DSH_HOME="$tmp/dsh-home" \
     DSH_GIT_RUNTIME_DIR="$tmp/run" \
     DSH_GITHUB_SSH_KEY_B64='not@@base64' \
-    "$ROOT/docker/entrypoint.sh" true >/dev/null 2>&1; then
+    bash "$ROOT/docker/entrypoint.sh" true >/dev/null 2>&1; then
     fail "entrypoint should reject invalid DSH_GITHUB_SSH_KEY_B64"
   fi
 )
