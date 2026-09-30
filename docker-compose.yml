@@ -37,6 +37,12 @@ services:
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"
       # Landlock 沙箱下 /root/.npm 不可写，默认把 npm cache 放到 /tmp。
       NPM_CONFIG_CACHE: "${DSH_NPM_CACHE:-/tmp/npm-cache}"
+      # Git identity / SSH. dshd 使用只读 key mount 或 SSH Agent；Compose 用户也可用 base64 env 兜底。
+      DSH_GIT_USER_NAME: "${DSH_GIT_USER_NAME:-}"
+      DSH_GIT_USER_EMAIL: "${DSH_GIT_USER_EMAIL:-}"
+      DSH_GIT_SSH_HOST: "${DSH_GIT_SSH_HOST:-github.com}"
+      DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING: "${DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+      DSH_GITHUB_SSH_KEY_B64: "${DSH_GITHUB_SSH_KEY_B64:-}"
       # 需要换端口时同步改这里和 ports、healthcheck。
       # DSH_PORT: "3080"
       # 内核若无法提供 bubblewrap/Landlock，文件沙箱不可用，可临时关闭（见 README）。
