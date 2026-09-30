@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.8.2"
+DSHD_VERSION="0.9.0"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -42,6 +42,9 @@ else
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
 CONTAINER_ENV_FILE="${DSHD_CONTAINER_ENV_FILE:-$STATE_DIR/container.env}"
+CREDENTIAL_DIR="${DSHD_CREDENTIAL_DIR:-$STATE_DIR/credentials}"
+GITHUB_SSH_KEY_FILE="${DSHD_GITHUB_SSH_KEY_FILE:-$CREDENTIAL_DIR/github_ssh_key}"
+SSH_KNOWN_HOSTS_FILE="${DSHD_SSH_KNOWN_HOSTS_FILE:-$CREDENTIAL_DIR/known_hosts}"
 BACKUP_DIR="${DSHD_BACKUP_DIR:-$STATE_DIR/backups}"
 
 C_RESET=$'\033[0m'
@@ -188,6 +191,11 @@ load_config() {
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
   DSH_DOCKER_ACCESS="${DSH_DOCKER_ACCESS:-false}"
   DSH_DOCKER_SOCKET="${DSH_DOCKER_SOCKET:-}"
+  DSH_GIT_USER_NAME="${DSH_GIT_USER_NAME:-}"
+  DSH_GIT_USER_EMAIL="${DSH_GIT_USER_EMAIL:-}"
+  DSH_GIT_SSH_HOST="${DSH_GIT_SSH_HOST:-github.com}"
+  DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING="${DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+  DSH_SSH_AGENT_SOCKET="${DSH_SSH_AGENT_SOCKET:-}"
 
   if [[ -f "$CONFIG_FILE" ]]; then
     # config.env 仅由 dshd 自己写入，权限默认为 600。
@@ -273,6 +281,11 @@ save_config() {
     printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
     printf 'DSH_DOCKER_ACCESS=%q\n' "$DSH_DOCKER_ACCESS"
     printf 'DSH_DOCKER_SOCKET=%q\n' "$DSH_DOCKER_SOCKET"
+    printf 'DSH_GIT_USER_NAME=%q\n' "$DSH_GIT_USER_NAME"
+    printf 'DSH_GIT_USER_EMAIL=%q\n' "$DSH_GIT_USER_EMAIL"
+    printf 'DSH_GIT_SSH_HOST=%q\n' "$DSH_GIT_SSH_HOST"
+    printf 'DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING=%q\n' "$DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING"
+    printf 'DSH_SSH_AGENT_SOCKET=%q\n' "$DSH_SSH_AGENT_SOCKET"
   } >"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$CONFIG_FILE"
@@ -555,6 +568,10 @@ create_container() {
     -e "DSHW_ADMIN_HOSTS=${DSHW_ADMIN_HOSTS}"
     -e "TZ=${DSH_TIMEZONE}"
     -e "NPM_CONFIG_CACHE=${DSH_NPM_CACHE}"
+    -e "DSH_GIT_USER_NAME=${DSH_GIT_USER_NAME}"
+    -e "DSH_GIT_USER_EMAIL=${DSH_GIT_USER_EMAIL}"
+    -e "DSH_GIT_SSH_HOST=${DSH_GIT_SSH_HOST}"
+    -e "DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING=${DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING}"
     -v "${data_source}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
@@ -585,6 +602,30 @@ create_container() {
       -v "${DSH_DOCKER_SOCKET}:/var/run/docker.sock"
       --add-host "host.docker.internal:host-gateway"
       -e "DOCKER_HOST=unix:///var/run/docker.sock"
+    )
+  fi
+
+  # Git/SSH credential injection. Prefer an SSH agent, then a read-only key file.
+  # The env-file fallback (DSH_GITHUB_SSH_KEY_B64) remains available for portable
+  # docker-compose use, but is intentionally not created by dshd because it is
+  # visible through docker inspect.
+  if [[ -n "$DSH_SSH_AGENT_SOCKET" ]]; then
+    [[ -S "$DSH_SSH_AGENT_SOCKET" ]] || die "SSH Agent socket 不存在或不是 socket: $DSH_SSH_AGENT_SOCKET"
+    args+=(
+      -v "$DSH_SSH_AGENT_SOCKET:/run/dsh-ssh-agent"
+      -e "SSH_AUTH_SOCK=/run/dsh-ssh-agent"
+    )
+  fi
+  if [[ -f "$GITHUB_SSH_KEY_FILE" ]]; then
+    args+=(
+      -v "$GITHUB_SSH_KEY_FILE:/run/dsh-credentials/github_ssh_key:ro"
+      -e "DSH_GITHUB_SSH_KEY_FILE=/run/dsh-credentials/github_ssh_key"
+    )
+  fi
+  if [[ -f "$SSH_KNOWN_HOSTS_FILE" ]]; then
+    args+=(
+      -v "$SSH_KNOWN_HOSTS_FILE:/run/dsh-credentials/known_hosts:ro"
+      -e "DSH_GIT_SSH_KNOWN_HOSTS_FILE=/run/dsh-credentials/known_hosts"
     )
   fi
 
@@ -1681,6 +1722,192 @@ EOF
   done
 }
 
+ensure_credential_dir() {
+  ensure_state_dir
+  mkdir -p "$CREDENTIAL_DIR"
+  chmod 700 "$CREDENTIAL_DIR"
+}
+
+credentials_changed() {
+  ok "Credentials 配置已更新。"
+  if container_exists; then
+    if is_tty && confirm "是否立即重建容器使凭据配置生效？" Y; then
+      create_container
+    else
+      info "运行 dshd recreate 后生效。"
+    fi
+  fi
+}
+
+credential_copy_file() {
+  local source="$1" target="$2" label="$3" tmp
+  [[ -f "$source" && -s "$source" ]] || die "$label 文件不存在或为空: $source"
+  ensure_credential_dir
+  tmp="$(mktemp "$CREDENTIAL_DIR/.credential.XXXXXX")"
+  cat "$source" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$target"
+}
+
+cmd_credentials() {
+  local area="${1:-status}" action="${2:-}" arg1="${3:-}" arg2="${4:-}"
+  load_config
+
+  case "$area" in
+    status|show)
+      heading "DSH Credentials"
+      if [[ -n "$DSH_SSH_AGENT_SOCKET" ]]; then
+        printf 'Git SSH mode: ssh-agent (%s)\n' "$DSH_SSH_AGENT_SOCKET"
+      elif [[ -f "$GITHUB_SSH_KEY_FILE" ]]; then
+        printf 'Git SSH mode: mounted key file (%s)\n' "$GITHUB_SSH_KEY_FILE"
+      elif [[ -s "$CONTAINER_ENV_FILE" ]] && grep -q '^DSH_GITHUB_SSH_KEY_B64=' "$CONTAINER_ENV_FILE" 2>/dev/null; then
+        printf 'Git SSH mode: environment fallback (DSH_GITHUB_SSH_KEY_B64)\n'
+        warn "环境变量模式可被 docker inspect 读取；生产环境建议改用 key file 或 SSH Agent。"
+      else
+        printf 'Git SSH mode: not configured\n'
+      fi
+      printf 'Git SSH host: %s\n' "$DSH_GIT_SSH_HOST"
+      printf 'Host key policy: %s\n' "$DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING"
+      printf 'Known hosts: %s\n' "$([[ -f "$SSH_KNOWN_HOSTS_FILE" ]] && printf '%s' "$SSH_KNOWN_HOSTS_FILE" || printf 'persistent accept-new store')"
+      printf 'Git identity: %s <%s>\n' "${DSH_GIT_USER_NAME:-未设置}" "${DSH_GIT_USER_EMAIL:-未设置}"
+      ;;
+    github-ssh|git-ssh)
+      case "$action" in
+        set)
+          [[ -n "$arg1" ]] || die "用法: dshd credentials github-ssh set /path/to/private_key"
+          grep -q 'PRIVATE KEY' "$arg1" 2>/dev/null || die "看起来不是 OpenSSH/PEM 私钥文件: $arg1"
+          credential_copy_file "$arg1" "$GITHUB_SSH_KEY_FILE" "GitHub SSH 私钥"
+          # File mode is deterministic: clear persisted agent selection so the key is actually used.
+          DSH_SSH_AGENT_SOCKET=""
+          save_config
+          credentials_changed
+          ;;
+        clear|remove|unset)
+          rm -f "$GITHUB_SSH_KEY_FILE"
+          credentials_changed
+          ;;
+        path)
+          printf '%s\n' "$GITHUB_SSH_KEY_FILE"
+          ;;
+        *)
+          die "用法: dshd credentials github-ssh set|clear|path [FILE]"
+          ;;
+      esac
+      ;;
+    known-hosts)
+      case "$action" in
+        set)
+          [[ -n "$arg1" ]] || die "用法: dshd credentials known-hosts set /path/to/known_hosts"
+          credential_copy_file "$arg1" "$SSH_KNOWN_HOSTS_FILE" "known_hosts"
+          credentials_changed
+          ;;
+        clear|remove|unset)
+          rm -f "$SSH_KNOWN_HOSTS_FILE"
+          credentials_changed
+          ;;
+        path)
+          printf '%s\n' "$SSH_KNOWN_HOSTS_FILE"
+          ;;
+        *)
+          die "用法: dshd credentials known-hosts set|clear|path [FILE]"
+          ;;
+      esac
+      ;;
+    ssh-agent)
+      case "$action" in
+        set|on)
+          arg1="${arg1:-${SSH_AUTH_SOCK:-}}"
+          [[ -n "$arg1" ]] || die "未提供 SSH Agent socket，且当前 SSH_AUTH_SOCK 为空。"
+          [[ -S "$arg1" ]] || die "不是可用的 SSH Agent socket: $arg1"
+          DSH_SSH_AGENT_SOCKET="$arg1"
+          save_config
+          credentials_changed
+          ;;
+        clear|off|remove)
+          DSH_SSH_AGENT_SOCKET=""
+          save_config
+          credentials_changed
+          ;;
+        *)
+          die "用法: dshd credentials ssh-agent set [SOCKET] | clear"
+          ;;
+      esac
+      ;;
+    git-identity|identity)
+      case "$action" in
+        set)
+          [[ -n "$arg1" && -n "$arg2" ]] || die "用法: dshd credentials git-identity set NAME EMAIL"
+          [[ "$arg2" == *@* ]] || die "Git email 格式看起来不正确: $arg2"
+          DSH_GIT_USER_NAME="$arg1"
+          DSH_GIT_USER_EMAIL="$arg2"
+          save_config
+          credentials_changed
+          ;;
+        clear|remove|unset)
+          DSH_GIT_USER_NAME=""
+          DSH_GIT_USER_EMAIL=""
+          save_config
+          credentials_changed
+          ;;
+        *)
+          die "用法: dshd credentials git-identity set NAME EMAIL | clear"
+          ;;
+      esac
+      ;;
+    host)
+      case "$action" in
+        set)
+          [[ "$arg1" =~ ^[A-Za-z0-9.-]+$ ]] || die "无效 Git SSH host: $arg1"
+          DSH_GIT_SSH_HOST="$arg1"
+          save_config
+          credentials_changed
+          ;;
+        *)
+          die "用法: dshd credentials host set github.com"
+          ;;
+      esac
+      ;;
+    strict-host-key)
+      case "$action" in
+        set)
+          [[ "$arg1" == "yes" || "$arg1" == "accept-new" ]] || die "仅支持 yes 或 accept-new。"
+          DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING="$arg1"
+          save_config
+          credentials_changed
+          ;;
+        *)
+          die "用法: dshd credentials strict-host-key set yes|accept-new"
+          ;;
+      esac
+      ;;
+    help|-h|--help)
+      cat <<EOF
+用法:
+  dshd credentials status
+  dshd credentials github-ssh set /path/to/private_key
+  dshd credentials github-ssh clear
+  dshd credentials ssh-agent set [SOCKET]
+  dshd credentials ssh-agent clear
+  dshd credentials known-hosts set /path/to/known_hosts
+  dshd credentials known-hosts clear
+  dshd credentials git-identity set NAME EMAIL
+  dshd credentials git-identity clear
+  dshd credentials host set github.com
+  dshd credentials strict-host-key set yes|accept-new
+
+优先级:
+  SSH Agent > dshd 管理的只读私钥文件 > DSH_GITHUB_SSH_KEY_B64 环境变量
+
+默认 host key 策略为 accept-new，并把首次接受的 host key 持久化到 DSH_HOME。
+需要预置严格校验时，导入 trusted known_hosts 后把策略切换为 yes。
+EOF
+      ;;
+    *)
+      die "未知 credentials 子命令: $area（运行 dshd credentials help 查看用法）"
+      ;;
+  esac
+}
+
 validate_env_name() {
   [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
 }
@@ -2357,6 +2584,10 @@ dshd - DeepSeek Harness Docker 管理器
   dshd dashboard logs      查看 Dashboard 日志
   dshd dashboard port PORT 修改 Dashboard 宿主机端口
   dshd env                 查看容器开发环境版本
+  dshd credentials         查看 Git/SSH Credentials 状态
+  dshd credentials github-ssh set FILE  安全挂载 GitHub SSH 私钥
+  dshd credentials ssh-agent set [SOCKET]  转发宿主机 SSH Agent
+  dshd credentials git-identity set NAME EMAIL  配置 Git 身份
   dshd shell               进入容器 Shell
   dshd token               显示首次访问 URL
   dshd backup              备份 /root/.dsh
@@ -2409,6 +2640,7 @@ menu() {
  23) 查看持久化存储
  24) Research Dashboard
  25) Whale Widget 远程写权限
+ 26) Git / SSH Credentials
 
   0) 退出
 EOF
@@ -2441,6 +2673,7 @@ EOF
       23) cmd_storage show ;;
       24) cmd_dashboard status ;;
       25) cmd_admin_hosts ;;
+      26) cmd_credentials status ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2480,6 +2713,7 @@ main() {
     storage|data-storage) shift; cmd_storage "$@" ;;
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
+    credentials|credential|secrets) shift; cmd_credentials "$@" ;;
     shell) cmd_shell ;;
     token|url) cmd_token ;;
     backup) cmd_backup ;;
