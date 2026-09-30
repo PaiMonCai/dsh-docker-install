@@ -17,6 +17,87 @@ BIND_PATCH="${DSH_BIND_PATCH:-/opt/dsh/dsh-bind.patch.yml}"
 
 log() { printf 'dsh-entrypoint: %s\n' "$*" >&2; }
 
+configure_git_credentials() {
+    local runtime_dir="${DSH_GIT_RUNTIME_DIR:-/run/dsh-git}"
+    local ssh_config="$runtime_dir/ssh_config"
+    local runtime_key="$runtime_dir/id_git"
+    local persistent_dir="$DSH_HOME/credentials/ssh"
+    local known_hosts="$persistent_dir/known_hosts"
+    local key_source=""
+    local host="${DSH_GIT_SSH_HOST:-github.com}"
+    local strict="${DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+
+    # Git identity is useful even without remote SSH credentials.
+    if [[ -n "${DSH_GIT_USER_NAME:-}" ]]; then
+        git config --global --replace-all user.name "$DSH_GIT_USER_NAME"
+    fi
+    if [[ -n "${DSH_GIT_USER_EMAIL:-}" ]]; then
+        git config --global --replace-all user.email "$DSH_GIT_USER_EMAIL"
+    fi
+
+    [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || {
+        log "警告：忽略非法 DSH_GIT_SSH_HOST=$host"
+        return 0
+    }
+    case "$strict" in
+        yes|accept-new) ;;
+        *)
+            log "警告：DSH_GIT_SSH_STRICT_HOST_KEY_CHECKING 仅支持 yes/accept-new，回退到 accept-new"
+            strict="accept-new"
+            ;;
+    esac
+
+    mkdir -p "$runtime_dir" "$persistent_dir"
+    chmod 700 "$runtime_dir" "$persistent_dir"
+
+    # Explicit known_hosts import wins over the persistent accept-new store.
+    if [[ -n "${DSH_GIT_SSH_KNOWN_HOSTS_FILE:-}" && -r "$DSH_GIT_SSH_KNOWN_HOSTS_FILE" ]]; then
+        cat "$DSH_GIT_SSH_KNOWN_HOSTS_FILE" >"$known_hosts"
+    fi
+    touch "$known_hosts"
+    chmod 600 "$known_hosts"
+
+    # Credential precedence: forwarded agent > read-only mounted key > env fallback.
+    if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+        :
+    elif [[ -n "${DSH_GITHUB_SSH_KEY_FILE:-}" && -r "$DSH_GITHUB_SSH_KEY_FILE" ]]; then
+        key_source="$DSH_GITHUB_SSH_KEY_FILE"
+    elif [[ -n "${DSH_GITHUB_SSH_KEY_B64:-}" ]]; then
+        if ! printf '%s' "$DSH_GITHUB_SSH_KEY_B64" | base64 -d >"$runtime_key" 2>/dev/null; then
+            rm -f "$runtime_key"
+            log "错误：DSH_GITHUB_SSH_KEY_B64 不是有效的 base64"
+            return 1
+        fi
+        key_source="$runtime_key"
+    else
+        return 0
+    fi
+
+    if [[ -n "$key_source" && "$key_source" != "$runtime_key" ]]; then
+        cat "$key_source" >"$runtime_key"
+        key_source="$runtime_key"
+    fi
+    if [[ -n "$key_source" ]]; then
+        chmod 600 "$key_source"
+    fi
+
+    {
+        printf 'Host %s\n' "$host"
+        printf '  HostName %s\n' "$host"
+        printf '  User git\n'
+        if [[ -n "$key_source" ]]; then
+            printf '  IdentityFile %s\n' "$key_source"
+            printf '  IdentitiesOnly yes\n'
+        fi
+        printf '  StrictHostKeyChecking %s\n' "$strict"
+        printf '  UserKnownHostsFile %s\n' "$known_hosts"
+    } >"$ssh_config"
+    chmod 600 "$ssh_config"
+
+    export GIT_SSH_COMMAND="ssh -F $ssh_config"
+    log "Git SSH 已配置：host=$host, mode=$([[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]] && printf agent || printf key), strict=$strict"
+}
+
 # Plugin Hub 自己对 POST 做 localhost-only Origin 检查，和 DSH_TRUSTED_HOSTS 不一致。
 # 对持久 profile 中已安装的 dsh-plugin 做幂等运行时 patch：外部 Host 必须同时满足
 # Origin.host == Host 且存在于 DSH_TRUSTED_HOSTS。本地 localhost/127.0.0.1/::1 行为不变。
@@ -91,6 +172,7 @@ run_web() {
     exec dsh "${args[@]}" "$@"
 }
 
+configure_git_credentials
 repair_stale_workspace_cwd
 apply_plugin_hub_reverse_proxy_patch
 
