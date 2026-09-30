@@ -71,6 +71,7 @@ Standard 镜像主要解决 DSH 的运行和管理问题：
 - Remote Settings；
 - Chromium / Playwright；
 - Node / Python / Go / Docker CLI 开发环境；
+- Git / SSH Credentials 注入（SSH Agent、只读 key file、环境变量兜底）；
 - 可选宿主机 Docker Socket 管理；
 - 国内网络构建镜像源适配；
 - `dshd` 安装、更新、备份、恢复和诊断。
@@ -138,6 +139,7 @@ ghcr.io/paimoncai/dsh-docker-install:research-economics
 - [文档索引](docs/README.md)
 - [部署与访问](docs/deployment.md)
 - [Runtime 与运维](docs/runtime.md)
+- [Git / SSH Credentials](docs/credentials.md)
 - [自定义模型推理等级](docs/reasoning-editor.md)
 - [镜像构建与自动更新](docs/ci.md)
 - [Research Edition](research/README.md)
