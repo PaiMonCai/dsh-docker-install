@@ -52,6 +52,10 @@ dshd hosts add dsh.example.com
 dshd hosts remove dsh.example.com
 dshd hosts set dsh.example.com,other.example.com:3080
 dshd hosts clear
+dshd admin-hosts           # Whale Widget 远程写权限菜单
+dshd admin-hosts show      # 查看已授权的 Whale Admin Hosts
+dshd admin-hosts add dsh.example.com
+dshd admin-hosts remove dsh.example.com
 dshd docker          # Docker 项目管理权限菜单
 dshd docker on       # 允许 DSH 管理宿主机 Docker
 dshd docker off      # 关闭宿主机 Docker 权限
@@ -122,6 +126,11 @@ export DSHD_UPDATE_URL=https://example.com/dshd
 首次安装时会直接询问 `DSH_TRUSTED_HOSTS`。安装完成后如果新增域名或修改反代，
 无需重新走完整配置，直接运行 `dshd hosts` 即可快捷增删。修改后管理器会询问是否
 立即重建容器，使新的 Trusted Hosts 马上生效。
+
+`DSHW_ADMIN_HOSTS` 是另一层独立权限：它只控制 `dsh-whale-widget` 在非回环 Host 上的
+POST/PUT/PATCH/DELETE 写操作。默认留空；只有明确需要通过域名或局域网修改 Whale 配置时
+才使用 `dshd admin-hosts` 授权。加入 Admin Hosts **不会**绕过 `DSH_TRUSTED_HOSTS`，
+也不会绕过浏览器 token/cookie 会话认证。
 
 如果配置了 Trusted Hosts，安装完成后的 Token 地址和 `dshd token` 会优先使用第一个
 Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS），同时安装完成页保留
@@ -349,6 +358,25 @@ DSH
 - HTTPS 反向代理；
 - 不直接把 DSH Web UI 端口暴露到公网。
 
+如果安装了 `dsh-whale-widget` 并需要通过远程域名修改它的配置，还要单独配置
+`DSHW_ADMIN_HOSTS`。三层含义不要混用：
+
+```text
+DSH_TRUSTED_HOSTS    = Host/Origin 是否被 DSH 接受
+DSHW_ADMIN_HOSTS     = 该非回环 Host 是否允许执行 Whale 写操作
+浏览器 token/cookie  = 请求者是否已通过 DSH 会话认证
+```
+
+推荐通过管理器显式授权，而不是让 Admin Hosts 自动继承全部 Trusted Hosts：
+
+```bash
+dshd admin-hosts add dsh.example.com
+dshd recreate
+```
+
+这样只读入口可以留在 `DSH_TRUSTED_HOSTS`，而不自动获得修改 Whale 凭据目标、模型接口等
+敏感配置的权限。
+
 ### 反向代理必须保留原始 Host
 
 DSH 会在所有 `/api` 请求进入业务处理前校验 `Host`、`Origin` 和
@@ -403,9 +431,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
   -H 'Sec-Fetch-Site: same-origin'
 ```
 
-未携带浏览器 Cookie 时，返回 `401` 表示 Host/Origin 信任校验已经通过；返回 `403`
-表示 Trusted Hosts 尚未应用，或反向代理传递的 Host/Origin 不匹配。修改反向代理头后
-只需重载代理；修改 `DSH_TRUSTED_HOSTS` 才需要重建 DSH 容器。
+未携带浏览器 Cookie 时，普通 DSH API 返回 `401` 表示 Host/Origin 信任校验已经通过；
+返回 `403` 通常表示 Trusted Hosts 尚未应用，或反向代理传递的 Host/Origin 不匹配。
+对于 `/dsh-whale/*` 的写请求还有第三种 403：Host 已被 DSH 信任，但没有列入
+`DSHW_ADMIN_HOSTS`。修改反向代理头后只需重载代理；修改 `DSH_TRUSTED_HOSTS` 或
+`DSHW_ADMIN_HOSTS` 都需要重建 DSH 容器。
 
 补丁只修改 `@deepseek-ai/dsh-client-ui-settings` 客户端插件中的 Settings 持久化判断，
 不改变其他 loopback 安全判断。构建时如果找不到对应表达式，镜像构建会直接失败，避免

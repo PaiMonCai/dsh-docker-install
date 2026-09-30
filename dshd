@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.8.1"
+DSHD_VERSION="0.8.2"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -183,6 +183,7 @@ load_config() {
   DSH_MEMORY_LIMIT="${DSH_MEMORY_LIMIT:-$DEFAULT_MEMORY_LIMIT}"
   DSH_MEMORY_SWAP="${DSH_MEMORY_SWAP:-$DEFAULT_MEMORY_SWAP}"
   DSH_TRUSTED_HOSTS="${DSH_TRUSTED_HOSTS:-}"
+  DSHW_ADMIN_HOSTS="${DSHW_ADMIN_HOSTS:-}"
   DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-}"
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
   DSH_DOCKER_ACCESS="${DSH_DOCKER_ACCESS:-false}"
@@ -267,6 +268,7 @@ save_config() {
     printf 'DSH_MEMORY_LIMIT=%q\n' "$DSH_MEMORY_LIMIT"
     printf 'DSH_MEMORY_SWAP=%q\n' "$DSH_MEMORY_SWAP"
     printf 'DSH_TRUSTED_HOSTS=%q\n' "$DSH_TRUSTED_HOSTS"
+    printf 'DSHW_ADMIN_HOSTS=%q\n' "$DSHW_ADMIN_HOSTS"
     printf 'DEEPSEEK_BASE_URL=%q\n' "$DEEPSEEK_BASE_URL"
     printf 'DEEPSEEK_API_KEY=%q\n' "$DEEPSEEK_API_KEY"
     printf 'DSH_DOCKER_ACCESS=%q\n' "$DSH_DOCKER_ACCESS"
@@ -550,6 +552,7 @@ create_container() {
     --shm-size "$DSH_SHM_SIZE"
     -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
     -e "DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS}"
+    -e "DSHW_ADMIN_HOSTS=${DSHW_ADMIN_HOSTS}"
     -e "TZ=${DSH_TIMEZONE}"
     -e "NPM_CONFIG_CACHE=${DSH_NPM_CACHE}"
     -v "${data_source}:/root/.dsh"
@@ -866,6 +869,11 @@ EOF
   fi
 
   prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
+
+  heading "Whale Widget 远程写权限"
+  warn "DSHW_ADMIN_HOSTS 只用于 dsh-whale-widget 的非回环写操作；它不会替代 DSH_TRUSTED_HOSTS 或浏览器会话认证。"
+  warn "只有明确需要通过域名/局域网修改 Whale 配置时才填写；多个 Host 用逗号分隔。"
+  prompt_value DSHW_ADMIN_HOSTS "Whale Admin Hosts（默认留空）" "${DSHW_ADMIN_HOSTS:-}"
 
   heading "容器运行资源"
   while true; do
@@ -1201,6 +1209,7 @@ cmd_status() {
   printf '内存上限:       %s\n' "${DSH_MEMORY_LIMIT:-不限制}"
   printf 'RAM+Swap 上限:  %s\n' "${DSH_MEMORY_SWAP:-Docker 默认}"
   printf 'Trusted Hosts:  %s\n' "${DSH_TRUSTED_HOSTS:-（未配置）}"
+  printf 'Whale Admin:    %s\n' "${DSHW_ADMIN_HOSTS:-（未配置）}"
   printf 'API 模式:       %s\n' "$(api_mode_label)"
   printf 'Base URL:       %s\n' "${DEEPSEEK_BASE_URL:-DeepSeek 官方默认}"
   printf 'API Key:        %s\n' "$(api_key_state)"
@@ -1415,6 +1424,45 @@ hosts_remove_values() {
   printf '%s' "$out"
 }
 
+normalize_admin_hosts() {
+  local raw="$*" token out="" existing
+  local parts=() seen=()
+  IFS=', ' read -r -a parts <<<"$raw" || true
+  for token in "${parts[@]}"; do
+    [[ -n "$token" ]] || continue
+    if [[ "$token" == *"://"* || "$token" == */* ]]; then
+      warn "Whale Admin Host 应填写域名/IP/authority，而不是 URL：$token"
+    fi
+    local duplicate=0
+    for existing in "${seen[@]}"; do
+      [[ "$existing" == "$token" ]] && { duplicate=1; break; }
+    done
+    [[ "$duplicate" -eq 1 ]] && continue
+    seen+=("$token")
+    [[ -z "$out" ]] && out="$token" || out="$out,$token"
+  done
+  printf '%s' "$out"
+}
+
+admin_hosts_remove_values() {
+  local current="$1"; shift
+  local targets item target out="" remove
+  targets="$(normalize_admin_hosts "$*")"
+  local items=() target_items=()
+  IFS=',' read -r -a items <<<"$current" || true
+  IFS=',' read -r -a target_items <<<"$targets" || true
+  for item in "${items[@]}"; do
+    [[ -n "$item" ]] || continue
+    remove=0
+    for target in "${target_items[@]}"; do
+      [[ "$item" == "$target" ]] && { remove=1; break; }
+    done
+    [[ "$remove" -eq 1 ]] && continue
+    [[ -z "$out" ]] && out="$item" || out="$out,$item"
+  done
+  printf '%s' "$out"
+}
+
 apply_config_change() {
   save_config
   if container_exists; then
@@ -1537,6 +1585,47 @@ EOF
       3) read -r -p "输入要添加的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSH_TRUSTED_HOSTS="$(normalize_trusted_hosts "${DSH_TRUSTED_HOSTS},$value")"; apply_config_change ;;
       4) read -r -p "输入要删除的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSH_TRUSTED_HOSTS="$(hosts_remove_values "$DSH_TRUSTED_HOSTS" "$value")"; apply_config_change ;;
       5) confirm "清空全部 Trusted Hosts？" N || continue; DSH_TRUSTED_HOSTS=""; apply_config_change ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+    read -r -p $'\n按 Enter 继续...' _ || true
+  done
+}
+
+cmd_admin_hosts() {
+  load_config
+  local action="${1:-menu}"
+  [[ "$#" -gt 0 ]] && shift || true
+  case "$action" in
+    show|list) heading "Whale Admin Hosts"; [[ -n "$DSHW_ADMIN_HOSTS" ]] && printf '%s\n' "$DSHW_ADMIN_HOSTS" | tr ',' '\n' | sed 's/^/  - /' || info "当前未配置。"; return ;;
+    set) [[ "$#" -gt 0 ]] || die "用法: dshd admin-hosts set dsh.example.com,admin.example.com"; DSHW_ADMIN_HOSTS="$(normalize_admin_hosts "$*")"; apply_config_change; return ;;
+    add) [[ "$#" -gt 0 ]] || die "用法: dshd admin-hosts add dsh.example.com"; DSHW_ADMIN_HOSTS="$(normalize_admin_hosts "${DSHW_ADMIN_HOSTS},$*")"; apply_config_change; return ;;
+    remove|rm|del) [[ "$#" -gt 0 ]] || die "用法: dshd admin-hosts remove dsh.example.com"; DSHW_ADMIN_HOSTS="$(admin_hosts_remove_values "$DSHW_ADMIN_HOSTS" "$@")"; apply_config_change; return ;;
+    clear) confirm "清空全部 Whale Admin Hosts？" N || return; DSHW_ADMIN_HOSTS=""; apply_config_change; return ;;
+    menu) ;;
+    *) die "未知 admin-hosts 子命令: $action" ;;
+  esac
+
+  while true; do
+    heading "Whale Admin Hosts"
+    printf '当前值: %s\n\n' "${DSHW_ADMIN_HOSTS:-（未配置）}"
+    warn "此列表只授权 dsh-whale-widget 的非回环写操作；请求仍需通过 DSH Trusted Hosts 与浏览器会话认证。"
+    cat <<'EOF'
+  1) 查看列表
+  2) 完整替换
+  3) 添加 Host
+  4) 删除 Host
+  5) 清空
+  0) 返回
+EOF
+    local choice="" value=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1) [[ -n "$DSHW_ADMIN_HOSTS" ]] && printf '%s\n' "$DSHW_ADMIN_HOSTS" | tr ',' '\n' | sed 's/^/  - /' || info "未配置" ;;
+      2) read -r -p "输入完整列表（逗号分隔）: " value || true; DSHW_ADMIN_HOSTS="$(normalize_admin_hosts "$value")"; apply_config_change ;;
+      3) read -r -p "输入要添加的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSHW_ADMIN_HOSTS="$(normalize_admin_hosts "${DSHW_ADMIN_HOSTS},$value")"; apply_config_change ;;
+      4) read -r -p "输入要删除的 Host（可逗号分隔多个）: " value || true; [[ -n "$value" ]] || { warn "输入为空"; continue; }; DSHW_ADMIN_HOSTS="$(admin_hosts_remove_values "$DSHW_ADMIN_HOSTS" "$value")"; apply_config_change ;;
+      5) confirm "清空全部 Whale Admin Hosts？" N || continue; DSHW_ADMIN_HOSTS=""; apply_config_change ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2252,6 +2341,9 @@ dshd - DeepSeek Harness Docker 管理器
   dshd api official        切换 DeepSeek 官方 API
   dshd api custom URL      设置自定义 Base URL
   dshd hosts               快捷管理 Trusted Hosts
+  dshd admin-hosts          管理 Whale Widget 远程写权限
+  dshd admin-hosts show     查看 Whale Admin Hosts
+  dshd admin-hosts add HOST 允许该 Host 执行 Whale 写操作
   dshd docker              管理 DSH 的宿主机 Docker 权限
   dshd docker on|off       开启/关闭 Docker 管理
   dshd docker status       检查 Docker Socket
@@ -2316,6 +2408,7 @@ menu() {
  22) Research Pack 切换
  23) 查看持久化存储
  24) Research Dashboard
+ 25) Whale Widget 远程写权限
 
   0) 退出
 EOF
@@ -2347,6 +2440,7 @@ EOF
       22) cmd_research_pack_menu ;;
       23) cmd_storage show ;;
       24) cmd_dashboard status ;;
+      25) cmd_admin_hosts ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2381,6 +2475,7 @@ main() {
     research-pack|pack) shift; cmd_research_pack "${1:-show}" ;;
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
+    admin-hosts|whale-admin-hosts) shift; cmd_admin_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
     storage|data-storage) shift; cmd_storage "$@" ;;
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
