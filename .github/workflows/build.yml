@@ -66,6 +66,8 @@ jobs:
           bash -n install.sh
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
+          bash -n tests/test-dshd-mounts.sh
+          bash tests/test-dshd-mounts.sh
           bash -n tests/test-dshd-dashboard.sh
           bash tests/test-dshd-dashboard.sh
           bash -n tests/test-dshd-admin-hosts.sh

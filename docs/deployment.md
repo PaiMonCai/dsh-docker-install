@@ -63,6 +63,9 @@ dshd docker status   # 检查 Docker Socket / Compose
 dshd storage show         # 查看 /root/.dsh 的宿主机存储
 dshd storage bind /opt/dsh/data     # 采用已有宿主机数据目录
 dshd storage migrate /opt/dsh/data  # 从旧 named volume 自动迁移
+dshd mounts show                     # 查看自定义持久化目录
+dshd mounts add /opt/dsh/ssh /root/.ssh
+dshd mounts remove /root/.ssh
 dshd edition show    # 查看 Standard / Research Edition
 dshd edition research # 切换到 Research Core
 dshd edition standard # 切换回 Standard
@@ -154,6 +157,36 @@ Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS）�
 - 历史安装如果仍使用 `dsh-home` named volume，不会被静默切换，继续保持兼容。
 
 Web 的 **Choose workspace** 在 Docker 镜像中默认从 `/workspace` 打开，避免把新项目误建到容器自身的 `/root/*` 可写层。长期项目应放在 `/workspace/*`（对应宿主机配置的 `DSH_WORKSPACE`）；`/root/.dsh` 仅用于 DSH 状态数据。
+
+#### 自定义持久化目录
+
+从 dshd 0.8.3 开始，可以把额外的宿主机目录持久挂载到容器。典型用途是 SSH、Git 工具状态或其他开发环境配置，不需要为了每一种工具修改 `docker run` 参数。
+
+例如持久化容器中的 SSH 配置：
+
+```bash
+dshd mounts add /opt/dsh/ssh /root/.ssh
+dshd recreate
+```
+
+查看和删除：
+
+```bash
+dshd mounts show
+dshd mounts remove /root/.ssh
+```
+
+第三个参数可以指定 `rw` 或 `ro`，默认 `rw`：
+
+```bash
+dshd mounts add /opt/dsh/reference /root/reference ro
+```
+
+配置保存在 `/etc/dshd/mounts.conf`（非 root 用户为 `~/.config/dshd/mounts.conf`），权限为 600。dshd 只接受绝对目录路径，并拒绝覆盖它自身管理的 `/`、`/root`、`/root/.dsh`、`/workspace` 和 Docker Socket；自定义挂载之间也不能出现父子目标路径重叠。
+
+如果添加挂载时发现当前容器目标目录已有数据，而新建的宿主机目录为空，交互模式会询问是否先把现有内容迁移到宿主机。例如已经在容器中生成过 `/root/.ssh` 时，可以直接添加上述 SSH 挂载并选择迁移，无需手工 `docker cp`。
+
+> 自定义挂载**不属于** `dshd backup` / `restore` 的范围。特别是 `/root/.ssh` 可能包含私钥，应由用户单独决定备份和权限策略。删除挂载配置也不会删除宿主机目录中的数据。
 
 查看当前存储：
 

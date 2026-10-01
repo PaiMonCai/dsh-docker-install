@@ -45,6 +45,8 @@ dshd update
 dshd restart
 dshd token
 dshd shell
+dshd mounts show
+dshd mounts add /opt/dsh/ssh /root/.ssh
 dshd doctor
 ```
 
@@ -66,7 +68,7 @@ Standard 镜像主要解决 DSH 的运行和管理问题：
 
 - 官方 DSH npm 包的 Docker 化；
 - Web / headless / sdk / acp 等 profile 入口；
-- 持久化 `DSH_HOME` 与工作区；
+- 持久化 `DSH_HOME`、工作区，并支持自定义目录挂载（如 `/root/.ssh`）；
 - Trusted Hosts、Token URL 和反向代理适配；
 - Remote Settings；
 - Chromium / Playwright；

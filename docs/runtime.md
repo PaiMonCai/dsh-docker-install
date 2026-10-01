@@ -82,6 +82,37 @@ dshd env
 
 查看当前运行容器中的实际版本。
 
+## 自定义持久化目录
+
+dshd 0.8.3 起支持独立于 `DSH_HOME` 和 `/workspace` 的额外目录挂载：
+
+```bash
+dshd mounts show
+dshd mounts add /opt/dsh/ssh /root/.ssh
+dshd mounts add /opt/dsh/reference /root/reference ro
+dshd mounts remove /root/.ssh
+```
+
+挂载记录位于 `$STATE_DIR/mounts.conf`，每次 `dshd recreate` / `dshd update` 创建容器时都会重新转换为 Docker bind mount。宿主机源目录不存在时会自动创建；目标为 `/root/.ssh` 时源目录权限会收紧到 700。
+
+为了避免自定义配置破坏 dshd 自身的运行边界，以下目标不能被覆盖：
+
+```text
+/
+/root
+/root/.dsh
+/root/.dsh/*
+/workspace
+/workspace/*
+/var/run/docker.sock
+```
+
+自定义目标之间同样禁止父子路径重叠。当前功能只管理**目录**，不接受任意 Docker 参数，也不把单个宿主机文件作为持久化项。
+
+需要注意，自定义 bind mount 会把对应宿主机目录直接暴露给容器。不要把宿主机的 `/etc`、`/root`、Docker 数据目录等高权限目录随意以可写方式挂入。自定义挂载不会进入 `dshd backup` / `restore`，SSH 私钥等敏感数据需要独立备份。
+
+`dshd doctor` 会检查 mounts 配置、宿主机源目录以及当前运行容器是否已经应用对应目标；修改挂载后如果尚未重建，会明确提示执行 `dshd recreate`。
+
 ## Docker 项目管理模式
 
 DSH 容器内只安装 **Docker 客户端**，不运行第二套 dockerd。需要让 DSH 部署和测试
