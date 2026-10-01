@@ -66,11 +66,14 @@ function patchTrustedRestartText(before) {
   }
 
   if (!text.includes(PROXY_MARKER)) {
-    const forwardingPattern =
-      /if \(request\.headers\.forwarded !== undefined\s*\|\| request\.headers\['x-forwarded-for'\] !== undefined\s*\|\| request\.headers\['x-real-ip'\] !== undefined\) return false;/m;
-    const authorityPattern = /if \(!loopbackAuthority\(host\)\) return false;/m;
+    const forwardingPatterns = [
+      /if \(request\.headers\.forwarded !== undefined\s*\|\| request\.headers\['x-forwarded-for'\] !== undefined\s*\|\| request\.headers\['x-real-ip'\] !== undefined\) return false;/m,
+      /if \(request\.headers\.forwarded !== undefined\) return false;?/m,
+    ];
+    const forwardingPattern = forwardingPatterns.find((pattern) => pattern.test(text));
+    const authorityPattern = /if \(!loopbackAuthority\(host\)\) return false;?/m;
 
-    if (!forwardingPattern.test(text) || !authorityPattern.test(text)) {
+    if (forwardingPattern === undefined || !authorityPattern.test(text)) {
       return {
         text,
         changed: false,
@@ -282,6 +285,12 @@ export function scheduleRestart(port: number | null = null, recovery?: RecoveryH
     }
     if (!result.text.includes('request.headers.forwarded')) {
       throw new Error('self-test: forwarding-header guard was lost');
+    }
+    if (!result.text.includes('DSH_TRUSTED_HOSTS') || !result.text.includes('trustedHosts.has(host)')) {
+      throw new Error('self-test: trusted reverse-proxy host guard missing');
+    }
+    if (!result.text.includes('if (forwardedRequest && !trustedProxyHost) return false')) {
+      throw new Error('self-test: forwarded requests are not restricted to trusted hosts');
     }
     if (!result.text.includes('loopbackAuthority(host)')) {
       throw new Error('self-test: loopback Host/Origin guard was lost');
