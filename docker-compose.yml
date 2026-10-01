@@ -37,6 +37,9 @@ services:
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"
       # Landlock 沙箱下 /root/.npm 不可写，默认把 npm cache 放到 /tmp。
       NPM_CONFIG_CACHE: "${DSH_NPM_CACHE:-/tmp/npm-cache}"
+      # dsh-market 容器重启适配：点击“立即重启”时退出当前 host，
+      # 由 restart: unless-stopped 重新拉起整个容器，而不是容器内再 spawn 一个 dsh。
+      DSH_DOCKER_RESTART: "container"
       # 需要换端口时同步改这里和 ports、healthcheck。
       # DSH_PORT: "3080"
       # 内核若无法提供 bubblewrap/Landlock，文件沙箱不可用，可临时关闭（见 README）。
