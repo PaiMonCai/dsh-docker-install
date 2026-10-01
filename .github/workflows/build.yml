@@ -80,6 +80,8 @@ jobs:
           node --check docker/patch-remote-settings.js
           node --check docker/patch-plugin-hub-origin.js
           node docker/patch-plugin-hub-origin.js --self-test
+          bash -n tests/test-dsh-market-docker-restart.sh
+          bash tests/test-dsh-market-docker-restart.sh
 
       - name: Resolve dsh version
         id: ver

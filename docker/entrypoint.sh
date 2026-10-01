@@ -20,6 +20,19 @@ log() { printf 'dsh-entrypoint: %s\n' "$*" >&2; }
 # Plugin Hub 自己对 POST 做 localhost-only Origin 检查，和 DSH_TRUSTED_HOSTS 不一致。
 # 对持久 profile 中已安装的 dsh-plugin 做幂等运行时 patch：外部 Host 必须同时满足
 # Origin.host == Host 且存在于 DSH_TRUSTED_HOSTS。本地 localhost/127.0.0.1/::1 行为不变。
+apply_dsh_market_container_restart_patch() {
+    local patcher="/usr/local/bin/patch-dsh-market-container-restart.js"
+    [[ -f "$patcher" ]] || return 0
+
+    if node "$patcher"; then
+        return 0
+    fi
+
+    # dsh-market changes quickly. A future upstream layout change must not make
+    # the core DSH container unavailable; leave a clear warning and keep booting.
+    log "警告：dsh-market Docker 重启适配补丁未能完整应用；插件安装后的“立即重启”可能仍需执行 dshd restart"
+}
+
 apply_plugin_hub_reverse_proxy_patch() {
     local patcher="/usr/local/bin/patch-plugin-hub-origin.js"
     [[ -f "$patcher" ]] || return 0
@@ -93,6 +106,7 @@ run_web() {
 
 repair_stale_workspace_cwd
 apply_plugin_hub_reverse_proxy_patch
+apply_dsh_market_container_restart_patch
 
 case "${1:-web}" in
     web)
