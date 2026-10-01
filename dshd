@@ -555,6 +555,7 @@ create_container() {
     -e "DSHW_ADMIN_HOSTS=${DSHW_ADMIN_HOSTS}"
     -e "TZ=${DSH_TIMEZONE}"
     -e "NPM_CONFIG_CACHE=${DSH_NPM_CACHE}"
+    -e "DSH_DOCKER_RESTART=container"
     -v "${data_source}:/root/.dsh"
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
