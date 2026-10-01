@@ -60,7 +60,7 @@ grep -Fq 'DSH Docker restart adapter: trust container peer' "$root/lib/restart.j
 grep -Fq 'DSH Docker restart adapter: delegate restart to Docker' "$root/lib/restart.js"
 grep -Fq "process.env.DSH_DOCKER_RESTART === 'container'" "$root/lib/restart.js"
 grep -Fq "if (!loopbackPeer && !dockerPeer) return false" "$root/lib/restart.js"
-grep -Fq "readFileSync('/proc/net/route', 'utf8')" "$root/lib/restart.js"
+grep -Fq "process.getBuiltinModule('fs')?.readFileSync('/proc/net/route', 'utf8')" "$root/lib/restart.js"
 grep -Fq "request.headers['x-forwarded-for']" "$root/lib/restart.js"
 grep -Fq 'loopbackAuthority(host)' "$root/lib/restart.js"
 grep -Fq "process.kill(process.pid, 'SIGTERM')" "$root/lib/restart.js"
