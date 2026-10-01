@@ -153,6 +153,8 @@ Trusted Host 生成公网访问地址（未显式带协议时默认按 HTTPS）�
 - 非 root 安装默认使用 `~/dsh/data` 与 `~/dsh/workspace`；
 - 历史安装如果仍使用 `dsh-home` named volume，不会被静默切换，继续保持兼容。
 
+Web 的 **Choose workspace** 在 Docker 镜像中默认从 `/workspace` 打开，避免把新项目误建到容器自身的 `/root/*` 可写层。长期项目应放在 `/workspace/*`（对应宿主机配置的 `DSH_WORKSPACE`）；`/root/.dsh` 仅用于 DSH 状态数据。
+
 查看当前存储：
 
 ```bash
