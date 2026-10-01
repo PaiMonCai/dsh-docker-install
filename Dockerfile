@@ -35,6 +35,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
+COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
 
 RUN chmod +x /usr/local/bin/cn-mirror \
  && . /usr/local/bin/cn-mirror \
@@ -157,7 +158,7 @@ COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-edito
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
- && chmod 0755 /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint
+ && chmod 0755 /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
