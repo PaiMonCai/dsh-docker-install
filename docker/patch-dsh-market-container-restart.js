@@ -9,20 +9,21 @@ const ENV_NAME = 'DSH_DOCKER_RESTART';
 const ENV_VALUE = 'container';
 const TRUST_MARKER = 'DSH Docker restart adapter: trust container peer';
 const SCHEDULE_MARKER = 'DSH Docker restart adapter: delegate restart to Docker';
+const PROXY_MARKER = 'DSH Docker restart adapter: trust configured reverse-proxy host';
 
 function patchTrustedRestartText(before) {
-  if (before.includes(TRUST_MARKER)) {
-    return { text: before, changed: false, alreadyPatched: true };
-  }
+  let text = before;
+  let changed = false;
 
-  const patterns = [
+  if (!text.includes(TRUST_MARKER)) {
+    const patterns = [
     /const address = request\.socket\.remoteAddress;\s*if \(address !== '127\.0\.0\.1' && address !== '::1' && address !== '::ffff:127\.0\.0\.1'\) return false;/m,
     /const address = request\.socket\.remoteAddress\s*\n\s*if \(address !== '127\.0\.0\.1' && address !== '::1' && address !== '::ffff:127\.0\.0\.1'\) return false/m,
   ];
 
-  for (const pattern of patterns) {
-    if (!pattern.test(before)) continue;
-    const replacement = [
+    for (const pattern of patterns) {
+      if (!pattern.test(text)) continue;
+      const replacement = [
       'const address = request.socket.remoteAddress;',
       `  // ${TRUST_MARKER}.`,
       '  // Docker\'s published loopback port reaches the container through the bridge,',
@@ -49,14 +50,68 @@ function patchTrustedRestartText(before) {
       '  }',
       '  if (!loopbackPeer && !dockerPeer) return false;',
     ].join('\n');
-    return { text: before.replace(pattern, replacement), changed: true, alreadyPatched: false };
+      text = text.replace(pattern, replacement);
+      changed = true;
+      break;
+    }
+
+    if (!text.includes(TRUST_MARKER)) {
+      return {
+        text,
+        changed: false,
+        alreadyPatched: false,
+        reason: 'trustedRestartRequest peer guard not found',
+      };
+    }
+  }
+
+  if (!text.includes(PROXY_MARKER)) {
+    const forwardingPattern =
+      /if \(request\.headers\.forwarded !== undefined\s*\|\| request\.headers\['x-forwarded-for'\] !== undefined\s*\|\| request\.headers\['x-real-ip'\] !== undefined\) return false;/m;
+    const authorityPattern = /if \(!loopbackAuthority\(host\)\) return false;/m;
+
+    if (!forwardingPattern.test(text) || !authorityPattern.test(text)) {
+      return {
+        text,
+        changed: false,
+        alreadyPatched: false,
+        reason: 'trustedRestartRequest reverse-proxy guard not found',
+      };
+    }
+
+    text = text.replace(
+      forwardingPattern,
+      [
+        `// ${PROXY_MARKER}.`,
+        '  const forwardedRequest = request.headers.forwarded !== undefined',
+        "    || request.headers['x-forwarded-for'] !== undefined",
+        "    || request.headers['x-real-ip'] !== undefined;",
+      ].join('\n'),
+    );
+
+    text = text.replace(
+      authorityPattern,
+      [
+        "const trustedHosts = new Set((process.env.DSH_TRUSTED_HOSTS ?? '')",
+        "    .split(',')",
+        '    .map((value) => value.trim())',
+        '    .filter(Boolean));',
+        '  const trustedProxyHost = host !== undefined && trustedHosts.has(host);',
+        '  if (!loopbackAuthority(host) && !trustedProxyHost) return false;',
+        '  // Forwarding headers remain forbidden for local-mode restart requests.',
+        '  // They are accepted only when the browser uses an explicitly configured',
+        '  // DSH_TRUSTED_HOSTS authority and Origin must still exactly match Host.',
+        '  if (forwardedRequest && !trustedProxyHost) return false;',
+      ].join('\n'),
+    );
+
+    changed = true;
   }
 
   return {
-    text: before,
-    changed: false,
-    alreadyPatched: false,
-    reason: 'trustedRestartRequest peer guard not found',
+    text,
+    changed,
+    alreadyPatched: !changed,
   };
 }
 
