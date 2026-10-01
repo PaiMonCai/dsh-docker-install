@@ -31,7 +31,22 @@ function patchTrustedRestartText(before) {
       '  // the existing forwarding-header and loopback Host/Origin checks below still apply.',
       `  const dockerManaged = process.env.${ENV_NAME} === '${ENV_VALUE}';`,
       "  const loopbackPeer = address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';",
-      '  if (!loopbackPeer && !dockerManaged) return false;',
+      '  let dockerPeer = false;',
+      '  if (dockerManaged && address !== undefined) {',
+      '    try {',
+      "      const route = readFileSync('/proc/net/route', 'utf8')",
+      "        .split('\\n')",
+      "        .map((line) => line.trim().split(/\\s+/u))",
+      "        .find((fields) => fields.length > 3 && fields[1] === '00000000' && (Number.parseInt(fields[3], 16) & 0x2) !== 0);",
+      '      const hex = route?.[2];',
+      '      if (hex !== undefined && /^[0-9A-Fa-f]{8}$/u.test(hex)) {',
+      "        const gateway = [hex.slice(6, 8), hex.slice(4, 6), hex.slice(2, 4), hex.slice(0, 2)]",
+      "          .map((part) => String(Number.parseInt(part, 16))).join('.');",
+      "        dockerPeer = address === gateway || address === `::ffff:${gateway}`;",
+      '      }',
+      '    } catch {}',
+      '  }',
+      '  if (!loopbackPeer && !dockerPeer) return false;',
     ].join('\n');
     return { text: before.replace(pattern, replacement), changed: true, alreadyPatched: false };
   }
@@ -209,8 +224,8 @@ export function scheduleRestart(port: number | null = null, recovery?: RecoveryH
     if (!result.text.includes(`process.env.${ENV_NAME} === '${ENV_VALUE}'`)) {
       throw new Error('self-test: container environment gate missing');
     }
-    if (!result.text.includes('if (!loopbackPeer && !dockerManaged) return false')) {
-      throw new Error('self-test: docker bridge peer exception missing');
+    if (!result.text.includes('if (!loopbackPeer && !dockerPeer) return false')) {
+      throw new Error('self-test: Docker gateway peer exception missing');
     }
     if (!result.text.includes('request.headers.forwarded')) {
       throw new Error('self-test: forwarding-header guard was lost');
