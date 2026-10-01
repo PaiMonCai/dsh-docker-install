@@ -25,6 +25,7 @@ LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/root/.dsh \
+    DSH_WORKSPACE_ROOT=/workspace \
     TZ=Asia/Shanghai \
     NPM_CONFIG_CACHE=/tmp/npm-cache \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
@@ -34,6 +35,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
+COPY docker/patch-workspace-picker-home.js /usr/local/bin/patch-workspace-picker-home.js
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
 COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
 
@@ -140,6 +142,7 @@ RUN . /usr/local/bin/cn-mirror \
       "@deepseek-ai/dsh@${DSH_VERSION}" \
       playwright \
  && node /usr/local/bin/patch-remote-settings.js \
+ && node /usr/local/bin/patch-workspace-picker-home.js \
  && npx playwright install --with-deps chromium \
  && ln -sf "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name chrome -path '*chrome-linux*' | head -1)" /usr/local/bin/chromium \
  && npm cache clean --force \
@@ -150,7 +153,8 @@ RUN . /usr/local/bin/cn-mirror \
  && chromium --version \
  && rm -f \
       /usr/local/bin/cn-mirror \
-      /usr/local/bin/patch-remote-settings.js
+      /usr/local/bin/patch-remote-settings.js \
+      /usr/local/bin/patch-workspace-picker-home.js
 
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
