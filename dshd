@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.8.2"
+DSHD_VERSION="0.8.3"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -42,6 +42,7 @@ else
 fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
 CONTAINER_ENV_FILE="${DSHD_CONTAINER_ENV_FILE:-$STATE_DIR/container.env}"
+MOUNTS_FILE="${DSHD_MOUNTS_FILE:-$STATE_DIR/mounts.conf}"
 BACKUP_DIR="${DSHD_BACKUP_DIR:-$STATE_DIR/backups}"
 
 C_RESET=$'\033[0m'
@@ -149,6 +150,138 @@ as_root() {
 ensure_state_dir() {
   mkdir -p "$STATE_DIR" "$BACKUP_DIR"
   chmod 700 "$STATE_DIR"
+}
+
+ensure_mounts_file() {
+  ensure_state_dir
+  if [[ ! -e "$MOUNTS_FILE" ]]; then
+    : >"$MOUNTS_FILE"
+    chmod 600 "$MOUNTS_FILE"
+  fi
+}
+
+custom_mount_count() {
+  if [[ ! -f "$MOUNTS_FILE" ]]; then
+    printf '0'
+    return 0
+  fi
+  awk -F'|' '
+    /^[[:space:]]*($|#)/ { next }
+    NF >= 2 { n++ }
+    END { print n + 0 }
+  ' "$MOUNTS_FILE"
+}
+
+validate_custom_mount() {
+  local source="${1:-}" target="${2:-}" mode="${3:-rw}"
+  MOUNT_VALIDATION_ERROR=""
+
+  if [[ -z "$source" || "$source" != /* ]]; then
+    MOUNT_VALIDATION_ERROR="宿主机源目录必须是绝对路径: ${source:-（空）}"
+    return 1
+  fi
+  if [[ -z "$target" || "$target" != /* ]]; then
+    MOUNT_VALIDATION_ERROR="容器目标目录必须是绝对路径: ${target:-（空）}"
+    return 1
+  fi
+  if [[ "$source" == "/" ]]; then
+    MOUNT_VALIDATION_ERROR="拒绝把宿主机根目录 / 作为自定义持久化源。"
+    return 1
+  fi
+  if [[ "$source" == *'|'* || "$source" == *','* || "$source" == *$'\n'* ]]; then
+    MOUNT_VALIDATION_ERROR="宿主机源目录不能包含 |、逗号或换行: $source"
+    return 1
+  fi
+  if [[ "$target" == *'|'* || "$target" == *','* || "$target" == *$'\n'* ]]; then
+    MOUNT_VALIDATION_ERROR="容器目标目录不能包含 |、逗号或换行: $target"
+    return 1
+  fi
+  if [[ "$source" =~ (^|/)\.\.(/|$) ]]; then
+    MOUNT_VALIDATION_ERROR="宿主机源目录不能包含 .. 路径段: $source"
+    return 1
+  fi
+  if [[ "$target" =~ (^|/)\.\.(/|$) ]]; then
+    MOUNT_VALIDATION_ERROR="容器目标目录不能包含 .. 路径段: $target"
+    return 1
+  fi
+  case "$mode" in
+    rw|ro) ;;
+    *)
+      MOUNT_VALIDATION_ERROR="挂载模式仅支持 rw 或 ro: $mode"
+      return 1
+      ;;
+  esac
+  case "$target" in
+    /|/root|/root/.dsh|/root/.dsh/*|/workspace|/workspace/*|/var/run/docker.sock|/var/run/docker.sock/*)
+      MOUNT_VALIDATION_ERROR="该容器路径由 dshd 管理或风险过高，不能作为自定义挂载目标: $target"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+require_custom_mount() {
+  validate_custom_mount "$@" || die "$MOUNT_VALIDATION_ERROR"
+}
+
+custom_mount_target_conflict() {
+  local target="$1" source existing_target mode
+  [[ -f "$MOUNTS_FILE" ]] || return 1
+  while IFS='|' read -r source existing_target mode _; do
+    [[ -n "$source" && "$source" != \#* ]] || continue
+    if [[ "$target" == "$existing_target" || "$target" == "$existing_target/"* || "$existing_target" == "$target/"* ]]; then
+      return 0
+    fi
+  done <"$MOUNTS_FILE"
+  return 1
+}
+
+prepare_custom_mount_source() {
+  local source="$1" target="$2"
+  if [[ -e "$source" && ! -d "$source" ]]; then
+    die "自定义持久化目前只支持目录，宿主机路径不是目录: $source"
+  fi
+  if [[ ! -d "$source" ]]; then
+    if ! mkdir -p "$source" 2>/dev/null; then
+      as_root mkdir -p "$source"
+    fi
+  fi
+  if [[ "$target" == "/root/.ssh" ]]; then
+    as_root chmod 700 "$source" 2>/dev/null || true
+  fi
+}
+
+add_custom_mount_record() {
+  local source="$1" target="$2" mode="${3:-rw}"
+  require_custom_mount "$source" "$target" "$mode"
+  ensure_mounts_file
+  custom_mount_target_conflict "$target" && die "该目标路径与已有自定义挂载重叠: $target"
+  printf '%s|%s|%s\n' "$source" "$target" "$mode" >>"$MOUNTS_FILE"
+  chmod 600 "$MOUNTS_FILE"
+}
+
+remove_custom_mount_record() {
+  local target="$1" tmp found=0 line source existing_target mode
+  [[ -f "$MOUNTS_FILE" ]] || return 1
+  tmp="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      printf '%s\n' "$line" >>"$tmp"
+      continue
+    fi
+    IFS='|' read -r source existing_target mode _ <<<"$line"
+    if [[ "$existing_target" == "$target" ]]; then
+      found=1
+      continue
+    fi
+    printf '%s\n' "$line" >>"$tmp"
+  done <"$MOUNTS_FILE"
+  if (( found == 0 )); then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 600 "$tmp"
+  mv "$tmp" "$MOUNTS_FILE"
 }
 
 detect_docker_socket() {
@@ -560,6 +693,19 @@ create_container() {
     -v "${DSH_WORKSPACE}:/workspace"
     -w "/workspace"
   )
+
+  if [[ -s "$MOUNTS_FILE" ]]; then
+    local mount_source mount_target mount_mode mount_spec
+    while IFS='|' read -r mount_source mount_target mount_mode _; do
+      [[ -n "$mount_source" && "$mount_source" != \#* ]] || continue
+      mount_mode="${mount_mode:-rw}"
+      require_custom_mount "$mount_source" "$mount_target" "$mount_mode"
+      prepare_custom_mount_source "$mount_source" "$mount_target"
+      mount_spec="type=bind,src=${mount_source},dst=${mount_target}"
+      [[ "$mount_mode" == "ro" ]] && mount_spec+=",readonly"
+      args+=(--mount "$mount_spec")
+    done <"$MOUNTS_FILE"
+  fi
 
   [[ -n "$DEEPSEEK_API_KEY" ]] && args+=(-e "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY")
   [[ -n "$DEEPSEEK_BASE_URL" ]] && args+=(-e "DEEPSEEK_BASE_URL=$DEEPSEEK_BASE_URL")
@@ -1216,6 +1362,7 @@ cmd_status() {
   printf 'API Key:        %s\n' "$(api_key_state)"
   printf 'Docker 管理:    %s\n' "$DSH_DOCKER_ACCESS"
   [[ "$DSH_DOCKER_ACCESS" == "true" ]] && printf 'Docker Socket:  %s\n' "$DSH_DOCKER_SOCKET"
+  printf '自定义挂载:     %s（%s）\n' "$(custom_mount_count)" "$MOUNTS_FILE"
   printf '配置文件:       %s\n' "$CONFIG_FILE"
   if container_exists; then
     local running_image
@@ -2075,6 +2222,112 @@ cmd_storage() {
   esac
 }
 
+cmd_mounts() {
+  load_config
+  local action="${1:-show}"
+
+  case "$action" in
+    show|list)
+      heading "自定义持久化挂载"
+      printf '配置文件: %s\n' "$MOUNTS_FILE"
+      if [[ ! -s "$MOUNTS_FILE" ]]; then
+        info "当前没有自定义持久化挂载。"
+        return 0
+      fi
+      local source target mode index=0
+      while IFS='|' read -r source target mode _; do
+        [[ -n "$source" && "$source" != \#* ]] || continue
+        index=$((index + 1))
+        printf '\n  %d. %s\n     -> %s\n     模式: %s\n' "$index" "$source" "$target" "${mode:-rw}"
+      done <"$MOUNTS_FILE"
+      ;;
+    add)
+      local source="${2:-}" target="${3:-}" mode="${4:-rw}"
+      if [[ -z "$source" || -z "$target" ]]; then
+        if ! is_tty; then
+          die "用法: dshd mounts add HOST_DIR CONTAINER_DIR [rw|ro]"
+        fi
+        read -r -p "宿主机目录: " source
+        read -r -p "容器目标目录: " target
+        read -r -p "模式 [rw/ro，默认 rw]: " mode
+        mode="${mode:-rw}"
+      fi
+      require_custom_mount "$source" "$target" "$mode"
+      custom_mount_target_conflict "$target" && die "该目标路径与已有自定义挂载重叠: $target"
+      prepare_custom_mount_source "$source" "$target"
+
+      if docker_ready && container_running && [[ -z "$(find "$source" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+        if docker_cmd exec "$DSH_NAME" sh -c '
+          target="$1"
+          [ -d "$target" ] && [ -n "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+        ' sh "$target" >/dev/null 2>&1; then
+          warn "检测到当前容器 $target 已有数据，而宿主机目录为空。"
+          if confirm "先把现有数据迁移到 $source 再启用挂载？" Y; then
+            docker_cmd cp "${DSH_NAME}:${target}/." "${source}/"
+            [[ "$target" == "/root/.ssh" ]] && as_root chmod 700 "$source" 2>/dev/null || true
+            ok "已迁移: $target -> $source"
+          else
+            warn "未迁移现有数据；重建后新挂载会遮住容器当前的 $target。"
+          fi
+        fi
+      fi
+
+      add_custom_mount_record "$source" "$target" "$mode"
+      ok "已添加自定义持久化挂载: $source -> $target ($mode)"
+      info "自定义挂载不包含在 dshd backup / restore 中，请单独备份敏感数据。"
+      if container_exists && is_tty && confirm "立即重建容器使挂载生效？" N; then
+        cmd_recreate
+      else
+        info "执行 dshd recreate 后生效。"
+      fi
+      ;;
+    remove|rm|delete)
+      local target="${2:-}"
+      if [[ -z "$target" ]]; then
+        if ! is_tty; then
+          die "用法: dshd mounts remove CONTAINER_DIR"
+        fi
+        cmd_mounts show
+        read -r -p "请输入要删除的容器目标目录: " target
+      fi
+      [[ -n "$target" ]] || die "容器目标目录不能为空。"
+      remove_custom_mount_record "$target" || die "没有找到目标挂载: $target"
+      ok "已删除自定义挂载配置: $target"
+      info "宿主机中的原始数据不会被删除。"
+      if container_exists && is_tty && confirm "立即重建容器使修改生效？" N; then
+        cmd_recreate
+      else
+        info "执行 dshd recreate 后生效。"
+      fi
+      ;;
+    *)
+      die "未知 mounts 子命令: $action（可用: show/add/remove）"
+      ;;
+  esac
+}
+
+cmd_mounts_menu() {
+  while true; do
+    cmd_mounts show
+    cat <<'EOF'
+
+  1) 添加挂载
+  2) 删除挂载
+  0) 返回
+EOF
+    local choice=""
+    read -r -p $'\n请选择: ' choice || return
+    case "$choice" in
+      1) cmd_mounts add ;;
+      2) cmd_mounts remove ;;
+      0) return ;;
+      *) warn "无效选项" ;;
+    esac
+    read -r -p $'\n按 Enter 继续...' _ || true
+  done
+}
+
+
 cmd_backup() {
   load_config; ensure_docker; ensure_state_dir; ensure_storage
   local ts file source
@@ -2125,6 +2378,30 @@ cmd_doctor() {
   network_report
   if docker_ready; then
     cmd_status
+
+    if [[ -s "$MOUNTS_FILE" ]]; then
+      local mount_source mount_target mount_mode invalid_mounts=0 runtime_mount_targets=""
+      container_running && runtime_mount_targets="$(docker_cmd inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "$DSH_NAME" 2>/dev/null || true)"
+      while IFS='|' read -r mount_source mount_target mount_mode _; do
+        [[ -n "$mount_source" && "$mount_source" != \#* ]] || continue
+        mount_mode="${mount_mode:-rw}"
+        if ! validate_custom_mount "$mount_source" "$mount_target" "$mount_mode"; then
+          warn "自定义挂载配置无效: $MOUNT_VALIDATION_ERROR"
+          invalid_mounts=$((invalid_mounts + 1))
+          continue
+        fi
+        if [[ ! -d "$mount_source" ]]; then
+          warn "自定义挂载源目录不存在: $mount_source"
+          invalid_mounts=$((invalid_mounts + 1))
+        elif container_running && ! grep -Fxq "$mount_target" <<<"$runtime_mount_targets"; then
+          warn "自定义挂载尚未应用到当前容器: $mount_source -> $mount_target；执行 dshd recreate。"
+        fi
+      done <"$MOUNTS_FILE"
+      if (( invalid_mounts == 0 )); then
+        ok "自定义持久化挂载配置正常: $(custom_mount_count) 项"
+      fi
+    fi
+
     if container_running; then
       local workspace_state
       workspace_state="$(docker_cmd exec "$DSH_NAME" sh -c '
@@ -2352,6 +2629,11 @@ dshd - DeepSeek Harness Docker 管理器
   dshd storage bind PATH   使用宿主机目录作为 DSH 数据目录
   dshd storage migrate PATH  从旧 named volume 迁移到宿主机目录
   dshd storage volume NAME 切换/回退到 Docker named volume
+  dshd mounts show         查看自定义持久化目录挂载
+  dshd mounts add HOST_DIR CONTAINER_DIR [rw|ro]
+                           添加自定义目录挂载，例如 /opt/dsh/ssh -> /root/.ssh
+  dshd mounts remove CONTAINER_DIR
+                           删除自定义挂载配置（不删除宿主机数据）
   dshd dashboard status    查看 Research Dashboard
   dshd dashboard start [PROJECT]  启动只读 Dashboard sidecar
   dshd dashboard stop      停止 Dashboard sidecar
@@ -2410,6 +2692,7 @@ menu() {
  23) 查看持久化存储
  24) Research Dashboard
  25) Whale Widget 远程写权限
+ 26) 自定义持久化挂载
 
   0) 退出
 EOF
@@ -2442,6 +2725,7 @@ EOF
       23) cmd_storage show ;;
       24) cmd_dashboard status ;;
       25) cmd_admin_hosts ;;
+      26) cmd_mounts_menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -2479,6 +2763,7 @@ main() {
     admin-hosts|whale-admin-hosts) shift; cmd_admin_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
     storage|data-storage) shift; cmd_storage "$@" ;;
+    mounts|mount|persistent-mounts) shift; cmd_mounts "$@" ;;
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
