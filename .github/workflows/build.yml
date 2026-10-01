@@ -78,6 +78,7 @@ jobs:
           node --check docker/plugins/dsh-reasoning-editor/index.js
           node --check docker/plugins/dsh-reasoning-editor/client.js
           node --check docker/patch-remote-settings.js
+          node --check docker/patch-workspace-picker-home.js
           node --check docker/patch-plugin-hub-origin.js
           node docker/patch-plugin-hub-origin.js --self-test
           bash -n tests/test-dsh-market-docker-restart.sh
@@ -169,6 +170,7 @@ jobs:
             test ! -e /usr/local/go/test
             test ! -e /usr/local/bin/cn-mirror
             test ! -e /usr/local/bin/patch-remote-settings.js
+            test ! -e /usr/local/bin/patch-workspace-picker-home.js
           '
 
       - name: Report image footprint
