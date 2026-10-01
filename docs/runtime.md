@@ -21,6 +21,34 @@
    `/root/dsh -> /workspace` 软链接。它不会改写不可变的 SessionHeader，也不会让新会话继续
    使用旧路径；`dshd doctor` 会显示修复状态。
 
+## 插件市场重启
+
+由 `dshd` 或本仓库的 `docker-compose.yml` 启动时，容器都带有
+`restart: unless-stopped`，并注入内部标记 `DSH_DOCKER_RESTART=container`。
+入口脚本会对已安装的 `dshmarket` 应用一个幂等兼容补丁：
+
+```text
+插件市场点击“立即重启”
+        ↓
+当前 dsh host 收到 SIGTERM
+        ↓
+tini / 容器进程树退出
+        ↓
+Docker restart policy 重新启动容器
+        ↓
+entrypoint → dsh web → 读取持久化 profile
+```
+
+这条路径不会在容器里再 spawn 第二个 `dsh web`，也**不需要挂载 Docker Socket**。
+补丁只放宽 Docker NAT 带来的一个差异：浏览器虽然访问宿主机
+`127.0.0.1:3080`，容器内看到的 socket peer 通常是 Docker 默认网关。适配器只接受
+“当前容器默认网关”这一 peer，并继续保留 dsh-market 原有的 forwarding-header 拒绝、
+loopback `Host` 与同源 `Origin` 检查，因此不会把该按钮扩展成远程域名的进程控制接口。
+
+直接手写 `docker run` 且**没有** restart policy 时，本仓库不会自动注入这个标记；
+此时 dsh-market 保持上游原始重启行为。首次安装 dshmarket、尚未经过一次容器启动补丁时，
+可先执行 `dshd restart`。
+
 ## 文件沙箱
 
 dsh 的文件/命令沙箱后端候选链是 bubblewrap → 内核 Landlock：
@@ -141,6 +169,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_REASONING_EDITOR` | `true` | 是否启用内置自定义模型 `reasoningEfforts` 编辑器；`false` 时通过 DSH Plugin Manager 移除 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
+| `DSH_DOCKER_RESTART` | 由 dshd/Compose 注入 `container` | 内部 supervisor 标记；让 dsh-market 把“立即重启”委托给 Docker restart policy |
 | `DSH_SHM_SIZE` | `1g` | 容器 `/dev/shm` 大小；为 Chromium/Playwright 预留足够共享内存 |
 | `DSH_TIMEZONE` | `Asia/Shanghai` | dshd 注入容器的时区；镜像默认同样为中国标准时间 |
 | `DSH_NPM_CACHE` | `/tmp/npm-cache` | npm cache 路径，默认位于 Landlock 可写目录 |
