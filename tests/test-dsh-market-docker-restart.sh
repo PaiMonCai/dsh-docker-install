@@ -52,7 +52,7 @@ JS
 cp "$root/lib/restart.js" "$root/src/restart.ts"
 
 before="$(sha256sum "$root/lib/restart.js" | awk '{print $1}')"
-DSH_HOME="$tmp" node "$PATCHER"
+DSH_HOME="$tmp" DSH_DOCKER_RESTART=container node "$PATCHER"
 after="$(sha256sum "$root/lib/restart.js" | awk '{print $1}')"
 [[ "$before" != "$after" ]]
 
