@@ -10,7 +10,7 @@
 
 | 版本 | 镜像标签 | 适合 |
 |---|---|---|
-| Standard | `:latest` / `:<dsh版本>` | 日常 DSH Agent、Web UI、开发环境 |
+| Standard | `:latest` / `:<dsh版本>` / `:alpha`·`:next` | 日常 DSH Agent、Web UI、开发环境 |
 | Research Core | `:research` | 一般科研、文献、数据、可复现分析 |
 | Research Economics | `:research-economics` | 经济学、计量、DiD / Event Study |
 
@@ -125,13 +125,33 @@ GHCR：
 
 ```text
 ghcr.io/paimoncai/dsh-docker-install:latest
+ghcr.io/paimoncai/dsh-docker-install:<dsh版本>
+ghcr.io/paimoncai/dsh-docker-install:alpha
+ghcr.io/paimoncai/dsh-docker-install:next
 ghcr.io/paimoncai/dsh-docker-install:research
 ghcr.io/paimoncai/dsh-docker-install:research-economics
 ```
 
+三类 tag 各有分工：
+
+```text
+:<dsh版本>      锁定到具体 DSH 版本
+:latest         始终跟随最新一次构建（含 alpha / rc 预发布）
+:alpha  :next   与上游 npm dist-tag 同名，跟随上游发布通道
+```
+
+自动更新链路不仅会重建 `:<dsh版本>` 与 `:latest`，还会把指向该版本的
+npm dist-tag 通道名原样打到镜像上，于是
+
+```text
+docker pull <image>:alpha   ≈   npm i @deepseek-ai/dsh@alpha
+```
+
+查询上游失败或版本不对应任何通道时，只发布版本号与 `:latest`，不让构建失败。
+
 基础镜像更新后，CI 会先发布 Standard，再把这次发布的**精确镜像 digest**传给 Research 构建，避免 Research 继续基于旧的 `:latest`。
 
-构建、GHCR 和自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
+构建、GHCR、镜像 tag 通道对齐与自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
 
 ## 文档
 

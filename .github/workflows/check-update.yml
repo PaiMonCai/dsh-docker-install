@@ -3,6 +3,8 @@ name: Check dsh Updates
 # 定时检查 npm registry 上 @deepseek-ai/dsh 的最新版本（含 alpha/rc 预发布通道，
 # 上游目前只发预发布版，latest dist-tag 不代表最新版本）：
 # 有更新 -> 修改 Dockerfile / compose / README 中的版本号并提交 -> 调用 build 工作流构建。
+# 同时把指向该版本的 npm dist-tag 通道名（alpha / next / latest）一并以检测时的快照
+# 传给 build，让发布的镜像也打上与上游同名的通道 tag。
 #
 # 注意：用 GITHUB_TOKEN 提交的 push 不会触发其他工作流（GitHub 防递归限制），
 # 所以这里用 reusable workflow（uses:）显式调用 build，并把新版本号作为输入传入，
@@ -23,6 +25,7 @@ jobs:
     outputs:
       updated: ${{ steps.check.outputs.updated }}
       latest: ${{ steps.check.outputs.latest }}
+      channels: ${{ steps.check.outputs.channels }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +37,8 @@ jobs:
           cat > /tmp/semver-max.js <<'EOF'
           let s = '';
           process.stdin.on('data', d => s += d).on('end', () => {
-            const vs = Object.keys(JSON.parse(s).versions);
+            const meta = JSON.parse(s);
+            const vs = Object.keys(meta.versions);
             const parts = v => v.split(/[.-]/).map(x => /^\d+$/.test(x) ? Number(x) : x);
             const cmp = (a, b) => {
               const A = parts(a), B = parts(b);
@@ -49,17 +53,29 @@ jobs:
               return 0;
             };
             const latest = vs.sort(cmp).pop();
+            // dist-tag 就是上游的发布通道；把当前指向 latest 的通道名一并输出，
+            // 供 build 工作流给镜像补上同名 tag。
+            const dist = meta['dist-tags'] || {};
+            const channels = Object.keys(dist).filter(k => dist[k] === latest);
             console.log(latest + ' ' + (cmp(latest, process.argv[2]) > 0));
+            console.log(channels.join(','));
           });
           EOF
           CURRENT=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)
-          read -r LATEST IS_NEWER < <(curl -fsSL https://registry.npmjs.org/@deepseek-ai/dsh | node /tmp/semver-max.js "$CURRENT")
-          echo "current: $CURRENT"
-          echo "latest:  $LATEST"
+          mapfile -t DETECTED < <(curl -fsSL https://registry.npmjs.org/@deepseek-ai/dsh | node /tmp/semver-max.js "$CURRENT")
+          read -r LATEST IS_NEWER <<<"${DETECTED[0]:-}"
+          CHANNELS="${DETECTED[1]:-}"
+          if [[ -z "$LATEST" ]]; then
+            echo "::warning::无法解析 @deepseek-ai/dsh 版本（registry 不可用？），本次跳过更新检查。"
+          fi
+          echo "current:  $CURRENT"
+          echo "latest:   $LATEST"
+          echo "channels: ${CHANNELS:-<none>}"
           {
             echo "current=$CURRENT"
             echo "latest=$LATEST"
             echo "updated=$IS_NEWER"
+            echo "channels=$CHANNELS"
           } >> "$GITHUB_OUTPUT"
 
       - name: Bump version and commit
@@ -83,6 +99,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       dsh_version: ${{ needs.check.outputs.latest }}
+      channel_tags: ${{ needs.check.outputs.channels }}
     permissions:
       contents: read
       packages: write

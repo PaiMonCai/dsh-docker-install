@@ -9,6 +9,7 @@ on:
     paths:
       - Dockerfile
       - docker/**
+      - ci/**
       - dshd
       - install.sh
       - docker-compose.yml
@@ -21,6 +22,7 @@ on:
     paths:
       - Dockerfile
       - docker/**
+      - ci/**
       - dshd
       - install.sh
       - docker-compose.yml
@@ -34,10 +36,18 @@ on:
         description: 覆盖 dsh 版本（留空则读 Dockerfile 里的 DSH_VERSION）
         required: false
         type: string
+      channel_tags:
+        description: 额外镜像 tag，逗号分隔（如 alpha,next）；留空则按上游 npm dist-tag 自动推导
+        required: false
+        type: string
   workflow_call:
     inputs:
       dsh_version:
         description: 覆盖 dsh 版本（留空则读 Dockerfile 里的 DSH_VERSION）
+        required: false
+        type: string
+      channel_tags:
+        description: 额外镜像 tag，逗号分隔（如 alpha,next）；留空则按上游 npm dist-tag 自动推导
         required: false
         type: string
 
@@ -85,6 +95,8 @@ jobs:
           node docker/patch-plugin-hub-origin.js --self-test
           bash -n tests/test-dsh-market-docker-restart.sh
           bash tests/test-dsh-market-docker-restart.sh
+          bash -n ci/image-tags.sh
+          bash tests/test-image-tags.sh
 
       - name: Resolve dsh version
         id: ver
@@ -101,6 +113,27 @@ jobs:
         run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
+
+      - name: Compose image tags
+        id: tags
+        env:
+          RESOLVED_IMAGE: ${{ steps.img.outputs.name }}
+          RESOLVED_VERSION: ${{ steps.ver.outputs.version }}
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
+        run: |
+          # :latest 始终指向最新一次构建；通道 tag（alpha / next / …）与上游
+          # npm dist-tag 对齐，使 `docker pull <image>:alpha` 与
+          # `npm i @deepseek-ai/dsh@alpha` 语义一致。查不到上游通道时只发布
+          # 版本号与 latest，不阻断构建。
+          set -euo pipefail
+          tags_file="${RUNNER_TEMP:-/tmp}/dsh-image-tags.txt"
+          bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_VERSION" "$REQUESTED_CHANNELS" \
+            | tee "$tags_file"
+          {
+            echo "list<<DSH_IMAGE_TAGS"
+            cat "$tags_file"
+            echo "DSH_IMAGE_TAGS"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -228,9 +261,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             DSH_VERSION=${{ steps.ver.outputs.version }}
-          tags: |
-            ${{ steps.img.outputs.name }}:${{ steps.ver.outputs.version }}
-            ${{ steps.img.outputs.name }}:latest
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
