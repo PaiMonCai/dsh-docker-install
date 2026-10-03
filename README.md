@@ -4,15 +4,15 @@
 
 这是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。它不 fork DSH Core，而是把官方 npm 包稳定地封装成可安装、可更新、可持久化、可反代的容器，并在此基础上提供可选的 Research Edition。
 
-版本来源保持单一：基础 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 版本见 [research/VERSION](research/VERSION)。
+版本来源保持单一：基础 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 引擎自身版本见 [research/VERSION](research/VERSION)（写入镜像并记录到每次运行，不参与镜像 tag）。研究镜像的发布 tag 跟随它实际包住的 DSH 版本。
 
 ## 你应该用哪个版本
 
 | 版本 | 镜像标签 | 适合 |
 |---|---|---|
 | Standard | `:latest` / `:<dsh版本>` / `:alpha`·`:next` | 日常 DSH Agent、Web UI、开发环境 |
-| Research Core | `:research` | 一般科研、文献、数据、可复现分析 |
-| Research Economics | `:research-economics` | 经济学、计量、DiD / Event Study |
+| Research Core | `:research` / `:research-<dsh版本>` / `:research-alpha` | 一般科研、文献、数据、可复现分析 |
+| Research Economics | `:research-economics` / `:research-economics-<dsh版本>` / `:research-economics-alpha` | 经济学、计量、DiD / Event Study |
 
 关系始终是：
 
@@ -129,15 +129,19 @@ ghcr.io/paimoncai/dsh-docker-install:<dsh版本>
 ghcr.io/paimoncai/dsh-docker-install:alpha
 ghcr.io/paimoncai/dsh-docker-install:next
 ghcr.io/paimoncai/dsh-docker-install:research
+ghcr.io/paimoncai/dsh-docker-install:research-<dsh版本>
+ghcr.io/paimoncai/dsh-docker-install:research-alpha
 ghcr.io/paimoncai/dsh-docker-install:research-economics
+ghcr.io/paimoncai/dsh-docker-install:research-economics-<dsh版本>
+ghcr.io/paimoncai/dsh-docker-install:research-economics-alpha
 ```
 
 三类 tag 各有分工：
 
 ```text
-:<dsh版本>      锁定到具体 DSH 版本
-:latest         始终跟随最新一次构建（含 alpha / rc 预发布）
-:alpha  :next   与上游 npm dist-tag 同名，跟随上游发布通道
+:<dsh版本>            锁定到具体 DSH 版本
+:latest              始终跟随最新一次构建（含 alpha / rc 预发布）
+:alpha  :next        与上游 npm dist-tag 同名，跟随上游发布通道
 ```
 
 自动更新链路不仅会重建 `:<dsh版本>` 与 `:latest`，还会把指向该版本的
@@ -149,7 +153,12 @@ docker pull <image>:alpha   ≈   npm i @deepseek-ai/dsh@alpha
 
 查询上游失败或版本不对应任何通道时，只发布版本号与 `:latest`，不让构建失败。
 
-基础镜像更新后，CI 会先发布 Standard，再把这次发布的**精确镜像 digest**传给 Research 构建，避免 Research 继续基于旧的 `:latest`。
+Research 镜像用同样的三类含义，只是加上 edition 前缀（`:research` /
+`:research-economics` 是浮动 tag，相当于研究镜像的 `:latest`），且版本 tag 跟随
+**它实际包住的 DSH 版本**：`:research-<dsh版本>`、`:research-alpha`。
+`research/VERSION` 只标识研究引擎自身版本，不参与镜像 tag。
+
+基础镜像更新后，CI 会先发布 Standard，再把这次发布的**精确镜像 digest**传给 Research 构建，避免 Research 继续基于旧的 `:latest`；同时把解析到的通道名一并传入，让两类镜像的通道 tag 始终一致。
 
 构建、GHCR、镜像 tag 通道对齐与自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
 

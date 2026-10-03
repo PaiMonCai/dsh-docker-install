@@ -64,6 +64,7 @@ jobs:
     outputs:
       base_image: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
       dsh_version: ${{ steps.ver.outputs.version }}
+      channels: ${{ steps.tags.outputs.channels }}
     permissions:
       contents: read
       packages: write
@@ -125,14 +126,19 @@ jobs:
           # npm dist-tag 对齐，使 `docker pull <image>:alpha` 与
           # `npm i @deepseek-ai/dsh@alpha` 语义一致。查不到上游通道时只发布
           # 版本号与 latest，不阻断构建。
+          #
+          # 通道只解析一次：先取通道名（转发给 Research 构建，保证两边的通道一致），
+          # 再用同一份通道组装标准镜像的 tag。
           set -euo pipefail
+          channels="$(bash ci/image-tags.sh --channels-only "$RESOLVED_VERSION" "$REQUESTED_CHANNELS")"
+          echo "channels: ${channels:-<none>}"
           tags_file="${RUNNER_TEMP:-/tmp}/dsh-image-tags.txt"
-          bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_VERSION" "$REQUESTED_CHANNELS" \
-            | tee "$tags_file"
+          bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_VERSION" "$channels" | tee "$tags_file"
           {
             echo "list<<DSH_IMAGE_TAGS"
             cat "$tags_file"
             echo "DSH_IMAGE_TAGS"
+            echo "channels=$channels"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
@@ -273,6 +279,9 @@ jobs:
     uses: ./.github/workflows/build-research.yml
     with:
       base_image: ${{ needs.build.outputs.base_image }}
+      # 研究镜像的发布 tag 跟随它实际包住的 dsh 版本与通道。
+      dsh_version: ${{ needs.build.outputs.dsh_version }}
+      channel_tags: ${{ needs.build.outputs.channels }}
     permissions:
       contents: read
       packages: write

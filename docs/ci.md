@@ -10,9 +10,9 @@
   （`ghcr.io/<owner>/<repo>`），amd64 + arm64 双架构。触发方式：镜像相关文件变更、
   手动触发、被更新检查调用。发布哪些 tag 见[镜像 tag 与上游发布通道](#镜像-tag-与上游发布通道)。
 - **`.github/workflows/build-research.yml`** — 构建 Research Core 与 Economics Pack。
-  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64：
-  `:research`、`:research-<research版本>`、`:research-economics`、
-  `:research-economics-<research版本>`。
+  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64。除浮动的 `:research` /
+  `:research-economics` 外，版本与通道 tag 都带上 edition 前缀，并跟随**它实际包住的
+  dsh 版本**（tag 明细见下一节）。
 - **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
   `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
   `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
@@ -36,17 +36,33 @@
 | `<image>:latest` | 始终指向**最新一次构建**（含 alpha / rc 预发布） |
 | `<image>:alpha`、`<image>:next` … | 与上游 npm dist-tag 同名，跟随上游发布通道 |
 
+Research 镜像用 edition 前缀表达同样的三类含义（浮动 tag 对应 `:latest`）：
+
+| tag | 含义 |
+|---|---|
+| `<image>:research` | 浮动 tag，最新一次构建的 Research Core |
+| `<image>:research-<dsh版本>` | 锁定到某个 DSH 版本的 Research Core |
+| `<image>:research-alpha` … | 与上游 npm dist-tag 同名，跟随上游发布通道 |
+| `<image>:research-economics`、`:research-economics-<dsh版本>`、`:research-economics-alpha` | Economics Pack 同理 |
+
+研究镜像的 tag 跟随**它实际包住的 dsh 版本**（构建时以标准镜像的精确 digest 为
+`BASE_IMAGE`），而不是 `research/VERSION` —— 后者是研究引擎自身版本，写入镜像并
+记录到每次运行的元数据里，不参与镜像 tag。
+
 通道 tag 与 npm 的发布通道语义对齐：
 
 ```text
-docker pull <image>:next    ≈    npm i @deepseek-ai/dsh@next
-docker pull <image>:alpha   ≈    npm i @deepseek-ai/dsh@alpha
+docker pull <image>:next            ≈    npm i @deepseek-ai/dsh@next
+docker pull <image>:alpha           ≈    npm i @deepseek-ai/dsh@alpha
+docker pull <image>:research-alpha  ≈    研究镜像 ⊃ 上面那个 alpha
 ```
 
-`:latest` 是这两类之外的第三个概念：上游只发预发布版，npm 的 `latest` dist-tag
+`:latest` 是这几类之外的另一个概念：上游只发预发布版，npm 的 `latest` dist-tag
 常滞留在旧版本，而镜像 `:latest` 始终跟随最新一次构建。若上游 `latest` 恰好指向
-本次构建的版本，它已经由 `:latest` 覆盖，不会重复打 tag。需要严格对齐上游某个
-通道时，请显式使用 `:alpha` / `:next`。
+本次构建的版本，它已经由 `:latest` 覆盖，不会重复打 tag；名为 `latest` 的通道也
+不单独打 tag（研究镜像同理，否则 `:research-latest` 会被误读成"最新研究镜像"）。
+需要严格对齐上游某个通道时，请显式使用 `:alpha` / `:next`（研究镜像用
+`:research-alpha` / `:research-economics-alpha`）。
 
 推导与降级规则由 `ci/image-tags.sh` 实现，构建前由 `tests/test-image-tags.sh`
 离线验证：
@@ -60,12 +76,16 @@ docker pull <image>:alpha   ≈    npm i @deepseek-ai/dsh@alpha
 - 版本号本身不能作为合法 OCI tag 时（例如带 `+build` 元数据）直接失败，
   避免静默发布出错误 tag。
 
-只想补某个通道 tag 时，手动触发 build 工作流并填 `channel_tags`（如 `next`）即可；
-该输入只影响附加 tag，不改变构建内容。
+只想补某个通道 tag 时，手动触发 build（或 build-research）工作流并填
+`channel_tags`（如 `next`）即可；该输入只影响附加 tag，不改变构建内容。
+
+Standard 构建会把解析到的通道名一并传给 Research 构建（`channel_tags` 输入），
+所以两类镜像的通道 tag 始终来自同一次解析，不会各自漂移。
 
 容器侧要固定跟随某个通道，把 `DSH_IMAGE` 指向对应 tag 即可
 （新装可用环境变量传入，已有安装改 `config.env` 里的 `DSH_IMAGE` 后 `dshd update`；
-`dshd edition` 会把镜像重置回该 edition 的默认 tag）。
+`dshd edition` 会把镜像重置回该 edition 的默认 tag）。例如锁定某个 dsh 版本的
+Research 环境：`DSH_IMAGE=<image>:research-0.2.1-alpha.1`。
 
 ## 说明
 

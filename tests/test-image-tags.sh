@@ -131,4 +131,47 @@ check_fails "image with tag rejected" 2 "$IMAGE:latest" "0.2.1-alpha.1"
 check_fails "version with build metadata rejected" 1 "$IMAGE" "0.2.1+build.1"
 check_fails "version with slash rejected" 1 "$IMAGE" "0.2.1/evil"
 
+# --- 研究镜像：--prefix / --no-latest ---
+DSH_REGISTRY_JSON="$TMP/registry.json"
+export DSH_REGISTRY_JSON
+unset DSH_REGISTRY_URL
+
+# 12. 版本号与通道 tag 都带前缀，且不打 :latest
+check "research prefix + no-latest" \
+"$IMAGE:research-0.2.1-alpha.1
+$IMAGE:research-alpha" \
+"$IMAGE" "0.2.1-alpha.1" --prefix research- --no-latest
+
+# 13. 多段前缀（research-economics-）；latest 通道不单独打 tag
+check "research-economics prefix" \
+"$IMAGE:research-economics-0.2.0-rc.2
+$IMAGE:research-economics-next" \
+"$IMAGE" "0.2.0-rc.2" --prefix research-economics- --no-latest
+
+# 14. 不带 --no-latest 时 :latest 仍输出，且不加前缀
+check "prefix without no-latest" \
+"$IMAGE:research-0.1.7-rc.2
+$IMAGE:latest" \
+"$IMAGE" "0.1.7-rc.2" --prefix research-
+
+# 15. 选项可以放在位置参数之后
+check "options after positionals" \
+"$IMAGE:research-0.2.1-alpha.1
+$IMAGE:research-alpha" \
+"$IMAGE" "0.2.1-alpha.1" --no-latest --prefix research-
+
+# 16. 前缀本身不能作为 tag 时失败（含 /）
+check_fails "invalid prefix rejected" 1 "$IMAGE" "0.2.1-alpha.1" --prefix bad/
+
+# --- --channels-only：供工作流转发通道名 ---
+check "channels-only alpha" "alpha" --channels-only "0.2.1-alpha.1"
+check "channels-only next,latest" "next,latest" --channels-only "0.2.0-rc.2"
+check "channels-only no channel" "" --channels-only "0.1.7-rc.2"
+check "channels-only passthrough trimmed" "alpha,next" --channels-only "0.1.7-rc.2" " alpha , next "
+check "channels-only drops invalid" "ok_1" --channels-only "0.1.7-rc.2" "bad/tag,ok_1"
+check_fails "channels-only needs version" 2 --channels-only
+check_fails "channels-only rejects extra args" 2 --channels-only "0.1.7-rc.2" "alpha" "extra"
+check_fails "unknown option rejected" 2 "$IMAGE" "0.1.7-rc.2" --nope
+check_fails "prefix without value rejected" 2 "$IMAGE" "0.1.7-rc.2" --prefix
+
 echo "image tag channel checks passed"
