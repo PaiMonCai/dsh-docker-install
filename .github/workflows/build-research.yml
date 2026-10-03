@@ -17,10 +17,28 @@ on:
         description: 覆盖 Research 基础镜像（留空则使用当前 latest）
         required: false
         type: string
+      dsh_version:
+        description: 覆盖 dsh 版本（研究镜像 tag 跟随它；留空则读 Dockerfile 的 DSH_VERSION）
+        required: false
+        type: string
+      channel_tags:
+        description: 额外通道 tag，逗号分隔（如 alpha）；留空则按上游 npm dist-tag 自动推导
+        required: false
+        type: string
   workflow_call:
     inputs:
       base_image:
         description: 已发布的基础镜像引用，推荐使用 digest 固定依赖
+        required: false
+        type: string
+        default: ""
+      dsh_version:
+        description: 基础镜像实际包住的 dsh 版本；留空则读 Dockerfile 的 DSH_VERSION
+        required: false
+        type: string
+        default: ""
+      channel_tags:
+        description: 上游通道名，逗号分隔；留空则按上游 npm dist-tag 自动推导
         required: false
         type: string
         default: ""
@@ -90,6 +108,8 @@ jobs:
           test -s research/templates/default/data/catalog/README.md
           test -s research/templates/default/pipeline.yaml
           test -s research/templates/default/results/registry/README.md
+          bash -n ci/image-tags.sh
+          bash tests/test-image-tags.sh
 
       - name: V2 RC integration gate
         run: |
@@ -105,6 +125,48 @@ jobs:
         run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
+
+      - name: Resolve dsh version
+        id: dsh
+        env:
+          REQUESTED_DSH_VERSION: ${{ inputs.dsh_version }}
+        run: |
+          # 研究镜像的发布 tag 跟随它实际包住的 dsh 版本，而不是 research/VERSION
+          # （后者只标识研究层自身版本，见下面 Read Research version）。
+          version="$REQUESTED_DSH_VERSION"
+          if [ -z "$version" ]; then
+            version=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)
+          fi
+          if [ -z "$version" ]; then
+            echo "::error::无法确定 dsh 版本（Dockerfile 里没有 DSH_VERSION？）"
+            exit 1
+          fi
+          echo "镜像 tag 跟随 dsh 版本: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Compose image tags
+        id: tags
+        env:
+          RESOLVED_IMAGE: ${{ steps.img.outputs.name }}
+          RESOLVED_DSH_VERSION: ${{ steps.dsh.outputs.version }}
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
+          TAG_PREFIX: ${{ matrix.tag }}-
+        run: |
+          # :research / :research-economics 是浮动 tag，等价于标准镜像的 :latest；
+          # 版本与通道 tag 带上前缀，使研究镜像 tag 与它包住的 dsh 版本对齐：
+          #   :research-0.2.1-alpha.1、:research-alpha
+          set -euo pipefail
+          tags_file="${RUNNER_TEMP:-/tmp}/dsh-research-tags-${{ matrix.tag }}.txt"
+          {
+            echo "$RESOLVED_IMAGE:${{ matrix.tag }}"
+            bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_DSH_VERSION" "$REQUESTED_CHANNELS" \
+              --prefix "$TAG_PREFIX" --no-latest
+          } | tee "$tags_file"
+          {
+            echo "list<<DSH_RESEARCH_TAGS"
+            cat "$tags_file"
+            echo "DSH_RESEARCH_TAGS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve Research base image
         id: base
@@ -142,8 +204,6 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ steps.base.outputs.image }}
             RESEARCH_VERSION=${{ steps.ver.outputs.version }}
-          tags: |
-            ${{ steps.img.outputs.name }}:${{ matrix.tag }}
-            ${{ steps.img.outputs.name }}:${{ matrix.tag }}-${{ steps.ver.outputs.version }}
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
