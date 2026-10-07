@@ -83,6 +83,8 @@ jobs:
           bash tests/test-dshd-dashboard.sh
           bash -n tests/test-dshd-admin-hosts.sh
           bash tests/test-dshd-admin-hosts.sh
+          bash -n tests/test-dshd-proxy.sh
+          bash tests/test-dshd-proxy.sh
           bash -n tests/test-reasoning-editor.sh
           bash tests/test-reasoning-editor.sh
           bash -n docker/entrypoint.sh
