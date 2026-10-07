@@ -242,6 +242,67 @@ EOF
   [[ "$DSH_PROXY_NODE" == "A" ]] || fail "subscription import must not silently switch an existing current node"
 )
 
+test_proxy_benchmark_and_use_best() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+  proxy_write_url_node slow 'http://slow.example.com:8080' >/dev/null
+  proxy_write_url_node fast 'http://fast.example.com:8080' >/dev/null
+  proxy_write_url_node dead 'http://dead.example.com:8080' >/dev/null
+  DSH_PROXY_NODE=slow
+  DSH_PROXY_ENABLED=true
+  save_config
+
+  container_running() { return 0; }
+  pull_proxy_image() { :; }
+  proxy_ensure_network() { :; }
+  proxy_cleanup_test_containers() { :; }
+  proxy_network_has_container() { return 0; }
+  proxy_measure_node() {
+    case "$1" in
+      fast)
+        PROXY_MEASURE_STATUS=ok
+        PROXY_MEASURE_MS=80
+        PROXY_MEASURE_CODE=204
+        return 0
+        ;;
+      slow)
+        PROXY_MEASURE_STATUS=ok
+        PROXY_MEASURE_MS=240
+        PROXY_MEASURE_CODE=204
+        return 0
+        ;;
+      *)
+        PROXY_MEASURE_STATUS=fail
+        PROXY_MEASURE_MS=""
+        PROXY_MEASURE_CODE=000
+        return 1
+        ;;
+    esac
+  }
+  create_container() { fail "benchmark/use-best must not recreate DSH"; }
+  proxy_start_sidecar() { printf '%s\n' "$DSH_PROXY_NODE" >"$tmp/sidecar-node"; }
+
+  proxy_test_all 'https://example.com/generate_204' >/dev/null
+  [[ "$PROXY_TEST_BEST_NODE" == "fast" ]] || fail "benchmark should choose fast node"
+  [[ "$PROXY_TEST_BEST_MS" == "80" ]] || fail "benchmark should retain best latency"
+  [[ "$(proxy_last_result fast)" == "80ms" ]] || fail "last result should expose latency"
+  [[ "$(proxy_last_result dead)" == "FAIL" ]] || fail "last result should expose failure"
+
+  proxy_use_best 'https://example.com/generate_204' >/dev/null
+  [[ "$DSH_PROXY_NODE" == "fast" ]] || fail "use-best should switch current node"
+  [[ "$(cat "$tmp/sidecar-node")" == "fast" ]] || fail "use-best should reload sidecar with fast node"
+)
+
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
@@ -266,6 +327,7 @@ test_first_run_wizard_defaults_to_url_node
 test_share_link_imports
 test_auto_node_names
 test_subscription_imports
+test_proxy_benchmark_and_use_best
 test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
