@@ -882,16 +882,16 @@ EOF
   esac
 
   DSH_PROXY_NODE="$name"
-  save_config
   ok "当前节点: $DSH_PROXY_NODE ($(proxy_node_description "$DSH_PROXY_NODE"))"
 
   if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
     info "代理已经开启，只重新加载 sing-box，不重建 DSH。"
-    proxy_start_sidecar
+    proxy_apply_sidecar_change
   elif confirm "现在启用该节点作为 DSH 国际网络出口？" Y; then
     DSH_PROXY_ENABLED=true
     proxy_apply_change
   else
+    save_config
     info "节点已保存但未启用。之后执行 dshd proxy enable 即可。"
     return
   fi
