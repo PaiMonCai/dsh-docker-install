@@ -50,6 +50,7 @@ dshd proxy disable
 dshd proxy status
 dshd proxy test-all
 dshd proxy use-best
+dshd proxy failover status
 dshd proxy reload
 dshd proxy logs
 ```
@@ -93,6 +94,45 @@ dshd proxy use-best
 ```
 
 如果代理已经启用，只重新加载 sing-box sidecar，不重建 DSH；如果代理尚未启用，则只把最快节点设为当前节点，仍保持直连模式。
+
+## 自动故障切换
+
+有至少 2 个节点后，可以启用 sing-box 原生 URLTest 组：
+
+```bash
+dshd proxy failover enable
+dshd proxy failover status
+```
+
+默认策略：
+
+```text
+探测 URL:   https://www.gstatic.com/generate_204
+检查间隔:   30s
+切换容差:   100ms
+空闲暂停:   30m
+中断旧连接: false
+```
+
+启用后，所有已保存节点都会进入 URLTest 节点池，sing-box 会周期探测并为**新连接**选择健康、低延迟的出口。`tolerance=100ms` 用于减少两个延迟相近节点之间的频繁抖动；默认不打断已经建立的连接。
+
+`dshd proxy list` 中的 `*` 在自动模式表示“首选种子”，不是对当前实际出口的强制锁定。第一次启动 URLTest 组时首选种子排在节点池最前面；后续实际出口由 sing-box 健康检查决定。
+
+自动模式下：
+
+- `dshd proxy use NAME` 会拒绝手工锁节点，先执行 `dshd proxy failover disable`；
+- `dshd proxy use-best` 不再重复测速切换，因为 URLTest 已持续自动选择；
+- 添加/删除节点、订阅刷新会 reload sing-box sidecar，不重建 DSH；
+- 节点池不能减少到 1 个；
+- 订阅刷新会先校验刷新后的完整 failover 配置，失败时旧节点池保持不变。
+
+关闭自动故障切换：
+
+```bash
+dshd proxy failover disable
+```
+
+关闭后恢复为普通的单节点手动模式。
 
 ## 分享链接导入
 
