@@ -17,7 +17,7 @@ assert_json_file() {
 test_proxy_defaults_and_nodes() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -65,7 +65,7 @@ test_proxy_defaults_and_nodes() (
 test_proxy_config_persists() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -91,7 +91,7 @@ test_proxy_config_persists() (
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -119,7 +119,7 @@ test_active_node_switch_does_not_recreate_dsh() (
 test_first_run_wizard_defaults_to_url_node() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -141,7 +141,7 @@ test_first_run_wizard_defaults_to_url_node() (
 test_share_link_imports() (
   local tmp ss_user
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -190,7 +190,7 @@ test_share_link_imports() (
 test_auto_node_names() (
   local tmp name1 name2
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -214,7 +214,7 @@ test_auto_node_names() (
 test_subscription_imports() (
   local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -321,7 +321,7 @@ EOF
 test_proxy_benchmark_and_use_best() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -382,7 +382,7 @@ test_proxy_benchmark_and_use_best() (
 test_failover_config_and_controls() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -441,7 +441,7 @@ test_failover_config_and_controls() (
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -472,7 +472,7 @@ printf '[✓] dshd proxy tests passed\n'
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -500,7 +500,7 @@ test_active_node_switch_does_not_recreate_dsh() (
 test_first_run_wizard_defaults_to_url_node() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -522,7 +522,7 @@ test_first_run_wizard_defaults_to_url_node() (
 test_share_link_imports() (
   local tmp ss_user
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -571,7 +571,7 @@ test_share_link_imports() (
 test_auto_node_names() (
   local tmp name1 name2
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -595,7 +595,7 @@ test_auto_node_names() (
 test_subscription_imports() (
   local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -702,7 +702,7 @@ EOF
 test_proxy_benchmark_and_use_best() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -763,7 +763,7 @@ test_proxy_benchmark_and_use_best() (
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -793,7 +793,7 @@ printf '[✓] dshd proxy tests passed\n'
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -821,7 +821,7 @@ test_active_node_switch_does_not_recreate_dsh() (
 test_first_run_wizard_defaults_to_url_node() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -843,7 +843,7 @@ test_first_run_wizard_defaults_to_url_node() (
 test_share_link_imports() (
   local tmp ss_user
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -892,7 +892,7 @@ test_share_link_imports() (
 test_auto_node_names() (
   local tmp name1 name2
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -916,7 +916,7 @@ test_auto_node_names() (
 test_subscription_imports() (
   local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1023,7 +1023,7 @@ EOF
 test_proxy_benchmark_and_use_best() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1084,7 +1084,7 @@ test_proxy_benchmark_and_use_best() (
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1114,7 +1114,7 @@ printf '[✓] dshd proxy tests passed\n'
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1142,7 +1142,7 @@ test_active_node_switch_does_not_recreate_dsh() (
 test_first_run_wizard_defaults_to_url_node() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1164,7 +1164,7 @@ test_first_run_wizard_defaults_to_url_node() (
 test_share_link_imports() (
   local tmp ss_user
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1213,7 +1213,7 @@ test_share_link_imports() (
 test_auto_node_names() (
   local tmp name1 name2
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1237,7 +1237,7 @@ test_auto_node_names() (
 test_subscription_imports() (
   local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1344,7 +1344,7 @@ EOF
 test_proxy_benchmark_and_use_best() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1405,7 +1405,7 @@ test_proxy_benchmark_and_use_best() (
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1436,7 +1436,7 @@ printf '[✓] dshd proxy tests passed\n'
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1464,7 +1464,7 @@ test_active_node_switch_does_not_recreate_dsh() (
 test_first_run_wizard_defaults_to_url_node() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1486,7 +1486,7 @@ test_first_run_wizard_defaults_to_url_node() (
 test_share_link_imports() (
   local tmp ss_user
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1535,7 +1535,7 @@ test_share_link_imports() (
 test_auto_node_names() (
   local tmp name1 name2
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1559,7 +1559,7 @@ test_auto_node_names() (
 test_subscription_imports() (
   local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1666,7 +1666,7 @@ EOF
 test_proxy_benchmark_and_use_best() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
@@ -1727,7 +1727,7 @@ test_proxy_benchmark_and_use_best() (
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   export HOME="$tmp/home"
   export DSHD_STATE_DIR="$tmp/state"
   export DSHD_LIB_ONLY=1
