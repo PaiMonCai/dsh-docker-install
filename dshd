@@ -849,7 +849,10 @@ EOF
 EOF
     read -r -p $'\n请选择 [1]: ' choice || return
     choice="${choice:-1}"
-    [[ "$choice" == "2" ]] && choice="3"
+    case "$choice" in
+      1) choice="2" ;;
+      2) choice="3" ;;
+    esac
   fi
 
   case "$choice" in
