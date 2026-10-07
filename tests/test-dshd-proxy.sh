@@ -427,7 +427,7 @@ test_failover_config_and_controls() (
   grep -q '^DSH_PROXY_FAILOVER_ENABLED=true$' "$CONFIG_FILE" || fail "failover enable should persist"
 
   ensure_docker() { :; }
-  if cmd_proxy use backup >/dev/null 2>&1; then
+  if (cmd_proxy use backup >/dev/null 2>&1); then
     fail "manual use must be rejected while failover is enabled"
   fi
 
