@@ -17,7 +17,15 @@
 
 ## 常用命令
 
-添加 HTTP / HTTPS / SOCKS 上游：
+第一次使用推荐直接运行向导：
+
+```bash
+dshd proxy setup
+```
+
+向导会完成“添加/选择节点 → 设为当前节点 → 是否启用 → 连通测试”。交互输入代理凭据时不会进入 shell history。
+
+也可以使用完整命令：
 
 ```bash
 dshd proxy add hk01 http://user:password@proxy.example.com:8080
@@ -28,18 +36,23 @@ dshd proxy enable
 dshd proxy test
 ```
 
+代理已开启后，`dshd proxy use NAME`、更新当前节点和修改 sing-box 镜像只会重新加载 sidecar，**不会重建 DSH 容器**。只有首次开启、关闭代理或修改 mixed 端口这类会改变 DSH 网络环境的操作才需要重建 DSH。
+
 关闭并恢复直连：
 
 ```bash
 dshd proxy disable
 ```
 
-查看状态和日志：
+查看状态、重新加载和日志：
 
 ```bash
 dshd proxy status
+dshd proxy reload
 dshd proxy logs
 ```
+
+`status` 会区分 sing-box sidecar 状态与 DSH 实际路由状态，例如“代理已应用”“待重建 DSH 才能生效”或“直连”。节点列表只展示协议、主机和端口，不显示用户名、密码、UUID 等凭据。
 
 ## VLESS / Trojan / Shadowsocks / Hysteria2 等
 
