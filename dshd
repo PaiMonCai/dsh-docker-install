@@ -2118,13 +2118,14 @@ cmd_proxy() {
   5) 测试当前出口
   6) 批量测速全部节点
   7) 测速并切到最快节点
-  8) 查看全部节点
-  9) 查看 sing-box 日志
- 10) 导入订阅 URL / 文件
- 11) 查看 / 刷新订阅
- 12) 高级：添加 outbound JSON
- 13) 删除节点
- 14) 重新加载 sing-box（不重建 DSH）
+  8) 自动故障切换（URLTest）
+  9) 查看全部节点
+ 10) 查看 sing-box 日志
+ 11) 导入订阅 URL / 文件
+ 12) 查看 / 刷新订阅
+ 13) 高级：添加 outbound JSON
+ 14) 删除节点
+ 15) 重新加载 sing-box（不重建 DSH）
   0) 返回
 EOF
     local choice="" name="" value=""
@@ -2141,29 +2142,37 @@ EOF
       5) proxy_test_runtime || true ;;
       6) proxy_test_all || true ;;
       7) proxy_use_best || true ;;
-      8) proxy_list_nodes ;;
-      9) proxy_container_exists && docker_cmd logs --tail 100 "$(proxy_container_name)" || warn "sidecar 不存在" ;;
-      10)
+      8)
+        proxy_failover_summary
+        if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+          confirm "关闭自动故障切换？" N && cmd_proxy failover disable
+        else
+          confirm "开启自动故障切换？至少需要 2 个节点。" Y && cmd_proxy failover enable
+        fi
+        ;;
+      9) proxy_list_nodes ;;
+      10) proxy_container_exists && docker_cmd logs --tail 100 "$(proxy_container_name)" || warn "sidecar 不存在" ;;
+      11)
         read -r -p "订阅 URL / 文件路径: " value || true
         [[ -n "$value" ]] && cmd_proxy subscribe "$value"
         ;;
-      11)
+      12)
         proxy_list_subscriptions
         read -r -p "刷新哪个订阅 [all]: " value || true
         cmd_proxy refresh "${value:-all}"
         ;;
-      12)
+      13)
         read -r -p "节点名称: " name || true
         read -r -p "JSON 文件路径（或直接粘贴单行 JSON）: " value || true
         [[ -n "$name" && -n "$value" ]] || { warn "名称和 JSON 来源不能为空"; continue; }
         cmd_proxy add-json "$name" "$value"
         ;;
-      13)
+      14)
         proxy_list_nodes
         read -r -p "删除节点: " name || true
         [[ -n "$name" ]] && confirm "确认删除节点 $name？" N && cmd_proxy remove "$name"
         ;;
-      14) cmd_proxy reload ;;
+      15) cmd_proxy reload ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -4415,6 +4424,8 @@ dshd - DeepSeek Harness Docker 管理器
   dshd proxy test [URL]    测试当前代理出口
   dshd proxy test-all [URL] 批量测速全部节点，不切换当前出口
   dshd proxy use-best [URL] 测速并选择最快可用节点
+  dshd proxy failover enable 启用 sing-box URLTest 自动故障切换
+  dshd proxy failover disable 关闭自动故障切换
   dshd proxy reload        只重载 sing-box，不重建 DSH
   dshd storage show        查看 /root/.dsh 的宿主机存储
   dshd storage bind PATH   使用宿主机目录作为 DSH 数据目录
