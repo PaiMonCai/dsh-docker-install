@@ -1249,20 +1249,25 @@ proxy_test_runtime() {
   [[ "$DSH_PROXY_ENABLED" == "true" ]] || die "代理当前未开启。"
   proxy_container_running || die "sing-box sidecar 未运行。"
   container_running || die "DSH 容器未运行，无法从 DSH 网络命名空间测试出口。"
-  local url="${1:-https://www.google.com/generate_204}" code
+  local url="${1:-https://www.gstatic.com/generate_204}" result time_total code ms=""
   info "测试节点: ${DSH_PROXY_NODE} ($(proxy_node_description "$DSH_PROXY_NODE"))"
   info "测试目标: $url"
-  code="$(docker_cmd exec \
+  result="$(docker_cmd exec \
     -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
     -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
     -e "NO_PROXY=${DSH_PROXY_NO_PROXY}" \
     "$DSH_NAME" \
-    curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 6 --max-time 12 "$url" 2>/dev/null || true)"
-  if [[ "$code" =~ ^(200|204|301|302)$ ]]; then
-    ok "代理出口可用: $url -> HTTP $code"
+    curl -sS -o /dev/null -w '%{time_total} %{http_code}' --connect-timeout 6 --max-time 12 "$url" 2>/dev/null || true)"
+  time_total="${result%% *}"
+  code="${result##* }"
+  if [[ "$time_total" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    ms="$(awk -v t="$time_total" 'BEGIN {printf "%.0f", t * 1000}')"
+  fi
+  if [[ "$code" =~ ^[234][0-9][0-9]$ ]]; then
+    ok "代理出口可用: $url -> HTTP $code${ms:+，${ms}ms}"
     return 0
   fi
-  warn "代理出口测试失败: $url -> HTTP ${code:-000}"
+  warn "代理出口测试失败: $url -> HTTP ${code:-000}${ms:+，${ms}ms}"
   warn "建议先执行 dshd proxy status，再执行 dshd proxy logs 查看 sing-box 日志。"
   return 1
 }
