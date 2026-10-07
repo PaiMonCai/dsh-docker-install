@@ -78,7 +78,7 @@ Standard 镜像主要解决 DSH 的运行和管理问题：
 - Node / Python / Go / Docker CLI 开发环境；
 - 可选宿主机 Docker Socket 管理；
 - 国内网络构建镜像源适配；
-- 可选 sing-box sidecar 国际网络出口，支持 HTTP / SOCKS、VLESS、Trojan、Hysteria2、Shadowsocks 分享链接与任意 sing-box outbound JSON；
+- 可选 sing-box sidecar 国际网络出口，支持 HTTP / SOCKS、VLESS、Trojan、Hysteria2、Shadowsocks 分享链接、订阅刷新、节点测速与 URLTest 自动故障切换；
 - `dshd` 安装、更新、备份、恢复和诊断。
 
 详细运行时说明见 [Runtime 与运维](docs/runtime.md)。
