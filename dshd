@@ -1154,6 +1154,7 @@ proxy_read_subscription() {
 
 proxy_import_subscription() {
   local source="$1" payload decoded lines line name first_name="" imported=0 skipped=0 failed=0
+  PROXY_IMPORT_FIRST_NAME=""
   payload="$(proxy_read_subscription "$source")" || die "订阅获取失败。"
   payload="${payload//$'\r'/}"
   [[ -n "$payload" ]] || die "订阅内容为空。"
@@ -1190,6 +1191,7 @@ proxy_import_subscription() {
   done <<<"$lines"
 
   (( imported > 0 )) || die "订阅中没有成功导入的受支持节点。"
+  PROXY_IMPORT_FIRST_NAME="$first_name"
   if [[ -z "$DSH_PROXY_NODE" ]]; then
     DSH_PROXY_NODE="$first_name"
     ok "已自动选择首个导入节点: $DSH_PROXY_NODE"
@@ -1261,7 +1263,7 @@ EOF
       read -r -p "订阅 URL / 文件路径: " value || true
       [[ -n "$value" ]] || { warn "订阅来源不能为空。"; return; }
       proxy_import_subscription "$value"
-      name="$DSH_PROXY_NODE"
+      name="$PROXY_IMPORT_FIRST_NAME"
       [[ -n "$name" ]] || { info "订阅已导入，请从节点列表选择。"; return; }
       ;;
     4)
