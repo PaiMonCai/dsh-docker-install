@@ -570,7 +570,11 @@ proxy_list_nodes() {
     fi
   done
   (( found == 1 )) || info "尚未添加代理节点。"
-  printf '\n  * = 当前节点；凭据不会显示。\n'
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    printf '\n  * = 首选种子；自动模式实际出口由 sing-box URLTest 选择。凭据不会显示。\n'
+  else
+    printf '\n  * = 当前节点；凭据不会显示。\n'
+  fi
 }
 
 proxy_container_exists() {
@@ -1387,6 +1391,7 @@ proxy_last_result() {
 }
 
 proxy_use_best() {
+  [[ "$DSH_PROXY_FAILOVER_ENABLED" != "true" ]] || { info "自动故障切换已开启，sing-box URLTest 已在持续选择健康低延迟节点；无需 use-best。"; return 0; }
   local url="${1:-https://www.gstatic.com/generate_204}" best
   proxy_test_all "$url" || return 1
   best="$PROXY_TEST_BEST_NODE"
@@ -1439,6 +1444,7 @@ proxy_summary() {
   [[ -n "$DSH_PROXY_NODE" ]] && printf '  %s' "$(proxy_node_description "$DSH_PROXY_NODE")"
   printf '\n'
   printf '节点数量:   %s\n' "$(proxy_node_count)"
+  printf '故障切换:   %s\n' "$([[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]] && echo 开启 || echo 关闭)"
   printf 'sing-box:   %s\n' "$DSH_PROXY_IMAGE"
   printf 'mixed 端口: %s（仅 Docker 内网）\n' "$DSH_PROXY_PORT"
   printf 'NO_PROXY:   %s\n' "$DSH_PROXY_NO_PROXY"
@@ -1720,7 +1726,10 @@ proxy_import_subscription() {
 
   save_config
   ok "订阅 $subscription 导入完成：成功 $imported，跳过不支持 $skipped，解析失败 $failed。"
-  if [[ "$DSH_PROXY_ENABLED" == "true" && "$current_owned" == "true" ]]; then
+  if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    proxy_start_sidecar
+    ok "故障切换节点池已更新，sing-box 已重新加载；DSH 容器未重建。"
+  elif [[ "$DSH_PROXY_ENABLED" == "true" && "$current_owned" == "true" ]]; then
     proxy_start_sidecar
     ok "当前出口属于该订阅，已重新加载 sing-box；DSH 容器未重建。"
   elif [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
@@ -1923,7 +1932,11 @@ cmd_proxy() {
         DSH_PROXY_NODE="$name"
         ok "已自动设为当前节点: $name"
       fi
-      if [[ "$DSH_PROXY_ENABLED" == "true" && "$was_current" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" && ( "$DSH_PROXY_FAILOVER_ENABLED" == "true" || "$was_current" == "true" ) ]]; then
+        proxy_apply_sidecar_change
+      else
+        save_config
+      fi
       return
       ;;
     subscribe|sub|import-sub)
@@ -1938,6 +1951,10 @@ cmd_proxy() {
     subscriptions|subs)
       heading "代理订阅"
       proxy_list_subscriptions
+      return
+      ;;
+    failover|ha)
+      proxy_failover_command "${1:-status}"
       return
       ;;
     unsubscribe|remove-sub|rm-sub)
@@ -1959,11 +1976,16 @@ cmd_proxy() {
         DSH_PROXY_NODE="$json_name"
         ok "已自动设为当前节点: $json_name"
       fi
-      if [[ "$DSH_PROXY_ENABLED" == "true" && "$json_was_current" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" && ( "$DSH_PROXY_FAILOVER_ENABLED" == "true" || "$json_was_current" == "true" ) ]]; then
+        proxy_apply_sidecar_change
+      else
+        save_config
+      fi
       return
       ;;
     use)
       [[ "$#" -ge 1 ]] || die "用法: dshd proxy use NAME"
+      [[ "$DSH_PROXY_FAILOVER_ENABLED" != "true" ]] || die "自动故障切换已开启；实际出口由 URLTest 决定。先执行 dshd proxy failover disable 再手动切换。"
       proxy_node_exists "$1" || die "代理节点不存在: $1"
       if [[ "$DSH_PROXY_NODE" == "$1" ]]; then
         info "已经是当前节点: $1"
@@ -2022,13 +2044,19 @@ cmd_proxy() {
       proxy_node_exists "$rm_name" || die "代理节点不存在: $rm_name"
       managed_by="$(proxy_find_node_subscription "$rm_name" 2>/dev/null || true)"
       [[ -z "$managed_by" ]] || die "节点 $rm_name 由订阅 $managed_by 管理；请刷新订阅或执行 dshd proxy unsubscribe $managed_by。"
-      if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_NODE" == "$rm_name" ]]; then
-        die "不能删除正在使用的节点；请先切换节点或关闭代理。"
+      if [[ "$DSH_PROXY_NODE" == "$rm_name" ]]; then
+        die "不能删除当前/首选节点；请先关闭故障切换并调整当前节点。"
+      fi
+      if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]] && (( $(proxy_node_count) <= 2 )); then
+        die "故障切换至少需要 2 个节点；请先关闭 failover 或先添加新节点。"
       fi
       rm_file="$(proxy_node_file "$rm_name")"
       rm -f "$rm_file"
-      [[ "$DSH_PROXY_NODE" == "$rm_name" ]] && DSH_PROXY_NODE=""
-      save_config
+      if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+        proxy_apply_sidecar_change
+      else
+        save_config
+      fi
       ok "已删除代理节点: $rm_name"
       return
       ;;
