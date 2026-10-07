@@ -331,7 +331,7 @@ load_config() {
   DSH_PROXY_NODE="${DSH_PROXY_NODE:-}"
   DSH_PROXY_IMAGE="${DSH_PROXY_IMAGE:-$DEFAULT_PROXY_IMAGE}"
   DSH_PROXY_PORT="${DSH_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
-  DSH_PROXY_NO_PROXY="${DSH_PROXY_NO_PROXY:-localhost,127.0.0.1,::1,${DSH_NAME},dsh-proxy}"
+  DSH_PROXY_NO_PROXY="${DSH_PROXY_NO_PROXY:-}"
 
   if [[ -f "$CONFIG_FILE" ]]; then
     # config.env 仅由 dshd 自己写入，权限默认为 600。
@@ -351,6 +351,7 @@ load_config() {
     fi
   fi
   [[ -n "$DSH_DATA_DIR" ]] || DSH_DATA_DIR="$DEFAULT_DATA_DIR"
+  [[ -n "$DSH_PROXY_NO_PROXY" ]] || DSH_PROXY_NO_PROXY="localhost,127.0.0.1,::1,${DSH_NAME},dsh-proxy"
   case "$DSH_STORAGE_MODE" in
     bind)
       [[ "$DSH_DATA_DIR" == /* ]] || die "DSH_DATA_DIR 必须是绝对路径: $DSH_DATA_DIR"
@@ -1127,14 +1128,18 @@ create_container() {
   local data_source
   data_source="$(storage_source)"
 
+  # 开启代理时先完成镜像拉取、配置校验和 sidecar 启动。
+  # 只有代理层确认可运行后才替换现有 DSH，避免坏节点让服务无谓下线。
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    proxy_start_sidecar
+  fi
+
   if container_exists; then
     info "移除旧容器 $DSH_NAME（持久化数据保留: $(storage_label)）..."
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
-  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
-    proxy_start_sidecar
-  else
+  if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
     proxy_remove_sidecar
     proxy_remove_network
   fi
