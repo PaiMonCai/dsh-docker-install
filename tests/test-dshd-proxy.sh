@@ -48,6 +48,8 @@ test_proxy_defaults_and_nodes() (
   grep -Fq '"type":"mixed"' "$PROXY_CONFIG_FILE" || fail "mixed inbound missing"
   grep -Fq '"listen_port":7890' "$PROXY_CONFIG_FILE" || fail "mixed port missing"
   grep -Fq '"final":"proxy"' "$PROXY_CONFIG_FILE" || fail "route final missing"
+  grep -Fq '"type":"local","tag":"local"' "$PROXY_CONFIG_FILE" || fail "local DNS resolver missing"
+  grep -Fq '"default_domain_resolver":"local"' "$PROXY_CONFIG_FILE" || fail "default domain resolver missing"
 )
 
 test_proxy_config_persists() (
@@ -125,6 +127,49 @@ test_first_run_wizard_defaults_to_url_node() (
   grep -q '^DSH_PROXY_NODE=node1$' "$CONFIG_FILE" || fail "first-run wizard should select node1"
 )
 
+test_share_link_imports() (
+  local tmp ss_user
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+
+  proxy_write_node_input vless-ws 'vless://11111111-1111-1111-1111-111111111111@edge.example.com:443?security=tls&sni=cdn.example.com&type=ws&host=cdn.example.com&path=%2Fws%3Fed%3D2048&fp=chrome#test'
+  grep -Fq '"type":"vless"' "$(proxy_node_file vless-ws)" || fail "vless type missing"
+  grep -Fq '"uuid":"11111111-1111-1111-1111-111111111111"' "$(proxy_node_file vless-ws)" || fail "vless uuid missing"
+  grep -Fq '"server_name":"cdn.example.com"' "$(proxy_node_file vless-ws)" || fail "vless sni missing"
+  grep -Fq '"fingerprint":"chrome"' "$(proxy_node_file vless-ws)" || fail "vless utls fingerprint missing"
+  grep -Fq '"type":"ws"' "$(proxy_node_file vless-ws)" || fail "vless ws transport missing"
+  grep -Fq '"path":"/ws?ed=2048"' "$(proxy_node_file vless-ws)" || fail "vless ws path decode failed"
+  grep -Fq '"Host":"cdn.example.com"' "$(proxy_node_file vless-ws)" || fail "vless ws host missing"
+
+  proxy_write_node_input reality 'vless://22222222-2222-2222-2222-222222222222@1.2.3.4:443?security=reality&sni=www.example.com&pbk=public-key&sid=0123abcd&type=tcp&flow=xtls-rprx-vision'
+  grep -Fq '"flow":"xtls-rprx-vision"' "$(proxy_node_file reality)" || fail "vless flow missing"
+  grep -Fq '"reality":{"enabled":true,"public_key":"public-key","short_id":"0123abcd"}' "$(proxy_node_file reality)" || fail "reality fields missing"
+
+  proxy_write_node_input trojan 'trojan://p%40ss@example.net:443?security=tls&sni=example.net&type=grpc&serviceName=TunService'
+  grep -Fq '"password":"p@ss"' "$(proxy_node_file trojan)" || fail "trojan password decode failed"
+  grep -Fq '"type":"grpc","service_name":"TunService"' "$(proxy_node_file trojan)" || fail "trojan grpc transport missing"
+
+  proxy_write_node_input hy2 'hysteria2://secret@hy.example.com:8443?sni=hy.example.com&insecure=1&obfs=salamander&obfs-password=obfs%20secret'
+  grep -Fq '"type":"hysteria2"' "$(proxy_node_file hy2)" || fail "hysteria2 type missing"
+  grep -Fq '"insecure":true' "$(proxy_node_file hy2)" || fail "hysteria2 insecure missing"
+  grep -Fq '"obfs":{"type":"salamander","password":"obfs secret"}' "$(proxy_node_file hy2)" || fail "hysteria2 obfs missing"
+
+  ss_user="$(printf '%s' 'aes-256-gcm:ss-secret' | base64 | tr -d '\n=' | tr '+/' '-_')"
+  proxy_write_node_input ss "ss://${ss_user}@ss.example.com:8388#test"
+  grep -Fq '"type":"shadowsocks"' "$(proxy_node_file ss)" || fail "shadowsocks type missing"
+  grep -Fq '"method":"aes-256-gcm"' "$(proxy_node_file ss)" || fail "shadowsocks method missing"
+  grep -Fq '"password":"ss-secret"' "$(proxy_node_file ss)" || fail "shadowsocks password missing"
+)
+
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
@@ -146,6 +191,7 @@ test_proxy_defaults_and_nodes
 test_proxy_config_persists
 test_active_node_switch_does_not_recreate_dsh
 test_first_run_wizard_defaults_to_url_node
+test_share_link_imports
 test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
