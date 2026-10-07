@@ -277,6 +277,19 @@ EOF
 
   source_file="$(proxy_subscription_source_file work)"
   [[ "$(cat "$source_file")" == "$raw_file" ]] || fail "subscription refresh source should persist"
+
+  if (proxy_remove_subscription work >/dev/null 2>&1); then
+    fail "active subscription should not be removable while proxy is enabled"
+  fi
+  proxy_subscription_exists work || fail "blocked unsubscribe must keep subscription"
+  proxy_node_exists work-Z || fail "blocked unsubscribe must keep managed nodes"
+
+  DSH_PROXY_ENABLED=false
+  save_config
+  proxy_remove_subscription work >/dev/null
+  ! proxy_subscription_exists work || fail "unsubscribe should remove subscription metadata"
+  ! proxy_node_exists work-Z || fail "unsubscribe should remove managed nodes"
+  [[ -z "$DSH_PROXY_NODE" ]] || fail "unsubscribe should clear disabled current managed node"
 )
 
 
