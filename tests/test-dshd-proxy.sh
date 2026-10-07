@@ -87,7 +87,12 @@ test_proxy_config_persists() (
   grep -q '^DSH_PROXY_ENABLED=true$' "$CONFIG_FILE" || fail "proxy enabled flag not persisted"
   grep -q '^DSH_PROXY_NODE=jp01$' "$CONFIG_FILE" || fail "proxy node not persisted"
   grep -q '^DSH_PROXY_PORT=17890$' "$CONFIG_FILE" || fail "proxy port not persisted"
-  grep -q '^DSH_PROXY_IMAGE=example.invalid/sing-box:test
+  grep -q '^DSH_PROXY_IMAGE=example.invalid/sing-box:test$' "$CONFIG_FILE" || fail "proxy image not persisted"
+  grep -q '^DSH_PROXY_FAILOVER_ENABLED=true$' "$CONFIG_FILE" || fail "failover enabled not persisted"
+  grep -q '^DSH_PROXY_FAILOVER_INTERVAL=45s$' "$CONFIG_FILE" || fail "failover interval not persisted"
+  grep -q '^DSH_PROXY_FAILOVER_TOLERANCE=150$' "$CONFIG_FILE" || fail "failover tolerance not persisted"
+)
+
 test_active_node_switch_does_not_recreate_dsh() (
   local tmp
   tmp="$(mktemp -d)"
