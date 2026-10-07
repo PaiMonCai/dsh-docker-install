@@ -68,15 +68,39 @@ dshd proxy logs
 例如：
 
 ```bash
+# NAME 可以显式指定
 dshd proxy add hk-vless 'vless://UUID@example.com:443?security=tls&sni=example.com&type=ws&host=example.com&path=%2Fws'
-dshd proxy add jp-trojan 'trojan://PASSWORD@example.net:443?security=tls&sni=example.net&type=grpc&serviceName=TunService'
-dshd proxy add us-hy2 'hysteria2://PASSWORD@example.org:443?sni=example.org&obfs=salamander&obfs-password=SECRET'
-dshd proxy add ss01 'ss://BASE64_USERINFO@example.com:8388'
+
+# 也可以省略 NAME；优先从 #备注自动命名
+dshd proxy add 'trojan://PASSWORD@example.net:443?security=tls&sni=example.net&type=grpc&serviceName=TunService#Tokyo%20Edge'
+dshd proxy add 'hysteria2://PASSWORD@example.org:443?sni=example.org&obfs=salamander&obfs-password=SECRET#US'
+dshd proxy add 'ss://BASE64_USERINFO@example.com:8388#SS'
 ```
+
+省略 NAME 时，`#Tokyo%20Edge` 会生成类似 `Tokyo-Edge` 的节点名；同名节点自动追加 `-2`、`-3`，没有备注则使用 `node1`、`node2`。
 
 VLESS / Trojan 会映射常见 TLS、Reality、uTLS fingerprint、WebSocket、gRPC、HTTP、HTTPUpgrade、QUIC 参数；Hysteria2 支持常见 TLS / insecure / salamander 等 obfs 参数；Shadowsocks 支持 SIP002 的 base64url 用户信息与 plugin 参数。
 
 解析器采取“**不静默丢关键参数**”原则：遇到未知 `security` 或 transport/type 会直接报错，提示改用原生 sing-box JSON，而不是生成一个看似成功但实际上连不通的节点。
+
+## 订阅导入
+
+支持 HTTP(S) 订阅 URL、本地文件和标准输入：
+
+```bash
+dshd proxy subscribe 'https://example.com/subscription'
+dshd proxy subscribe /root/nodes.txt
+cat /root/nodes.txt | dshd proxy subscribe -
+```
+
+支持两类常见订阅内容：
+
+1. 多行原始分享链接；
+2. 整份 Base64 编码后的多行分享链接。
+
+订阅中暂不支持的协议（例如当前尚未解析的 VMess）会被跳过并在结果中计数；可识别但参数不受支持的节点会记为解析失败。导入不会在已有当前节点时静默切换出口；导入完成后用 `dshd proxy list` 查看，再用 `dshd proxy use NAME` 切换。
+
+如果订阅 URL 自带 token，建议从 `dshd proxy` 交互菜单进入“导入订阅 URL / 文件”，避免把完整 URL 留在 shell history。
 
 复杂或非标准节点仍可以直接导入 sing-box outbound JSON；对象必须使用 `"tag": "proxy"`：
 
