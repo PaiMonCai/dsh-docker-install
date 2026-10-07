@@ -1676,16 +1676,49 @@ proxy_import_subscription() {
 
   (( imported > 0 )) || { rm -rf "$staging"; die "订阅中没有成功导入的受支持节点。"; }
 
-  # 当前出口属于该订阅时，在替换旧节点前先校验 staging 中将要继续使用的节点。
-  # 使用本地已有 sing-box 镜像，不为了“刷新订阅”额外触发镜像拉取。
-  if [[ "$current_owned" == "true" && "$DSH_PROXY_ENABLED" == "true" ]] \
+  # 替换旧节点前先校验 staging。自动故障切换模式校验“刷新后的完整节点池”，
+  # 手动模式只需校验仍会被使用的当前订阅节点。使用本地镜像，不为刷新额外拉镜像。
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]] \
     && docker_cmd image inspect "$DSH_PROXY_IMAGE" >/dev/null 2>&1; then
-    local staged_selected="$current_before" staged_check="$staging/check.json"
-    proxy_node_exists "$staged_selected" || staged_selected="$first_name"
-    proxy_generate_config_for_node "$staged_selected" "$staged_check" "$DSH_PROXY_PORT"
-    if ! proxy_validate_config_file "$staged_check" >/dev/null 2>&1; then
-      rm -rf "$staging"
-      die "订阅刷新后的当前候选节点未通过 sing-box 配置校验；旧订阅节点保持不变。"
+    local staged_check="$staging/check.json"
+    if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+      local validation_nodes="$staging/validation-nodes" existing existing_name staged_selected
+      mkdir -p "$validation_nodes"
+      chmod 700 "$validation_nodes"
+
+      for existing in "$main_nodes_dir"/*.json; do
+        [[ -f "$existing" ]] || continue
+        existing_name="$(basename "$existing" .json)"
+        if [[ -f "$old_nodes_file" ]] && grep -Fxq "$existing_name" "$old_nodes_file"; then
+          continue
+        fi
+        cp "$existing" "$validation_nodes/"
+      done
+      cp "$staging_nodes"/*.json "$validation_nodes/" 2>/dev/null || true
+
+      PROXY_NODES_DIR="$validation_nodes"
+      (( $(proxy_node_count) >= 2 )) || {
+        rm -rf "$staging"
+        die "订阅刷新后故障切换节点池不足 2 个节点；旧订阅节点保持不变。"
+      }
+      staged_selected="$current_before"
+      proxy_node_exists "$staged_selected" || staged_selected="$first_name"
+      DSH_PROXY_NODE="$staged_selected"
+      proxy_generate_failover_config "$staged_check" "$DSH_PROXY_PORT"
+      if ! proxy_validate_config_file "$staged_check" >/dev/null 2>&1; then
+        rm -rf "$staging"
+        die "订阅刷新后的故障切换节点池未通过 sing-box 配置校验；旧订阅节点保持不变。"
+      fi
+      PROXY_NODES_DIR="$staging_nodes"
+      DSH_PROXY_NODE="$current_before"
+    elif [[ "$current_owned" == "true" ]]; then
+      local staged_selected="$current_before"
+      proxy_node_exists "$staged_selected" || staged_selected="$first_name"
+      proxy_generate_config_for_node "$staged_selected" "$staged_check" "$DSH_PROXY_PORT"
+      if ! proxy_validate_config_file "$staged_check" >/dev/null 2>&1; then
+        rm -rf "$staging"
+        die "订阅刷新后的当前候选节点未通过 sing-box 配置校验；旧订阅节点保持不变。"
+      fi
     fi
     rm -f "$staged_check"
   fi
