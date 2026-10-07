@@ -508,23 +508,39 @@ proxy_node_count() {
   find "$PROXY_NODES_DIR" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' '
 }
 
+proxy_node_description() {
+  local name="$1" file type server port
+  file="$(proxy_node_file "$name" 2>/dev/null || true)"
+  [[ -n "$file" && -f "$file" ]] || { printf 'unknown'; return; }
+  type="$(sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -1)"
+  server="$(sed -n 's/.*"server"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -1)"
+  port="$(sed -n 's/.*"server_port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$file" | head -1)"
+  type="${type:-unknown}"
+  if [[ -n "$server" && -n "$port" ]]; then
+    printf '%s://%s:%s' "$type" "$server" "$port"
+  elif [[ -n "$server" ]]; then
+    printf '%s://%s' "$type" "$server"
+  else
+    printf '%s' "$type"
+  fi
+}
+
 proxy_list_nodes() {
   if [[ ! -d "$PROXY_NODES_DIR" ]]; then
     info "尚未添加代理节点。"
     return
   fi
-  local file name found=0
+  local file name found=0 marker
   for file in "$PROXY_NODES_DIR"/*.json; do
     [[ -f "$file" ]] || continue
     found=1
     name="$(basename "$file" .json)"
-    if [[ "$name" == "$DSH_PROXY_NODE" ]]; then
-      printf '  * %s（当前）\n' "$name"
-    else
-      printf '    %s\n' "$name"
-    fi
+    marker=" "
+    [[ "$name" == "$DSH_PROXY_NODE" ]] && marker="*"
+    printf '  %s %-18s %s\n' "$marker" "$name" "$(proxy_node_description "$name")"
   done
   (( found == 1 )) || info "尚未添加代理节点。"
+  printf '\n  * = 当前节点；凭据不会显示。\n'
 }
 
 proxy_container_exists() {
@@ -652,6 +668,10 @@ proxy_generate_config() {
 
 pull_proxy_image() {
   local candidates=() img seen=""
+  if docker_cmd image inspect "$DSH_PROXY_IMAGE" >/dev/null 2>&1; then
+    info "使用本地 sing-box 镜像: $DSH_PROXY_IMAGE"
+    return 0
+  fi
   candidates+=("$DSH_PROXY_IMAGE")
   [[ "$DSH_PROXY_IMAGE" == "$DEFAULT_PROXY_IMAGE" ]] || candidates+=("$DEFAULT_PROXY_IMAGE")
   candidates+=("$DEFAULT_PROXY_MIRROR_IMAGE")
@@ -712,6 +732,37 @@ proxy_start_sidecar() {
   fi
 }
 
+proxy_runtime_applied() {
+  container_exists || return 1
+  local runtime_proxy
+  runtime_proxy="$(docker_cmd inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$DSH_NAME" 2>/dev/null     | grep -F 'HTTPS_PROXY=' | tail -1 || true)"
+  [[ "$runtime_proxy" == "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" ]]
+}
+
+proxy_runtime_state() {
+  if ! container_exists; then
+    printf 'DSH 未创建'
+  elif proxy_runtime_applied; then
+    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+      printf '代理已应用'
+    else
+      printf '仍带代理环境（建议 recreate）'
+    fi
+  elif [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    printf '待重建 DSH 才能生效'
+  else
+    printf '直连'
+  fi
+}
+
+proxy_apply_sidecar_change() {
+  save_config
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    proxy_start_sidecar
+    ok "sing-box 已重新加载；DSH 容器未重建。"
+  fi
+}
+
 proxy_apply_change() {
   save_config
   if container_exists; then
@@ -729,6 +780,8 @@ proxy_test_runtime() {
   proxy_container_running || die "sing-box sidecar 未运行。"
   container_running || die "DSH 容器未运行，无法从 DSH 网络命名空间测试出口。"
   local url="${1:-https://www.google.com/generate_204}" code
+  info "测试节点: ${DSH_PROXY_NODE} ($(proxy_node_description "$DSH_PROXY_NODE"))"
+  info "测试目标: $url"
   code="$(docker_cmd exec \
     -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
     -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
@@ -740,19 +793,111 @@ proxy_test_runtime() {
     return 0
   fi
   warn "代理出口测试失败: $url -> HTTP ${code:-000}"
+  warn "建议先执行 dshd proxy status，再执行 dshd proxy logs 查看 sing-box 日志。"
   return 1
 }
 
 proxy_summary() {
-  printf '启用:       %s\n' "$DSH_PROXY_ENABLED"
-  printf '当前节点:   %s\n' "${DSH_PROXY_NODE:-（未选择）}"
+  printf '模式:       %s\n' "$([[ "$DSH_PROXY_ENABLED" == "true" ]] && echo 代理 || echo 直连)"
+  printf '当前节点:   %s' "${DSH_PROXY_NODE:-（未选择）}"
+  [[ -n "$DSH_PROXY_NODE" ]] && printf '  %s' "$(proxy_node_description "$DSH_PROXY_NODE")"
+  printf '\n'
   printf '节点数量:   %s\n' "$(proxy_node_count)"
   printf 'sing-box:   %s\n' "$DSH_PROXY_IMAGE"
   printf 'mixed 端口: %s（仅 Docker 内网）\n' "$DSH_PROXY_PORT"
   printf 'NO_PROXY:   %s\n' "$DSH_PROXY_NO_PROXY"
   if docker_ready; then
     printf 'Sidecar:    %s\n' "$(proxy_container_running && echo running || echo stopped)"
+    printf 'DSH 路由:   %s\n' "$(proxy_runtime_state)"
     printf '网络:       %s\n' "$(proxy_network_name)"
+  fi
+}
+
+proxy_next_node_name() {
+  local i=1
+  while proxy_node_exists "node$i"; do i=$((i + 1)); done
+  printf 'node%s' "$i"
+}
+
+proxy_setup_wizard() {
+  heading "sing-box 出口快速配置"
+  info "代理默认只作用于 DSH 容器；不会修改宿主机系统代理。"
+  info "HTTP/SOCKS 凭据在交互输入时不会进入 shell history。"
+
+  local count choice="" name="" value="" default_name
+  count="$(proxy_node_count)"
+  default_name="$(proxy_next_node_name)"
+
+  if (( count > 0 )); then
+    printf '\n现有节点:\n'
+    proxy_list_nodes
+    cat <<'EOF'
+
+  1) 使用已有节点
+  2) 添加 HTTP / HTTPS / SOCKS 节点
+  3) 添加 sing-box outbound JSON
+  0) 取消
+EOF
+    read -r -p $'\n请选择 [1]: ' choice || return
+    choice="${choice:-1}"
+  else
+    cat <<'EOF'
+
+  1) 添加 HTTP / HTTPS / SOCKS 节点（推荐）
+  2) 添加 sing-box outbound JSON（VLESS/Trojan/Hysteria2/SS 等）
+  0) 取消
+EOF
+    read -r -p $'\n请选择 [1]: ' choice || return
+    choice="${choice:-1}"
+    [[ "$choice" == "2" ]] && choice="3"
+  fi
+
+  case "$choice" in
+    1)
+      (( count > 0 )) || die "当前没有已有节点。"
+      read -r -p "节点名称 [${DSH_PROXY_NODE:-}]: " name || true
+      name="${name:-$DSH_PROXY_NODE}"
+      [[ -n "$name" ]] || { warn "未选择节点。"; return; }
+      proxy_node_exists "$name" || die "代理节点不存在: $name"
+      ;;
+    2)
+      read -r -p "节点名称 [$default_name]: " name || true
+      name="${name:-$default_name}"
+      read -r -p "代理 URL（http/https/socks5）: " value || true
+      [[ -n "$value" ]] || { warn "代理 URL 不能为空。"; return; }
+      proxy_write_url_node "$name" "$value"
+      ;;
+    3)
+      read -r -p "节点名称 [$default_name]: " name || true
+      name="${name:-$default_name}"
+      read -r -p "JSON 文件路径（或单行 outbound JSON）: " value || true
+      [[ -n "$value" ]] || { warn "JSON 来源不能为空。"; return; }
+      proxy_write_json_node "$name" "$value"
+      ;;
+    0) return ;;
+    *) warn "无效选项"; return ;;
+  esac
+
+  DSH_PROXY_NODE="$name"
+  save_config
+  ok "当前节点: $DSH_PROXY_NODE ($(proxy_node_description "$DSH_PROXY_NODE"))"
+
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    info "代理已经开启，只重新加载 sing-box，不重建 DSH。"
+    proxy_start_sidecar
+  elif confirm "现在启用该节点作为 DSH 国际网络出口？" Y; then
+    DSH_PROXY_ENABLED=true
+    proxy_apply_change
+  else
+    info "节点已保存但未启用。之后执行 dshd proxy enable 即可。"
+    return
+  fi
+
+  if container_running; then
+    printf '\n'
+    proxy_test_runtime || true
+  else
+    info "DSH 尚未运行；代理配置已保存，创建/重建 DSH 时会自动应用。"
   fi
 }
 
@@ -772,28 +917,52 @@ cmd_proxy() {
       proxy_list_nodes
       return
       ;;
+    setup|quick)
+      proxy_setup_wizard
+      return
+      ;;
     add|add-url)
       [[ "$#" -ge 2 ]] || die "用法: dshd proxy add NAME http://user:pass@host:port"
       local name="$1" url="$2"
+      local was_current=false
+      [[ "$DSH_PROXY_NODE" == "$name" ]] && was_current=true
       proxy_write_url_node "$name" "$url"
-      if [[ -z "$DSH_PROXY_NODE" ]]; then DSH_PROXY_NODE="$name"; fi
-      if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_NODE" == "$name" ]]; then proxy_apply_change; else save_config; fi
+      if [[ -z "$DSH_PROXY_NODE" ]]; then
+        DSH_PROXY_NODE="$name"
+        ok "已自动设为当前节点: $name"
+      fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" && "$was_current" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
       return
       ;;
     add-json)
       [[ "$#" -ge 2 ]] || die "用法: dshd proxy add-json NAME FILE|JSON|-"
       local json_name="$1" json_source="$2"
+      local json_was_current=false
+      [[ "$DSH_PROXY_NODE" == "$json_name" ]] && json_was_current=true
       proxy_write_json_node "$json_name" "$json_source"
-      if [[ -z "$DSH_PROXY_NODE" ]]; then DSH_PROXY_NODE="$json_name"; fi
-      if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_NODE" == "$json_name" ]]; then proxy_apply_change; else save_config; fi
+      if [[ -z "$DSH_PROXY_NODE" ]]; then
+        DSH_PROXY_NODE="$json_name"
+        ok "已自动设为当前节点: $json_name"
+      fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" && "$json_was_current" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
       return
       ;;
     use)
       [[ "$#" -ge 1 ]] || die "用法: dshd proxy use NAME"
       proxy_node_exists "$1" || die "代理节点不存在: $1"
+      if [[ "$DSH_PROXY_NODE" == "$1" ]]; then
+        info "已经是当前节点: $1"
+        [[ "$DSH_PROXY_ENABLED" == "true" ]] && proxy_start_sidecar
+        return
+      fi
       DSH_PROXY_NODE="$1"
-      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then proxy_apply_change; else save_config; fi
-      ok "当前代理节点: $DSH_PROXY_NODE"
+      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+        proxy_apply_sidecar_change
+        ok "节点已切换到 $DSH_PROXY_NODE；DSH 容器未重建。"
+      else
+        save_config
+        ok "当前代理节点: $DSH_PROXY_NODE（代理尚未开启）"
+      fi
       return
       ;;
     enable|on)
@@ -803,12 +972,30 @@ cmd_proxy() {
       fi
       [[ -n "$DSH_PROXY_NODE" ]] || die "没有当前节点。先执行 dshd proxy add/use。"
       proxy_node_exists "$DSH_PROXY_NODE" || die "代理节点不存在: $DSH_PROXY_NODE"
-      DSH_PROXY_ENABLED=true
-      proxy_apply_change
-      ok "DSH 代理出口已开启。"
+      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+        save_config
+        if container_exists && ! proxy_runtime_applied; then
+          info "代理配置已开启，但当前 DSH 尚未应用代理环境；现在重建。"
+          create_container
+        else
+          proxy_start_sidecar
+        fi
+        ok "DSH 代理出口已开启。"
+      else
+        DSH_PROXY_ENABLED=true
+        proxy_apply_change
+        ok "DSH 代理出口已开启。"
+      fi
       return
       ;;
     disable|off)
+      if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
+        save_config
+        proxy_remove_sidecar
+        proxy_remove_network
+        info "当前已经是直连模式。"
+        return
+      fi
       DSH_PROXY_ENABLED=false
       proxy_apply_change
       ok "DSH 代理出口已关闭，恢复直连。"
@@ -831,7 +1018,7 @@ cmd_proxy() {
     image)
       [[ "$#" -ge 1 ]] || { printf '%s\n' "$DSH_PROXY_IMAGE"; return; }
       DSH_PROXY_IMAGE="$1"
-      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then proxy_apply_change; else save_config; fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
       return
       ;;
     port)
@@ -839,6 +1026,12 @@ cmd_proxy() {
       validate_port "$1" || die "端口必须是 1-65535。"
       DSH_PROXY_PORT="$1"
       if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then proxy_apply_change; else save_config; fi
+      return
+      ;;
+    reload|restart-sidecar)
+      [[ "$DSH_PROXY_ENABLED" == "true" ]] || die "代理当前未开启。"
+      proxy_start_sidecar
+      ok "sing-box 已重新加载；DSH 容器未重建。"
       return
       ;;
     test)
@@ -859,47 +1052,44 @@ cmd_proxy() {
     proxy_summary
     cat <<'EOF'
 
-  1) 查看节点
-  2) 添加 HTTP / SOCKS 节点
-  3) 添加 sing-box outbound JSON
-  4) 切换节点
-  5) 开启代理
-  6) 关闭代理
-  7) 测试当前出口
-  8) 查看 sing-box 日志
+  1) 快速配置 / 添加节点（推荐）
+  2) 切换当前节点
+  3) 开启 / 重新应用代理
+  4) 关闭代理，恢复直连
+  5) 测试当前出口
+  6) 查看全部节点
+  7) 查看 sing-box 日志
+  8) 高级：添加 outbound JSON
   9) 删除节点
+ 10) 重新加载 sing-box（不重建 DSH）
   0) 返回
 EOF
     local choice="" name="" value=""
     read -r -p $'\n请选择: ' choice || return
     case "$choice" in
-      1) proxy_list_nodes ;;
+      1) proxy_setup_wizard ;;
       2)
-        read -r -p "节点名称: " name || true
-        read -r -p "代理 URL（http/https/socks5）: " value || true
-        [[ -n "$name" && -n "$value" ]] || { warn "名称和 URL 不能为空"; continue; }
-        cmd_proxy add "$name" "$value"
+        proxy_list_nodes
+        read -r -p "切换到: " name || true
+        [[ -n "$name" ]] && cmd_proxy use "$name"
         ;;
-      3)
+      3) cmd_proxy enable ;;
+      4) cmd_proxy disable ;;
+      5) proxy_test_runtime || true ;;
+      6) proxy_list_nodes ;;
+      7) proxy_container_exists && docker_cmd logs --tail 100 "$(proxy_container_name)" || warn "sidecar 不存在" ;;
+      8)
         read -r -p "节点名称: " name || true
         read -r -p "JSON 文件路径（或直接粘贴单行 JSON）: " value || true
         [[ -n "$name" && -n "$value" ]] || { warn "名称和 JSON 来源不能为空"; continue; }
         cmd_proxy add-json "$name" "$value"
         ;;
-      4)
-        proxy_list_nodes
-        read -r -p "切换到: " name || true
-        [[ -n "$name" ]] && cmd_proxy use "$name"
-        ;;
-      5) cmd_proxy enable ;;
-      6) cmd_proxy disable ;;
-      7) proxy_test_runtime || true ;;
-      8) proxy_container_exists && docker_cmd logs --tail 100 "$(proxy_container_name)" || warn "sidecar 不存在" ;;
       9)
         proxy_list_nodes
         read -r -p "删除节点: " name || true
-        [[ -n "$name" ]] && cmd_proxy remove "$name"
+        [[ -n "$name" ]] && confirm "确认删除节点 $name？" N && cmd_proxy remove "$name"
         ;;
+      10) cmd_proxy reload ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -3138,12 +3328,14 @@ dshd - DeepSeek Harness Docker 管理器
   dshd docker on|off       开启/关闭 Docker 管理
   dshd docker status       检查 Docker Socket
   dshd proxy               管理 DSH 国际网络 / sing-box 出口
+  dshd proxy setup         首次配置/添加节点向导（推荐）
   dshd proxy add NAME URL  添加 HTTP/HTTPS/SOCKS 节点
   dshd proxy add-json NAME FILE|JSON|-  添加 sing-box outbound JSON（tag 必须为 proxy）
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
   dshd proxy disable       关闭代理并恢复直连
   dshd proxy test [URL]    从 DSH 容器测试当前代理出口
+  dshd proxy reload        只重载 sing-box，不重建 DSH
   dshd storage show        查看 /root/.dsh 的宿主机存储
   dshd storage bind PATH   使用宿主机目录作为 DSH 数据目录
   dshd storage migrate PATH  从旧 named volume 迁移到宿主机目录
