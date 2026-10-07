@@ -121,7 +121,7 @@ test_first_run_wizard_defaults_to_url_node() (
   proxy_apply_change() { save_config; }
   container_running() { return 1; }
 
-  printf '\n\nhttp://proxy.example.com:8080\n' | proxy_setup_wizard >/dev/null
+  printf '\nhttp://proxy.example.com:8080#node1\n\n' | proxy_setup_wizard >/dev/null
   proxy_node_exists node1 || fail "first-run wizard should create default node1"
   grep -q '^DSH_PROXY_ENABLED=true$' "$CONFIG_FILE" || fail "first-run wizard should enable proxy by default"
   grep -q '^DSH_PROXY_NODE=node1$' "$CONFIG_FILE" || fail "first-run wizard should select node1"
@@ -194,6 +194,41 @@ test_auto_node_names() (
   [[ "$(proxy_auto_node_name 'http://proxy.example.com:8080')" == "node1" ]] || fail "URL without fragment should fall back to nodeN"
 )
 
+test_subscription_imports() (
+  local tmp raw_file base64_file encoded
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+
+  raw_file="$tmp/raw-sub.txt"
+  cat >"$raw_file" <<'EOF'
+vless://11111111-1111-1111-1111-111111111111@a.example.com:443?security=tls#A
+vmess://unsupported
+trojan://secret@b.example.com:443?security=tls#B
+EOF
+  proxy_import_subscription "$raw_file" >/dev/null
+  proxy_node_exists A || fail "raw subscription should import VLESS"
+  proxy_node_exists B || fail "raw subscription should import Trojan"
+  [[ "$DSH_PROXY_NODE" == "A" ]] || fail "first imported node should become current when none exists"
+  [[ "$PROXY_IMPORT_FIRST_NAME" == "A" ]] || fail "first imported node should be exposed to wizard"
+
+  base64_file="$tmp/base64-sub.txt"
+  encoded="$(printf '%s\n%s\n'     'hysteria2://secret@hy.example.com:443?sni=hy.example.com#HY'     'ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#SS'     | base64 | tr -d '\n')"
+  printf '%s' "$encoded" >"$base64_file"
+  proxy_import_subscription "$base64_file" >/dev/null
+  proxy_node_exists HY || fail "base64 subscription should import Hysteria2"
+  proxy_node_exists SS || fail "base64 subscription should import Shadowsocks"
+  [[ "$DSH_PROXY_NODE" == "A" ]] || fail "subscription import must not silently switch an existing current node"
+)
+
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
@@ -217,6 +252,7 @@ test_active_node_switch_does_not_recreate_dsh
 test_first_run_wizard_defaults_to_url_node
 test_share_link_imports
 test_auto_node_names
+test_subscription_imports
 test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
