@@ -565,6 +565,295 @@ proxy_json_escape() {
   printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+
+proxy_url_decode() {
+  local input="$1" out="" prefix hex ch
+  while [[ "$input" =~ ^([^%]*)%([0-9A-Fa-f]{2})(.*)$ ]]; do
+    prefix="${BASH_REMATCH[1]}"
+    hex="${BASH_REMATCH[2]}"
+    printf -v ch '%b' "\\x${hex}"
+    out+="${prefix}${ch}"
+    input="${BASH_REMATCH[3]}"
+  done
+  [[ "$input" != *%* ]] || return 1
+  printf '%s' "${out}${input}"
+}
+
+proxy_query_get() {
+  local query="$1" wanted="$2" item key value
+  local -a items=()
+  IFS='&' read -r -a items <<<"$query"
+  for item in "${items[@]}"; do
+    [[ -n "$item" ]] || continue
+    if [[ "$item" == *=* ]]; then
+      key="${item%%=*}"
+      value="${item#*=}"
+    else
+      key="$item"
+      value=""
+    fi
+    key="$(proxy_url_decode "$key" 2>/dev/null || printf '%s' "$key")"
+    if [[ "$key" == "$wanted" ]]; then
+      proxy_url_decode "$value" 2>/dev/null || printf '%s' "$value"
+      return 0
+    fi
+  done
+  return 1
+}
+
+proxy_query_first() {
+  local query="$1"
+  shift
+  local key value
+  for key in "$@"; do
+    value="$(proxy_query_get "$query" "$key" 2>/dev/null || true)"
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done
+  return 1
+}
+
+proxy_split_host_port() {
+  local hostport="$1" default_port="${2:-}" server="" port=""
+  if [[ "$hostport" =~ ^\[([^]]+)\]:(.+)$ ]]; then
+    server="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[2]}"
+  elif [[ "$hostport" == \[*\] ]]; then
+    server="${hostport:1:${#hostport}-2}"
+    port="$default_port"
+  elif [[ "$hostport" == *:* ]]; then
+    server="${hostport%:*}"
+    port="${hostport##*:}"
+  else
+    server="$hostport"
+    port="$default_port"
+  fi
+  [[ -n "$server" ]] || die "代理服务器地址不能为空。"
+  validate_port "$port" || die "代理端口无效: ${port:-（空）}"
+  PROXY_PARSED_SERVER="$server"
+  PROXY_PARSED_PORT="$port"
+}
+
+proxy_base64_decode() {
+  local input="${1//-/+}"
+  input="${input//_/\/}"
+  case $((${#input} % 4)) in
+    0) ;;
+    2) input+="==" ;;
+    3) input+="=" ;;
+    *) return 1 ;;
+  esac
+  command -v base64 >/dev/null 2>&1 || die "导入 Shadowsocks 分享链接需要宿主机提供 base64 命令。"
+  printf '%s' "$input" | base64 -d 2>/dev/null
+}
+
+proxy_json_csv_array() {
+  local csv="$1" item escaped first=true
+  local -a values=()
+  IFS=',' read -r -a values <<<"$csv"
+  printf '['
+  for item in "${values[@]}"; do
+    [[ -n "$item" ]] || continue
+    escaped="$(proxy_json_escape "$item")" || return 1
+    if [[ "$first" == "true" ]]; then first=false; else printf ','; fi
+    printf '"%s"' "$escaped"
+  done
+  printf ']'
+}
+
+proxy_build_tls_json() {
+  local security="$1" query="$2"
+  local sni insecure alpn fp pbk sid fields='"enabled":true' arr
+  case "$security" in
+    ""|none) PROXY_TLS_JSON=""; return 0 ;;
+    tls|reality) ;;
+    *) die "暂不支持 security=$security；可改用 dshd proxy add-json 导入原生 sing-box outbound。" ;;
+  esac
+
+  sni="$(proxy_query_first "$query" sni serverName server_name 2>/dev/null || true)"
+  insecure="$(proxy_query_first "$query" insecure allowInsecure allow_insecure 2>/dev/null || true)"
+  alpn="$(proxy_query_get "$query" alpn 2>/dev/null || true)"
+  fp="$(proxy_query_first "$query" fp fingerprint 2>/dev/null || true)"
+  pbk="$(proxy_query_first "$query" pbk publicKey public_key 2>/dev/null || true)"
+  sid="$(proxy_query_first "$query" sid shortId short_id 2>/dev/null || true)"
+
+  [[ -n "$sni" ]] && fields+=',"server_name":"'"$(proxy_json_escape "$sni")"'"'
+  case "${insecure,,}" in 1|true|yes) fields+=',"insecure":true' ;; esac
+  if [[ -n "$alpn" ]]; then
+    arr="$(proxy_json_csv_array "$alpn")"
+    fields+=',"alpn":'"$arr"
+  fi
+  if [[ -n "$fp" && "$fp" != "none" ]]; then
+    fields+=',"utls":{"enabled":true,"fingerprint":"'"$(proxy_json_escape "$fp")"'"}'
+  fi
+  if [[ "$security" == "reality" ]]; then
+    [[ -n "$pbk" ]] || die "Reality 分享链接缺少 pbk/publicKey。"
+    fields+=',"reality":{"enabled":true,"public_key":"'"$(proxy_json_escape "$pbk")"'","short_id":"'"$(proxy_json_escape "$sid")"'"}'
+  fi
+  PROXY_TLS_JSON=',"tls":{'"$fields"'}'
+}
+
+proxy_build_transport_json() {
+  local query="$1" transport host path service ed eh
+  transport="$(proxy_query_first "$query" type network 2>/dev/null || true)"
+  transport="${transport,,}"
+  host="$(proxy_query_get "$query" host 2>/dev/null || true)"
+  path="$(proxy_query_get "$query" path 2>/dev/null || true)"
+  service="$(proxy_query_first "$query" serviceName service_name 2>/dev/null || true)"
+  ed="$(proxy_query_first "$query" ed maxEarlyData max_early_data 2>/dev/null || true)"
+  eh="$(proxy_query_first "$query" eh earlyDataHeaderName early_data_header_name 2>/dev/null || true)"
+  PROXY_TRANSPORT_JSON=""
+
+  case "$transport" in
+    ""|tcp|raw) return 0 ;;
+    ws|websocket)
+      local fields='"type":"ws"'
+      [[ -n "$path" ]] && fields+=',"path":"'"$(proxy_json_escape "$path")"'"'
+      [[ -n "$host" ]] && fields+=',"headers":{"Host":"'"$(proxy_json_escape "$host")"'"}'
+      [[ "$ed" =~ ^[0-9]+$ ]] && fields+=',"max_early_data":'"$ed"
+      [[ -n "$eh" ]] && fields+=',"early_data_header_name":"'"$(proxy_json_escape "$eh")"'"'
+      PROXY_TRANSPORT_JSON=',"transport":{'"$fields"'}'
+      ;;
+    grpc)
+      local fields='"type":"grpc"'
+      [[ -n "$service" ]] && fields+=',"service_name":"'"$(proxy_json_escape "$service")"'"'
+      PROXY_TRANSPORT_JSON=',"transport":{'"$fields"'}'
+      ;;
+    http|h2)
+      local fields='"type":"http"'
+      [[ -n "$path" ]] && fields+=',"path":"'"$(proxy_json_escape "$path")"'"'
+      [[ -n "$host" ]] && fields+=',"host":["'"$(proxy_json_escape "$host")"'"]'
+      PROXY_TRANSPORT_JSON=',"transport":{'"$fields"'}'
+      ;;
+    httpupgrade)
+      local fields='"type":"httpupgrade"'
+      [[ -n "$path" ]] && fields+=',"path":"'"$(proxy_json_escape "$path")"'"'
+      [[ -n "$host" ]] && fields+=',"host":"'"$(proxy_json_escape "$host")"'"'
+      PROXY_TRANSPORT_JSON=',"transport":{'"$fields"'}'
+      ;;
+    quic)
+      PROXY_TRANSPORT_JSON=',"transport":{"type":"quic"}'
+      ;;
+    *)
+      die "暂不支持分享链接 transport/type=$transport；可改用 dshd proxy add-json。"
+      ;;
+  esac
+}
+
+proxy_write_share_node() {
+  local name="$1" uri="$2" scheme body core query="" userinfo hostport server port file json
+  local credential flow security obfs obfs_password plugin="" plugin_opts="" decoded method password
+  validate_proxy_node_name "$name" || die "节点名仅允许字母、数字、点、下划线、短横线，最长 64 字符。"
+  [[ "$uri" == *"://"* ]] || die "分享链接格式错误。"
+  scheme="${uri%%://*}"
+  scheme="${scheme,,}"
+  body="${uri#*://}"
+  body="${body%%#*}"
+  if [[ "$body" == *\?* ]]; then
+    query="${body#*\?}"
+    core="${body%%\?*}"
+  else
+    core="$body"
+  fi
+
+  case "$scheme" in
+    vless|trojan|hysteria2|hy2)
+      [[ "$core" == *"@"* ]] || die "$scheme 分享链接缺少 user/password@host。"
+      userinfo="${core%@*}"
+      hostport="${core##*@}"
+      credential="$(proxy_url_decode "$userinfo" 2>/dev/null || die "$scheme 凭据 URL 编码无效。")"
+      proxy_split_host_port "$hostport" 443
+      server="$PROXY_PARSED_SERVER"
+      port="$PROXY_PARSED_PORT"
+
+      case "$scheme" in
+        vless)
+          [[ -n "$credential" ]] || die "VLESS 分享链接缺少 UUID。"
+          flow="$(proxy_query_get "$query" flow 2>/dev/null || true)"
+          security="$(proxy_query_get "$query" security 2>/dev/null || true)"
+          proxy_build_tls_json "$security" "$query"
+          proxy_build_transport_json "$query"
+          json='{"type":"vless","tag":"proxy","server":"'"$(proxy_json_escape "$server")"'","server_port":'"$port"',"uuid":"'"$(proxy_json_escape "$credential")"'"'
+          [[ -n "$flow" ]] && json+=',"flow":"'"$(proxy_json_escape "$flow")"'"'
+          json+="${PROXY_TLS_JSON}${PROXY_TRANSPORT_JSON}}"
+          ;;
+        trojan)
+          security="$(proxy_query_get "$query" security 2>/dev/null || true)"
+          [[ -n "$security" ]] || security="tls"
+          proxy_build_tls_json "$security" "$query"
+          proxy_build_transport_json "$query"
+          json='{"type":"trojan","tag":"proxy","server":"'"$(proxy_json_escape "$server")"'","server_port":'"$port"',"password":"'"$(proxy_json_escape "$credential")"'"'
+          json+="${PROXY_TLS_JSON}${PROXY_TRANSPORT_JSON}}"
+          ;;
+        hysteria2|hy2)
+          proxy_build_tls_json "tls" "$query"
+          obfs="$(proxy_query_get "$query" obfs 2>/dev/null || true)"
+          obfs_password="$(proxy_query_first "$query" obfs-password obfs_password 2>/dev/null || true)"
+          json='{"type":"hysteria2","tag":"proxy","server":"'"$(proxy_json_escape "$server")"'","server_port":'"$port"',"password":"'"$(proxy_json_escape "$credential")"'"'
+          if [[ -n "$obfs" ]]; then
+            [[ -n "$obfs_password" ]] || die "Hysteria2 链接启用了 obfs=$obfs，但缺少 obfs-password。"
+            json+=',"obfs":{"type":"'"$(proxy_json_escape "$obfs")"'","password":"'"$(proxy_json_escape "$obfs_password")"'"}'
+          fi
+          json+="${PROXY_TLS_JSON}}"
+          ;;
+      esac
+      ;;
+    ss)
+      if [[ "$core" == *"@"* ]]; then
+        userinfo="${core%@*}"
+        hostport="${core##*@}"
+        if [[ "$userinfo" == *:* ]]; then
+          decoded="$(proxy_url_decode "$userinfo" 2>/dev/null || die "Shadowsocks 凭据 URL 编码无效。")"
+        else
+          decoded="$(proxy_base64_decode "$userinfo" 2>/dev/null || die "无法解码 Shadowsocks SIP002 凭据。")"
+        fi
+      else
+        decoded="$(proxy_base64_decode "$core" 2>/dev/null || die "无法解码 Shadowsocks 分享链接。")"
+        [[ "$decoded" == *"@"* ]] || die "Shadowsocks 分享链接缺少服务器地址。"
+        hostport="${decoded##*@}"
+        decoded="${decoded%@*}"
+      fi
+      [[ "$decoded" == *:* ]] || die "Shadowsocks 凭据必须包含 method:password。"
+      method="${decoded%%:*}"
+      password="${decoded#*:}"
+      proxy_split_host_port "$hostport" 8388
+      server="$PROXY_PARSED_SERVER"
+      port="$PROXY_PARSED_PORT"
+      plugin="$(proxy_query_get "$query" plugin 2>/dev/null || true)"
+      if [[ -n "$plugin" && "$plugin" == *";"* ]]; then
+        plugin_opts="${plugin#*;}"
+        plugin="${plugin%%;*}"
+      fi
+      json='{"type":"shadowsocks","tag":"proxy","server":"'"$(proxy_json_escape "$server")"'","server_port":'"$port"',"method":"'"$(proxy_json_escape "$method")"'","password":"'"$(proxy_json_escape "$password")"'"'
+      [[ -n "$plugin" ]] && json+=',"plugin":"'"$(proxy_json_escape "$plugin")"'"
+      [[ -n "$plugin_opts" ]] && json+=',"plugin_opts":"'"$(proxy_json_escape "$plugin_opts")"'"
+      json+='}'
+      ;;
+    *)
+      die "暂不支持分享链接协议: $scheme"
+      ;;
+  esac
+
+  proxy_ensure_dirs
+  file="$(proxy_node_file "$name")"
+  printf '%s\n' "$json" >"$file"
+  chmod 600 "$file"
+  ok "分享链接已导入: $name ($(proxy_node_description "$name"))"
+}
+
+proxy_write_node_input() {
+  local name="$1" value="$2" scheme
+  [[ "$value" == *"://"* ]] || die "节点输入应为代理 URL/分享链接；原生 JSON 请使用 dshd proxy add-json。"
+  scheme="${value%%://*}"
+  case "${scheme,,}" in
+    http|https|socks|socks5|socks5h) proxy_write_url_node "$name" "$value" ;;
+    vless|trojan|hysteria2|hy2|ss) proxy_write_share_node "$name" "$value" ;;
+    *) die "不支持的节点协议: $scheme；可使用 dshd proxy add-json 导入原生 sing-box outbound。" ;;
+  esac
+}
+
 proxy_write_url_node() {
   local name="$1" url="$2" scheme rest userinfo="" hostport server port username="" password=""
   local default_port type tls="" auth="" file
@@ -579,7 +868,7 @@ proxy_write_url_node() {
     http) type="http"; default_port=8080 ;;
     https) type="http"; default_port=443; tls=',"tls":{"enabled":true}' ;;
     socks|socks5|socks5h) type="socks"; default_port=1080 ;;
-    *) die "第一阶段 URL 节点支持 http://、https://、socks://、socks5://、socks5h://；其他协议请用 proxy add-json。" ;;
+    *) die "HTTP/SOCKS 解析器不支持 $scheme；分享链接请使用 proxy add，原生 JSON 请用 proxy add-json。" ;;
   esac
 
   if [[ "$rest" == *"@"* ]]; then
@@ -656,11 +945,12 @@ proxy_generate_config() {
   {
     printf '{\n'
     printf '  "log": {"level": "info", "timestamp": true},\n'
+    printf '  "dns": {"servers":[{"type":"local","tag":"local"}]},\n'
     printf '  "inbounds": [{"type":"mixed","tag":"dsh-mixed","listen":"0.0.0.0","listen_port":%s}],\n' "$DSH_PROXY_PORT"
     printf '  "outbounds": [\n'
     cat "$node_file"
     printf '  ],\n'
-    printf '  "route": {"final":"proxy"}\n'
+    printf '  "route": {"default_domain_resolver":"local","final":"proxy"}\n'
     printf '}\n'
   } >"$PROXY_CONFIG_FILE"
   chmod 600 "$PROXY_CONFIG_FILE"
@@ -822,7 +1112,8 @@ proxy_next_node_name() {
 proxy_setup_wizard() {
   heading "sing-box 出口快速配置"
   info "代理默认只作用于 DSH 容器；不会修改宿主机系统代理。"
-  info "HTTP/SOCKS 凭据在交互输入时不会进入 shell history。"
+  info "支持直接粘贴 HTTP/SOCKS、VLESS、Trojan、Hysteria2、Shadowsocks 分享链接。"
+  info "交互输入的节点凭据不会进入 shell history。"
 
   local count choice="" name="" value="" default_name
   count="$(proxy_node_count)"
@@ -834,8 +1125,8 @@ proxy_setup_wizard() {
     cat <<'EOF'
 
   1) 使用已有节点
-  2) 添加 HTTP / HTTPS / SOCKS 节点
-  3) 添加 sing-box outbound JSON
+  2) 粘贴代理 / 分享链接
+  3) 高级：添加 sing-box outbound JSON
   0) 取消
 EOF
     read -r -p $'\n请选择 [1]: ' choice || return
@@ -843,8 +1134,8 @@ EOF
   else
     cat <<'EOF'
 
-  1) 添加 HTTP / HTTPS / SOCKS 节点（推荐）
-  2) 添加 sing-box outbound JSON（VLESS/Trojan/Hysteria2/SS 等）
+  1) 粘贴代理 / 分享链接（推荐）
+  2) 高级：添加 sing-box outbound JSON
   0) 取消
 EOF
     read -r -p $'\n请选择 [1]: ' choice || return
@@ -866,9 +1157,9 @@ EOF
     2)
       read -r -p "节点名称 [$default_name]: " name || true
       name="${name:-$default_name}"
-      read -r -p "代理 URL（http/https/socks5）: " value || true
-      [[ -n "$value" ]] || { warn "代理 URL 不能为空。"; return; }
-      proxy_write_url_node "$name" "$value"
+      read -r -p "代理/分享链接: " value || true
+      [[ -n "$value" ]] || { warn "节点链接不能为空。"; return; }
+      proxy_write_node_input "$name" "$value"
       ;;
     3)
       read -r -p "节点名称 [$default_name]: " name || true
@@ -924,12 +1215,12 @@ cmd_proxy() {
       proxy_setup_wizard
       return
       ;;
-    add|add-url)
-      [[ "$#" -ge 2 ]] || die "用法: dshd proxy add NAME http://user:pass@host:port"
+    add|add-url|import)
+      [[ "$#" -ge 2 ]] || die "用法: dshd proxy add NAME URL（支持 http/socks/vless/trojan/hysteria2/ss）"
       local name="$1" url="$2"
       local was_current=false
       [[ "$DSH_PROXY_NODE" == "$name" ]] && was_current=true
-      proxy_write_url_node "$name" "$url"
+      proxy_write_node_input "$name" "$url"
       if [[ -z "$DSH_PROXY_NODE" ]]; then
         DSH_PROXY_NODE="$name"
         ok "已自动设为当前节点: $name"
@@ -3338,7 +3629,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd docker status       检查 Docker Socket
   dshd proxy               管理 DSH 国际网络 / sing-box 出口
   dshd proxy setup         首次配置/添加节点向导（推荐）
-  dshd proxy add NAME URL  添加 HTTP/HTTPS/SOCKS 节点
+  dshd proxy add NAME URL  导入 HTTP/SOCKS/VLESS/Trojan/Hysteria2/SS 节点
   dshd proxy add-json NAME FILE|JSON|-  添加 sing-box outbound JSON（tag 必须为 proxy）
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
