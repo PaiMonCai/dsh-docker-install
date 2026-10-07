@@ -54,35 +54,41 @@ dshd proxy logs
 
 `status` 会区分 sing-box sidecar 状态与 DSH 实际路由状态，例如“代理已应用”“待重建 DSH 才能生效”或“直连”。节点列表只展示协议、主机和端口，不显示用户名、密码、UUID 等凭据。
 
-## VLESS / Trojan / Shadowsocks / Hysteria2 等
+## 分享链接导入
 
-第一阶段不在 Bash 内重复实现各协议的分享链接解析器。对 sing-box 原生协议，直接添加一个 outbound JSON；该对象必须使用 `"tag": "proxy"`。
+`dshd proxy add NAME URL` 和快速向导会自动识别以下常见链接：
 
-例如 Hysteria2：
+- `http://` / `https://`
+- `socks://` / `socks5://` / `socks5h://`
+- `vless://`
+- `trojan://`
+- `hysteria2://` / `hy2://`
+- `ss://`（Shadowsocks SIP002）
 
-```json
-{
-  "type": "hysteria2",
-  "tag": "proxy",
-  "server": "example.com",
-  "server_port": 443,
-  "password": "replace-me",
-  "tls": {
-    "enabled": true,
-    "server_name": "example.com"
-  }
-}
-```
-
-保存成文件后：
+例如：
 
 ```bash
-dshd proxy add-json hy2 /root/hy2.json
-dshd proxy use hy2
-dshd proxy enable
+dshd proxy add hk-vless 'vless://UUID@example.com:443?security=tls&sni=example.com&type=ws&host=example.com&path=%2Fws'
+dshd proxy add jp-trojan 'trojan://PASSWORD@example.net:443?security=tls&sni=example.net&type=grpc&serviceName=TunService'
+dshd proxy add us-hy2 'hysteria2://PASSWORD@example.org:443?sni=example.org&obfs=salamander&obfs-password=SECRET'
+dshd proxy add ss01 'ss://BASE64_USERINFO@example.com:8388'
+```
+
+VLESS / Trojan 会映射常见 TLS、Reality、uTLS fingerprint、WebSocket、gRPC、HTTP、HTTPUpgrade、QUIC 参数；Hysteria2 支持常见 TLS / insecure / salamander 等 obfs 参数；Shadowsocks 支持 SIP002 的 base64url 用户信息与 plugin 参数。
+
+解析器采取“**不静默丢关键参数**”原则：遇到未知 `security` 或 transport/type 会直接报错，提示改用原生 sing-box JSON，而不是生成一个看似成功但实际上连不通的节点。
+
+复杂或非标准节点仍可以直接导入 sing-box outbound JSON；对象必须使用 `"tag": "proxy"`：
+
+```bash
+dshd proxy add-json custom /root/outbound.json
 ```
 
 也可以把单行 JSON 直接作为第三个参数，或用 `-` 从标准输入读取。
+
+## DNS 与域名节点
+
+sidecar 会配置 sing-box 1.14 的本地 DNS resolver，并通过 `route.default_domain_resolver` 解析代理服务器域名。因此节点地址既可以是 IP，也可以是域名。这个配置是 sing-box 1.14+ 对使用域名的 outbound 所要求的。
 
 ## 配置与安全
 
