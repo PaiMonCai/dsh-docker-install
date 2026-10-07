@@ -103,6 +103,28 @@ test_active_node_switch_does_not_recreate_dsh() (
   grep -q '^DSH_PROXY_NODE=b$' "$CONFIG_FILE" || fail "active node switch not persisted"
 )
 
+test_first_run_wizard_defaults_to_url_node() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+  proxy_apply_change() { save_config; }
+  container_running() { return 1; }
+
+  printf '\n\nhttp://proxy.example.com:8080\n' | proxy_setup_wizard >/dev/null
+  proxy_node_exists node1 || fail "first-run wizard should create default node1"
+  grep -q '^DSH_PROXY_ENABLED=true$' "$CONFIG_FILE" || fail "first-run wizard should enable proxy by default"
+  grep -q '^DSH_PROXY_NODE=node1$' "$CONFIG_FILE" || fail "first-run wizard should select node1"
+)
+
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
@@ -123,6 +145,7 @@ test_nested_node_description_uses_top_level_type() (
 test_proxy_defaults_and_nodes
 test_proxy_config_persists
 test_active_node_switch_does_not_recreate_dsh
+test_first_run_wizard_defaults_to_url_node
 test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
