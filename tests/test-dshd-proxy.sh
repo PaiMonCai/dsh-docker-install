@@ -25,6 +25,7 @@ test_proxy_defaults_and_nodes() (
 
   [[ "$DSH_PROXY_ENABLED" == "false" ]] || fail "proxy should default to disabled"
   [[ "$DSH_PROXY_PORT" == "7890" ]] || fail "unexpected proxy port: $DSH_PROXY_PORT"
+  [[ "$DSH_PROXY_NO_PROXY" == *",dsh,dsh-proxy" ]] || fail "default NO_PROXY should include container and sidecar"
   [[ "$DSH_PROXY_IMAGE" == "ghcr.io/sagernet/sing-box:v1.14.2" ]] || fail "unexpected proxy image: $DSH_PROXY_IMAGE"
 
   proxy_write_url_node corp-http 'http://alice:secret@proxy.example.com:8080'
