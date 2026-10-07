@@ -236,6 +236,27 @@ EOF
   grep -Fxq 'work-A' "$(proxy_subscription_nodes_file work)" || fail "subscription membership missing work-A"
   grep -Fxq 'work-B' "$(proxy_subscription_nodes_file work)" || fail "subscription membership missing work-B"
 
+  # An active subscription refresh must validate the staged current candidate before replace.
+  DSH_PROXY_ENABLED=true
+  save_config
+  cat >"$raw_file" <<'EOF'
+vless://11111111-1111-1111-1111-111111111111@broken.example.com:443?security=tls#A
+EOF
+  if (
+    docker_cmd() {
+      [[ "$1" == "image" && "$2" == "inspect" ]] && return 0
+      return 0
+    }
+    proxy_validate_config_file() { return 1; }
+    proxy_refresh_subscription work >/dev/null 2>&1
+  ); then
+    fail "failed staged validation must abort subscription refresh"
+  fi
+  grep -Fq '"server":"a.example.com"' "$(proxy_node_file work-A)" || fail "failed refresh must keep old node content"
+  proxy_node_exists work-B || fail "failed refresh must keep all old subscription nodes"
+  DSH_PROXY_ENABLED=false
+  save_config
+
   base64_file="$tmp/base64-sub.txt"
   encoded="$(printf '%s\n%s\n' \
     'hysteria2://secret@hy.example.com:443?sni=hy.example.com#HY' \
