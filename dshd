@@ -986,7 +986,146 @@ proxy_generate_config_for_node() {
   chmod 600 "$output"
 }
 
+
+proxy_json_retag() {
+  local file="$1" new_tag="$2"
+  awk -v new_tag="$new_tag" '
+    BEGIN { done=0 }
+    {
+      if (!done && $0 ~ /"tag"[[:space:]]*:[[:space:]]*"proxy"/) {
+        sub(/"tag"[[:space:]]*:[[:space:]]*"proxy"/, "\"tag\":\"" new_tag "\"")
+        done=1
+      }
+      print
+    }
+    END { if (!done) exit 42 }
+  ' "$file"
+}
+
+proxy_failover_member_count() {
+  proxy_node_count
+}
+
+proxy_first_node() {
+  local file
+  for file in "$PROXY_NODES_DIR"/*.json; do
+    [[ -f "$file" ]] || continue
+    basename "$file" .json
+    return 0
+  done
+  return 1
+}
+
+proxy_generate_failover_config() {
+  local output="$1" listen_port="${2:-$DSH_PROXY_PORT}" file node idx=0 first=true tag
+  local -a ordered=() tags=()
+
+  (( $(proxy_failover_member_count) >= 2 )) || die "自动故障切换至少需要 2 个节点。"
+  validate_port "$listen_port" || die "无效 mixed 端口: $listen_port"
+  proxy_ensure_dirs
+
+  if [[ -n "$DSH_PROXY_NODE" ]] && proxy_node_exists "$DSH_PROXY_NODE"; then
+    ordered+=("$DSH_PROXY_NODE")
+  fi
+  for file in "$PROXY_NODES_DIR"/*.json; do
+    [[ -f "$file" ]] || continue
+    node="$(basename "$file" .json)"
+    [[ "$node" == "$DSH_PROXY_NODE" ]] && continue
+    ordered+=("$node")
+  done
+  [[ "${#ordered[@]}" -ge 2 ]] || die "自动故障切换至少需要 2 个有效节点。"
+
+  {
+    printf '{\n'
+    printf '  "log": {"level": "info", "timestamp": true},\n'
+    printf '  "dns": {"servers":[{"type":"local","tag":"local"}]},\n'
+    printf '  "inbounds": [{"type":"mixed","tag":"dsh-mixed","listen":"0.0.0.0","listen_port":%s}],\n' "$listen_port"
+    printf '  "outbounds": [\n'
+    for node in "${ordered[@]}"; do
+      idx=$((idx + 1))
+      tag="member-$idx"
+      tags+=("$tag")
+      [[ "$first" == "true" ]] || printf ',\n'
+      first=false
+      proxy_json_retag "$(proxy_node_file "$node")" "$tag" || die "无法为故障切换重写节点 tag: $node"
+    done
+    printf ',\n'
+    printf '    {"type":"urltest","tag":"proxy","outbounds":['
+    first=true
+    for tag in "${tags[@]}"; do
+      [[ "$first" == "true" ]] || printf ','
+      first=false
+      printf '"%s"' "$tag"
+    done
+    printf '],"url":"%s","interval":"%s","tolerance":%s,"idle_timeout":"%s","interrupt_exist_connections":%s}\n' \
+      "$(proxy_json_escape "$DSH_PROXY_FAILOVER_URL")" \
+      "$(proxy_json_escape "$DSH_PROXY_FAILOVER_INTERVAL")" \
+      "$DSH_PROXY_FAILOVER_TOLERANCE" \
+      "$(proxy_json_escape "$DSH_PROXY_FAILOVER_IDLE_TIMEOUT")" \
+      "$DSH_PROXY_FAILOVER_INTERRUPT"
+    printf '  ],\n'
+    printf '  "route": {"default_domain_resolver":"local","final":"proxy"}\n'
+    printf '}\n'
+  } >"$output"
+  chmod 600 "$output"
+}
+
+proxy_failover_summary() {
+  printf '故障切换:   %s\n' "$([[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]] && echo 开启 || echo 关闭)"
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    printf '成员数量:   %s\n' "$(proxy_failover_member_count)"
+    printf '探测 URL:   %s\n' "$DSH_PROXY_FAILOVER_URL"
+    printf '检查间隔:   %s\n' "$DSH_PROXY_FAILOVER_INTERVAL"
+    printf '切换容差:   %sms\n' "$DSH_PROXY_FAILOVER_TOLERANCE"
+    printf '空闲暂停:   %s\n' "$DSH_PROXY_FAILOVER_IDLE_TIMEOUT"
+    printf '中断旧连接: %s\n' "$DSH_PROXY_FAILOVER_INTERRUPT"
+    printf '首选种子:   %s\n' "${DSH_PROXY_NODE:-（自动）}"
+  fi
+}
+
+proxy_set_failover() {
+  local enabled="$1"
+  if [[ "$enabled" == "true" ]]; then
+    (( $(proxy_failover_member_count) >= 2 )) || die "开启自动故障切换至少需要 2 个节点。"
+    if [[ -z "$DSH_PROXY_NODE" ]] || ! proxy_node_exists "$DSH_PROXY_NODE"; then
+      DSH_PROXY_NODE="$(proxy_first_node)"
+    fi
+    DSH_PROXY_FAILOVER_ENABLED=true
+    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+      proxy_apply_sidecar_change
+    else
+      save_config
+    fi
+    ok "自动故障切换已开启：sing-box URLTest 会在健康节点间自动选择。"
+  else
+    DSH_PROXY_FAILOVER_ENABLED=false
+    if [[ -z "$DSH_PROXY_NODE" ]] || ! proxy_node_exists "$DSH_PROXY_NODE"; then
+      DSH_PROXY_NODE="$(proxy_first_node 2>/dev/null || true)"
+    fi
+    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+      proxy_apply_sidecar_change
+    else
+      save_config
+    fi
+    ok "自动故障切换已关闭，恢复手动节点模式。"
+  fi
+}
+
+proxy_failover_command() {
+  local action="${1:-status}"
+  case "$action" in
+    status|show) proxy_failover_summary ;;
+    enable|on) proxy_set_failover true ;;
+    disable|off) proxy_set_failover false ;;
+    *) die "用法: dshd proxy failover [status|enable|disable]" ;;
+  esac
+}
+
 proxy_generate_config() {
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    proxy_generate_failover_config "$PROXY_CONFIG_FILE" "$DSH_PROXY_PORT"
+    return
+  fi
   [[ -n "$DSH_PROXY_NODE" ]] || die "尚未选择代理节点。先执行 dshd proxy use NAME。"
   proxy_generate_config_for_node "$DSH_PROXY_NODE" "$PROXY_CONFIG_FILE" "$DSH_PROXY_PORT"
 }
