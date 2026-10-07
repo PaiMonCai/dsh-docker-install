@@ -48,11 +48,51 @@ dshd proxy disable
 
 ```bash
 dshd proxy status
+dshd proxy test-all
+dshd proxy use-best
 dshd proxy reload
 dshd proxy logs
 ```
 
 `status` 会区分 sing-box sidecar 状态与 DSH 实际路由状态，例如“代理已应用”“待重建 DSH 才能生效”或“直连”。节点列表只展示协议、主机和端口，不显示用户名、密码、UUID 等凭据。
+
+## 节点测速与最快节点
+
+批量测速不会切换当前出口，也不会重建 DSH：
+
+```bash
+dshd proxy test-all
+```
+
+实现方式是为每个节点启动一个临时 sing-box 测试 sidecar，并让现有 DSH 容器临时加入代理测试网络，通过显式 HTTP proxy 发起探测。测试结束后会清理临时 sidecar；如果 DSH 原本不在该网络，也会断开临时连接。
+
+默认探测：
+
+```text
+https://www.gstatic.com/generate_204
+```
+
+也可以指定更贴近实际业务的 URL。例如测试 OpenAI 可达性时，即使返回 401/403，也说明 HTTP/TLS 链路已经建立，因此 2xx、3xx、4xx 都会计为连通：
+
+```bash
+dshd proxy test-all https://api.openai.com/v1/models
+```
+
+最近一次结果会保存在节点状态中，`dshd proxy list` 会显示类似：
+
+```text
+  * hk01               83ms      hysteria2://example.com:443
+    jp01               121ms     vless://example.net:443
+    us01               FAIL      trojan://example.org:443
+```
+
+测速并选择最快节点：
+
+```bash
+dshd proxy use-best
+```
+
+如果代理已经启用，只重新加载 sing-box sidecar，不重建 DSH；如果代理尚未启用，则只把最快节点设为当前节点，仍保持直连模式。
 
 ## 分享链接导入
 
@@ -83,13 +123,22 @@ VLESS / Trojan 会映射常见 TLS、Reality、uTLS fingerprint、WebSocket、gR
 
 解析器采取“**不静默丢关键参数**”原则：遇到未知 `security` 或 transport/type 会直接报错，提示改用原生 sing-box JSON，而不是生成一个看似成功但实际上连不通的节点。
 
-## 订阅导入
+## 订阅导入与刷新
 
-支持 HTTP(S) 订阅 URL、本地文件和标准输入：
+订阅现在是持久化对象，每个订阅保存自己的来源和所属节点。可以让 dshd 自动命名，也可以显式命名：
 
 ```bash
+# 自动生成 sub1 / sub2 ...
 dshd proxy subscribe 'https://example.com/subscription'
-dshd proxy subscribe /root/nodes.txt
+
+# 显式命名
+dshd proxy subscribe airport-a 'https://example.com/subscription'
+```
+
+也支持本地文件和标准输入：
+
+```bash
+dshd proxy subscribe local-a /root/nodes.txt
 cat /root/nodes.txt | dshd proxy subscribe -
 ```
 
@@ -98,9 +147,27 @@ cat /root/nodes.txt | dshd proxy subscribe -
 1. 多行原始分享链接；
 2. 整份 Base64 编码后的多行分享链接。
 
-订阅中暂不支持的协议（例如当前尚未解析的 VMess）会被跳过并在结果中计数；可识别但参数不受支持的节点会记为解析失败。导入不会在已有当前节点时静默切换出口；导入完成后用 `dshd proxy list` 查看，再用 `dshd proxy use NAME` 切换。
+订阅节点会自动加订阅前缀，例如 `airport-a-Tokyo`，避免和手工节点混淆。查看与刷新：
 
-如果订阅 URL 自带 token，建议从 `dshd proxy` 交互菜单进入“导入订阅 URL / 文件”，避免把完整 URL 留在 shell history。
+```bash
+dshd proxy subscriptions
+dshd proxy refresh airport-a
+dshd proxy refresh all
+```
+
+刷新采用 staging：新订阅先完整下载、解析并生成节点，成功后才替换旧节点。下载或解析失败时旧节点保持不变。如果当前出口属于被刷新的订阅，刷新成功后只 reload sing-box；当前节点从新订阅中消失时会自动回退到该订阅第一个成功导入的节点。
+
+删除整个订阅及其节点：
+
+```bash
+dshd proxy unsubscribe airport-a
+```
+
+正在使用该订阅节点且代理已开启时会拒绝删除，要求先切换节点或关闭代理。订阅管理节点也不能用 `dshd proxy remove` 单独删除，避免刷新时再次出现。
+
+订阅中暂不支持的协议（例如当前尚未解析的 VMess）会被跳过并计数；可识别但参数不受支持的节点会记为解析失败。已有当前节点不属于该订阅时，导入/刷新不会静默切换出口。
+
+如果订阅 URL 自带 token，建议从 `dshd proxy` 交互菜单进入订阅操作，避免把完整 URL 留在 shell history。stdin 订阅可导入，但因为来源不可重放，之后不能自动刷新。
 
 复杂或非标准节点仍可以直接导入 sing-box outbound JSON；对象必须使用 `"tag": "proxy"`：
 
