@@ -394,14 +394,7 @@ test_failover_config_and_controls() (
   load_config
   proxy_write_url_node primary 'http://primary.example.com:8080' >/dev/null
   proxy_write_url_node backup 'socks5://backup.example.com:1080' >/dev/null
-  proxy_write_json_node third '{
-    "type": "trojan",
-    "tag": "proxy",
-    "server": "third.example.com",
-    "server_port": 443,
-    "password": "secret",
-    "tls": {"enabled": true}
-  }' >/dev/null
+  proxy_write_json_node third '{"type":"trojan","tag":"proxy","server":"third.example.com","server_port":443,"password":"test-pass","tls":{"enabled":true}}' >/dev/null
 
   DSH_PROXY_NODE=primary
   DSH_PROXY_FAILOVER_ENABLED=true
