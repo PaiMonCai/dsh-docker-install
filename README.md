@@ -47,6 +47,8 @@ dshd token
 dshd shell
 dshd mounts show
 dshd mounts add /opt/dsh/ssh /root/.ssh
+dshd proxy setup
+# 或查看现有配置
 dshd proxy status
 dshd doctor
 ```
