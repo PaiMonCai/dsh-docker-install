@@ -34,6 +34,8 @@ test_proxy_defaults_and_nodes() (
   grep -Fq '"server_port":8080' "$(proxy_node_file corp-http)" || fail "http node port missing"
   grep -Fq '"username":"alice"' "$(proxy_node_file corp-http)" || fail "http node username missing"
   grep -Fq '"password":"secret"' "$(proxy_node_file corp-http)" || fail "http node password missing"
+  [[ "$(proxy_node_description corp-http)" == "http://proxy.example.com:8080" ]] || fail "node description should omit credentials"
+
 
   proxy_write_url_node socks 'socks5h://127.0.0.1:1080'
   grep -Fq '"type":"socks"' "$(proxy_node_file socks)" || fail "socks node type missing"
@@ -73,7 +75,54 @@ test_proxy_config_persists() (
   grep -q '^DSH_PROXY_IMAGE=example.invalid/sing-box:test$' "$CONFIG_FILE" || fail "proxy image not persisted"
 )
 
+test_active_node_switch_does_not_recreate_dsh() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+  proxy_write_url_node a 'http://a.example.com:8080'
+  proxy_write_url_node b 'http://b.example.com:8081'
+  DSH_PROXY_ENABLED=true
+  DSH_PROXY_NODE=a
+  save_config
+
+  ensure_docker() { :; }
+  proxy_start_sidecar() { printf '%s\n' "$DSH_PROXY_NODE" >"$tmp/reloaded-node"; }
+  create_container() { fail "switching an active proxy node must not recreate DSH"; }
+
+  cmd_proxy use b
+  [[ "$(cat "$tmp/reloaded-node")" == "b" ]] || fail "active node switch did not reload sidecar"
+  grep -q '^DSH_PROXY_NODE=b$' "$CONFIG_FILE" || fail "active node switch not persisted"
+)
+
+test_nested_node_description_uses_top_level_type() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+  proxy_write_json_node vless '{"type":"vless","tag":"proxy","server":"edge.example.com","server_port":443,"uuid":"x","transport":{"type":"ws","path":"/ws"},"tls":{"enabled":true}}'
+  [[ "$(proxy_node_description vless)" == "vless://edge.example.com:443" ]] || fail "nested type should not override outbound type"
+)
+
 test_proxy_defaults_and_nodes
 test_proxy_config_persists
+test_active_node_switch_does_not_recreate_dsh
+test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
