@@ -756,15 +756,14 @@ proxy_runtime_state() {
 }
 
 proxy_apply_sidecar_change() {
-  save_config
   if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
     proxy_start_sidecar
     ok "sing-box 已重新加载；DSH 容器未重建。"
   fi
+  save_config
 }
 
 proxy_apply_change() {
-  save_config
   if container_exists; then
     create_container
   elif [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
@@ -773,6 +772,7 @@ proxy_apply_change() {
     proxy_remove_sidecar
     proxy_remove_network
   fi
+  save_config
 }
 
 proxy_test_runtime() {
@@ -976,13 +976,13 @@ cmd_proxy() {
       [[ -n "$DSH_PROXY_NODE" ]] || die "没有当前节点。先执行 dshd proxy add/use。"
       proxy_node_exists "$DSH_PROXY_NODE" || die "代理节点不存在: $DSH_PROXY_NODE"
       if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
-        save_config
         if container_exists && ! proxy_runtime_applied; then
           info "代理配置已开启，但当前 DSH 尚未应用代理环境；现在重建。"
           create_container
         else
           proxy_start_sidecar
         fi
+        save_config
         ok "DSH 代理出口已开启。"
       else
         DSH_PROXY_ENABLED=true
@@ -1027,8 +1027,14 @@ cmd_proxy() {
     port)
       [[ "$#" -ge 1 ]] || { printf '%s\n' "$DSH_PROXY_PORT"; return; }
       validate_port "$1" || die "端口必须是 1-65535。"
+      [[ "$DSH_PROXY_PORT" == "$1" ]] && { info "mixed 端口未变化: $1"; return; }
       DSH_PROXY_PORT="$1"
-      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then proxy_apply_change; else save_config; fi
+      if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+        info "mixed 端口变化会影响 DSH 的代理环境，需要重建 DSH。"
+        proxy_apply_change
+      else
+        save_config
+      fi
       return
       ;;
     reload|restart-sidecar)
