@@ -512,9 +512,9 @@ proxy_node_description() {
   local name="$1" file type server port
   file="$(proxy_node_file "$name" 2>/dev/null || true)"
   [[ -n "$file" && -f "$file" ]] || { printf 'unknown'; return; }
-  type="$(sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -1)"
-  server="$(sed -n 's/.*"server"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -1)"
-  port="$(sed -n 's/.*"server_port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$file" | head -1)"
+  type="$(grep -oE '"type"[[:space:]]*:[[:space:]]*"[^"]+"' "$file" | head -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)"
+  server="$(grep -oE '"server"[[:space:]]*:[[:space:]]*"[^"]+"' "$file" | head -1 | sed -E 's/.*"([^"]+)"$/\1/' || true)"
+  port="$(grep -oE '"server_port"[[:space:]]*:[[:space:]]*[0-9]+' "$file" | head -1 | grep -oE '[0-9]+$' || true)"
   type="${type:-unknown}"
   if [[ -n "$server" && -n "$port" ]]; then
     printf '%s://%s:%s' "$type" "$server" "$port"
