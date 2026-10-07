@@ -170,6 +170,30 @@ test_share_link_imports() (
   grep -Fq '"password":"ss-secret"' "$(proxy_node_file ss)" || fail "shadowsocks password missing"
 )
 
+test_auto_node_names() (
+  local tmp name1 name2
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  export HOME="$tmp/home"
+  export DSHD_STATE_DIR="$tmp/state"
+  export DSHD_LIB_ONLY=1
+  unset DSH_STORAGE_MODE DSH_DATA_DIR DSH_VOLUME DSH_WORKSPACE || true
+  mkdir -p "$HOME"
+
+  # shellcheck disable=SC1090
+  source "$ROOT/dshd"
+  load_config
+
+  name1="$(proxy_auto_node_name 'vless://id@example.com:443#Tokyo%20Edge')"
+  [[ "$name1" == "Tokyo-Edge" ]] || fail "fragment auto name failed: $name1"
+  proxy_write_node_input "$name1" 'vless://11111111-1111-1111-1111-111111111111@example.com:443#Tokyo%20Edge'
+
+  name2="$(proxy_auto_node_name 'vless://id@example.com:443#Tokyo%20Edge')"
+  [[ "$name2" == "Tokyo-Edge-2" ]] || fail "duplicate auto name should get suffix: $name2"
+
+  [[ "$(proxy_auto_node_name 'http://proxy.example.com:8080')" == "node1" ]] || fail "URL without fragment should fall back to nodeN"
+)
+
 test_nested_node_description_uses_top_level_type() (
   local tmp
   tmp="$(mktemp -d)"
@@ -192,6 +216,7 @@ test_proxy_config_persists
 test_active_node_switch_does_not_recreate_dsh
 test_first_run_wizard_defaults_to_url_node
 test_share_link_imports
+test_auto_node_names
 test_nested_node_description_uses_top_level_type
 
 printf '[✓] dshd proxy tests passed\n'
