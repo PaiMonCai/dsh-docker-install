@@ -954,6 +954,8 @@ proxy_write_json_node() {
   validate_proxy_node_name "$name" || die "节点名仅允许字母、数字、点、下划线、短横线，最长 64 字符。"
   if [[ "$source" == "-" ]]; then
     payload="$(cat)"
+  elif [[ "$source" == \{* || "$source" == *$'\n'* || ${#source} -gt 512 ]]; then
+    payload="$source"
   elif [[ -f "$source" ]]; then
     payload="$(cat "$source")"
   else
