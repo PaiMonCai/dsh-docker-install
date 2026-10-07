@@ -1129,6 +1129,78 @@ proxy_auto_node_name() {
   printf '%s' "$candidate"
 }
 
+
+proxy_supported_uri() {
+  case "${1%%://*}" in
+    http|https|socks|socks5|socks5h|vless|trojan|hysteria2|hy2|ss) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+proxy_read_subscription() {
+  local source="$1"
+  case "$source" in
+    http://*|https://*)
+      command -v curl >/dev/null 2>&1 || die "导入订阅 URL 需要宿主机提供 curl。"
+      curl -fsSL --connect-timeout 10 --max-time 30 "$source"
+      ;;
+    -) cat ;;
+    *)
+      [[ -f "$source" ]] || die "订阅来源不是可读文件或 HTTP(S) URL: $source"
+      cat "$source"
+      ;;
+  esac
+}
+
+proxy_import_subscription() {
+  local source="$1" payload decoded lines line name first_name="" imported=0 skipped=0 failed=0
+  payload="$(proxy_read_subscription "$source")" || die "订阅获取失败。"
+  payload="${payload//$'\r'/}"
+  [[ -n "$payload" ]] || die "订阅内容为空。"
+
+  if grep -Eq '(^|[[:space:]])(https?|socks5h?|socks|vless|trojan|hysteria2|hy2|ss)://' <<<"$payload"; then
+    lines="$payload"
+  else
+    local compact
+    compact="$(printf '%s' "$payload" | tr -d ' \t\r\n')"
+    decoded="$(proxy_base64_decode "$compact" 2>/dev/null || true)"
+    if [[ -n "$decoded" ]] && grep -Eq '(^|[[:space:]])(https?|socks5h?|socks|vless|trojan|hysteria2|hy2|ss)://' <<<"$decoded"; then
+      lines="$decoded"
+    else
+      die "无法识别订阅内容：既不是分享链接列表，也不是可解码的 Base64 分享链接列表。"
+    fi
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [[ -n "$line" && "$line" != #* ]] || continue
+    if [[ "$line" != *"://"* ]] || ! proxy_supported_uri "$line"; then
+      skipped=$((skipped + 1))
+      continue
+    fi
+    name="$(proxy_auto_node_name "$line")"
+    if (proxy_write_node_input "$name" "$line" >/dev/null 2>&1); then
+      imported=$((imported + 1))
+      [[ -n "$first_name" ]] || first_name="$name"
+      printf '  [✓] %-18s %s\n' "$name" "$(proxy_node_description "$name")"
+    else
+      failed=$((failed + 1))
+      warn "跳过解析失败的订阅节点: $name"
+    fi
+  done <<<"$lines"
+
+  (( imported > 0 )) || die "订阅中没有成功导入的受支持节点。"
+  if [[ -z "$DSH_PROXY_NODE" ]]; then
+    DSH_PROXY_NODE="$first_name"
+    ok "已自动选择首个导入节点: $DSH_PROXY_NODE"
+  fi
+  save_config
+  ok "订阅导入完成：成功 $imported，跳过不支持 $skipped，解析失败 $failed。"
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    info "当前代理节点未自动切换；如需使用新节点，请执行 dshd proxy use NAME。"
+  fi
+}
+
 proxy_setup_wizard() {
   heading "sing-box 出口快速配置"
   info "代理默认只作用于 DSH 容器；不会修改宿主机系统代理。"
@@ -1146,7 +1218,8 @@ proxy_setup_wizard() {
 
   1) 使用已有节点
   2) 粘贴代理 / 分享链接
-  3) 高级：添加 sing-box outbound JSON
+  3) 导入订阅 URL / 文件
+  4) 高级：添加 sing-box outbound JSON
   0) 取消
 EOF
     read -r -p $'\n请选择 [1]: ' choice || return
@@ -1155,7 +1228,8 @@ EOF
     cat <<'EOF'
 
   1) 粘贴代理 / 分享链接（推荐）
-  2) 高级：添加 sing-box outbound JSON
+  2) 导入订阅 URL / 文件
+  3) 高级：添加 sing-box outbound JSON
   0) 取消
 EOF
     read -r -p $'\n请选择 [1]: ' choice || return
@@ -1163,6 +1237,7 @@ EOF
     case "$choice" in
       1) choice="2" ;;
       2) choice="3" ;;
+      3) choice="4" ;;
     esac
   fi
 
@@ -1183,6 +1258,13 @@ EOF
       proxy_write_node_input "$name" "$value"
       ;;
     3)
+      read -r -p "订阅 URL / 文件路径: " value || true
+      [[ -n "$value" ]] || { warn "订阅来源不能为空。"; return; }
+      proxy_import_subscription "$value"
+      name="$DSH_PROXY_NODE"
+      [[ -n "$name" ]] || { info "订阅已导入，请从节点列表选择。"; return; }
+      ;;
+    4)
       read -r -p "节点名称 [$default_name]: " name || true
       name="${name:-$default_name}"
       read -r -p "JSON 文件路径（或单行 outbound JSON）: " value || true
@@ -1255,6 +1337,11 @@ cmd_proxy() {
         ok "已自动设为当前节点: $name"
       fi
       if [[ "$DSH_PROXY_ENABLED" == "true" && "$was_current" == "true" ]]; then proxy_apply_sidecar_change; else save_config; fi
+      return
+      ;;
+    subscribe|sub|import-sub)
+      [[ "$#" -ge 1 ]] || die "用法: dshd proxy subscribe URL|FILE|-"
+      proxy_import_subscription "$1"
       return
       ;;
     add-json)
@@ -1388,9 +1475,10 @@ cmd_proxy() {
   5) 测试当前出口
   6) 查看全部节点
   7) 查看 sing-box 日志
-  8) 高级：添加 outbound JSON
-  9) 删除节点
- 10) 重新加载 sing-box（不重建 DSH）
+  8) 导入订阅 URL / 文件
+  9) 高级：添加 outbound JSON
+ 10) 删除节点
+ 11) 重新加载 sing-box（不重建 DSH）
   0) 返回
 EOF
     local choice="" name="" value=""
@@ -1408,17 +1496,21 @@ EOF
       6) proxy_list_nodes ;;
       7) proxy_container_exists && docker_cmd logs --tail 100 "$(proxy_container_name)" || warn "sidecar 不存在" ;;
       8)
+        read -r -p "订阅 URL / 文件路径: " value || true
+        [[ -n "$value" ]] && cmd_proxy subscribe "$value"
+        ;;
+      9)
         read -r -p "节点名称: " name || true
         read -r -p "JSON 文件路径（或直接粘贴单行 JSON）: " value || true
         [[ -n "$name" && -n "$value" ]] || { warn "名称和 JSON 来源不能为空"; continue; }
         cmd_proxy add-json "$name" "$value"
         ;;
-      9)
+      10)
         proxy_list_nodes
         read -r -p "删除节点: " name || true
         [[ -n "$name" ]] && confirm "确认删除节点 $name？" N && cmd_proxy remove "$name"
         ;;
-      10) cmd_proxy reload ;;
+      11) cmd_proxy reload ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -3660,6 +3752,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd proxy setup         首次配置/添加节点向导（推荐）
   dshd proxy add [NAME] URL  导入节点；NAME 省略时从 #备注自动命名
   dshd proxy add-json NAME FILE|JSON|-  添加 sing-box outbound JSON（tag 必须为 proxy）
+  dshd proxy subscribe URL|FILE  导入多行/Base64 订阅
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
   dshd proxy disable       关闭代理并恢复直连
