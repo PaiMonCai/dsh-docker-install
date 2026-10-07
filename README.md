@@ -47,6 +47,7 @@ dshd token
 dshd shell
 dshd mounts show
 dshd mounts add /opt/dsh/ssh /root/.ssh
+dshd proxy status
 dshd doctor
 ```
 
@@ -75,6 +76,7 @@ Standard 镜像主要解决 DSH 的运行和管理问题：
 - Node / Python / Go / Docker CLI 开发环境；
 - 可选宿主机 Docker Socket 管理；
 - 国内网络构建镜像源适配；
+- 可选 sing-box sidecar 国际网络出口，支持 HTTP / SOCKS 上游与任意 sing-box outbound JSON；
 - `dshd` 安装、更新、备份、恢复和诊断。
 
 详细运行时说明见 [Runtime 与运维](docs/runtime.md)。
@@ -169,6 +171,7 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 - [文档索引](docs/README.md)
 - [部署与访问](docs/deployment.md)
 - [Runtime 与运维](docs/runtime.md)
+- [国际网络出口 / sing-box](docs/proxy.md)
 - [自定义模型推理等级](docs/reasoning-editor.md)
 - [镜像构建与自动更新](docs/ci.md)
 - [Research Edition](research/README.md)
