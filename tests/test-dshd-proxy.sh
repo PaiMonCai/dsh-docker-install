@@ -208,7 +208,7 @@ test_auto_node_names() (
 )
 
 test_subscription_imports() (
-  local tmp raw_file base64_file encoded
+  local tmp raw_file base64_file encoded source_file
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   export HOME="$tmp/home"
@@ -227,20 +227,58 @@ vless://11111111-1111-1111-1111-111111111111@a.example.com:443?security=tls#A
 vmess://unsupported
 trojan://secret@b.example.com:443?security=tls#B
 EOF
-  proxy_import_subscription "$raw_file" >/dev/null
-  proxy_node_exists A || fail "raw subscription should import VLESS"
-  proxy_node_exists B || fail "raw subscription should import Trojan"
-  [[ "$DSH_PROXY_NODE" == "A" ]] || fail "first imported node should become current when none exists"
-  [[ "$PROXY_IMPORT_FIRST_NAME" == "A" ]] || fail "first imported node should be exposed to wizard"
+  proxy_import_subscription "$raw_file" work >/dev/null
+  proxy_node_exists work-A || fail "named subscription should prefix VLESS node"
+  proxy_node_exists work-B || fail "named subscription should prefix Trojan node"
+  [[ "$DSH_PROXY_NODE" == "work-A" ]] || fail "first imported node should become current when none exists"
+  [[ "$PROXY_IMPORT_FIRST_NAME" == "work-A" ]] || fail "first imported node should be exposed to wizard"
+  proxy_subscription_exists work || fail "subscription source should persist"
+  grep -Fxq 'work-A' "$(proxy_subscription_nodes_file work)" || fail "subscription membership missing work-A"
+  grep -Fxq 'work-B' "$(proxy_subscription_nodes_file work)" || fail "subscription membership missing work-B"
 
   base64_file="$tmp/base64-sub.txt"
-  encoded="$(printf '%s\n%s\n'     'hysteria2://secret@hy.example.com:443?sni=hy.example.com#HY'     'ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#SS'     | base64 | tr -d '\n')"
+  encoded="$(printf '%s\n%s\n' \
+    'hysteria2://secret@hy.example.com:443?sni=hy.example.com#HY' \
+    'ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#SS' \
+    | base64 | tr -d '\n')"
   printf '%s' "$encoded" >"$base64_file"
   proxy_import_subscription "$base64_file" >/dev/null
-  proxy_node_exists HY || fail "base64 subscription should import Hysteria2"
-  proxy_node_exists SS || fail "base64 subscription should import Shadowsocks"
-  [[ "$DSH_PROXY_NODE" == "A" ]] || fail "subscription import must not silently switch an existing current node"
+  proxy_subscription_exists sub1 || fail "unnamed subscription should auto-name sub1"
+  proxy_node_exists sub1-HY || fail "base64 subscription should import Hysteria2"
+  proxy_node_exists sub1-SS || fail "base64 subscription should import Shadowsocks"
+  [[ "$DSH_PROXY_NODE" == "work-A" ]] || fail "new subscription must not silently switch an existing current node"
+
+  # Refresh the active subscription: keep stable names, remove vanished nodes, add new ones,
+  # and reload sidecar without recreating DSH.
+  DSH_PROXY_ENABLED=true
+  save_config
+  proxy_start_sidecar() { printf '%s\n' "$DSH_PROXY_NODE" >"$tmp/reloaded-sub-node"; }
+  create_container() { fail "subscription refresh must not recreate DSH"; }
+
+  cat >"$raw_file" <<'EOF'
+vless://11111111-1111-1111-1111-111111111111@new-a.example.com:443?security=tls#A
+hysteria2://newsecret@c.example.com:443?sni=c.example.com#C
+EOF
+  proxy_refresh_subscription work >/dev/null
+  proxy_node_exists work-A || fail "refresh should preserve stable named node"
+  ! proxy_node_exists work-B || fail "refresh should remove vanished subscription node"
+  proxy_node_exists work-C || fail "refresh should add new subscription node"
+  grep -Fq '"server":"new-a.example.com"' "$(proxy_node_file work-A)" || fail "refresh should replace node content"
+  [[ "$(cat "$tmp/reloaded-sub-node")" == "work-A" ]] || fail "active subscription refresh should reload current sidecar"
+  [[ "$DSH_PROXY_NODE" == "work-A" ]] || fail "active stable node should remain selected"
+
+  # If the current node disappears, refresh chooses the first surviving imported node.
+  cat >"$raw_file" <<'EOF'
+trojan://replacement@z.example.com:443?security=tls#Z
+EOF
+  proxy_refresh_subscription work >/dev/null
+  [[ "$DSH_PROXY_NODE" == "work-Z" ]] || fail "refresh should fall back when current subscription node vanished"
+  [[ "$(cat "$tmp/reloaded-sub-node")" == "work-Z" ]] || fail "fallback subscription node should reload sidecar"
+
+  source_file="$(proxy_subscription_source_file work)"
+  [[ "$(cat "$source_file")" == "$raw_file" ]] || fail "subscription refresh source should persist"
 )
+
 
 test_proxy_benchmark_and_use_best() (
   local tmp
