@@ -1416,7 +1416,11 @@ proxy_test_runtime() {
   proxy_container_running || die "sing-box sidecar 未运行。"
   container_running || die "DSH 容器未运行，无法从 DSH 网络命名空间测试出口。"
   local url="${1:-https://www.gstatic.com/generate_204}" result time_total code ms=""
-  info "测试节点: ${DSH_PROXY_NODE} ($(proxy_node_description "$DSH_PROXY_NODE"))"
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    info "测试模式: 自动故障切换组（实际出口由 URLTest 选择）"
+  else
+    info "测试节点: ${DSH_PROXY_NODE} ($(proxy_node_description "$DSH_PROXY_NODE"))"
+  fi
   info "测试目标: $url"
   result="$(docker_cmd exec \
     -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
@@ -1440,7 +1444,11 @@ proxy_test_runtime() {
 
 proxy_summary() {
   printf '模式:       %s\n' "$([[ "$DSH_PROXY_ENABLED" == "true" ]] && echo 代理 || echo 直连)"
-  printf '当前节点:   %s' "${DSH_PROXY_NODE:-（未选择）}"
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    printf '首选种子:   %s' "${DSH_PROXY_NODE:-（自动）}"
+  else
+    printf '当前节点:   %s' "${DSH_PROXY_NODE:-（未选择）}"
+  fi
   [[ -n "$DSH_PROXY_NODE" ]] && printf '  %s' "$(proxy_node_description "$DSH_PROXY_NODE")"
   printf '\n'
   printf '节点数量:   %s\n' "$(proxy_node_count)"
@@ -1774,13 +1782,20 @@ proxy_refresh_subscription() {
 
 
 proxy_remove_subscription() {
-  local subscription="$1" nodes_file source_file node
+  local subscription="$1" nodes_file source_file node removing=0 total remaining
   proxy_subscription_exists "$subscription" || die "订阅不存在: $subscription"
   nodes_file="$(proxy_subscription_nodes_file "$subscription")"
   source_file="$(proxy_subscription_source_file "$subscription")"
+  [[ -f "$nodes_file" ]] && removing="$(grep -cve '^[[:space:]]*$' "$nodes_file" 2>/dev/null || true)"
+  total="$(proxy_node_count)"
+  remaining=$((total - removing))
+
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" && "$remaining" -lt 2 ]]; then
+    die "删除订阅后仅剩 $remaining 个节点，无法维持自动故障切换；请先关闭 failover 或先添加其他节点。"
+  fi
 
   if [[ -n "$DSH_PROXY_NODE" ]] && proxy_subscription_node_owned "$subscription" "$DSH_PROXY_NODE"; then
-    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_FAILOVER_ENABLED" != "true" ]]; then
       die "当前出口 $DSH_PROXY_NODE 属于订阅 $subscription；请先切换节点或关闭代理。"
     fi
     DSH_PROXY_NODE=""
@@ -1793,7 +1808,19 @@ proxy_remove_subscription() {
     done <"$nodes_file"
   fi
   rm -f "$nodes_file" "$source_file"
-  save_config
+
+  if [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" ]]; then
+    if [[ -z "$DSH_PROXY_NODE" ]] || ! proxy_node_exists "$DSH_PROXY_NODE"; then
+      DSH_PROXY_NODE="$(proxy_first_node)"
+    fi
+    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+      proxy_apply_sidecar_change
+    else
+      save_config
+    fi
+  else
+    save_config
+  fi
   ok "订阅已删除: $subscription（所属节点已一并移除）"
 }
 
