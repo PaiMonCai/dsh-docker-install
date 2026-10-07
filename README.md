@@ -63,7 +63,12 @@ dshd research-pack economics
 dshd edition standard
 ```
 
-完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)。
+安装器与 `dshd` 菜单对每一步都做了错误隔离：某一步失败只会提示原因并**回到菜单**，
+不会中途退出脚本；已填写的配置在拉取镜像之前就会落盘，网络恢复后继续即可。
+菜单里 `Ctrl-C` 只取消当前操作，`0` / `Ctrl-D` 才退出。
+
+完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
+交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
 ## Standard 提供什么
 
