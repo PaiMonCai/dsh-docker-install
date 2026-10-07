@@ -1174,7 +1174,7 @@ proxy_import_subscription() {
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-    [[ -n "$line" && "$line" != #* ]] || continue
+    [[ -n "$line" && "$line" != \#* ]] || continue
     if [[ "$line" != *"://"* ]] || ! proxy_supported_uri "$line"; then
       skipped=$((skipped + 1))
       continue
