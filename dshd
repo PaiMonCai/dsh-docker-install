@@ -1496,6 +1496,20 @@ proxy_import_subscription() {
 
   (( imported > 0 )) || { rm -rf "$staging"; die "订阅中没有成功导入的受支持节点。"; }
 
+  # 当前出口属于该订阅时，在替换旧节点前先校验 staging 中将要继续使用的节点。
+  # 使用本地已有 sing-box 镜像，不为了“刷新订阅”额外触发镜像拉取。
+  if [[ "$current_owned" == "true" && "$DSH_PROXY_ENABLED" == "true" ]] \
+    && docker_cmd image inspect "$DSH_PROXY_IMAGE" >/dev/null 2>&1; then
+    local staged_selected="$current_before" staged_check="$staging/check.json"
+    proxy_node_exists "$staged_selected" || staged_selected="$first_name"
+    proxy_generate_config_for_node "$staged_selected" "$staged_check" "$DSH_PROXY_PORT"
+    if ! proxy_validate_config_file "$staged_check" >/dev/null 2>&1; then
+      rm -rf "$staging"
+      die "订阅刷新后的当前候选节点未通过 sing-box 配置校验；旧订阅节点保持不变。"
+    fi
+    rm -f "$staged_check"
+  fi
+
   # 恢复主节点目录，只有 staging 全部成功后才替换旧订阅节点。
   PROXY_NODES_DIR="$main_nodes_dir"
 
