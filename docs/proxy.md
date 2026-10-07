@@ -11,7 +11,7 @@
 - sing-box `mixed` inbound，默认监听容器内 `7890`；
 - DSH 内的 `HTTP_PROXY` / `HTTPS_PROXY` / 小写同名变量；
 - `NODE_USE_ENV_PROXY=1`，让 Node 24 的 fetch/http/https 读取代理环境；
-- `NO_PROXY`，默认绕过 localhost、DSH 自身与 sidecar。
+- `NO_PROXY`，默认绕过 localhost、`host.docker.internal`、DSH 自身与 sidecar。
 
 代理端口不会映射到宿主机公网。
 
