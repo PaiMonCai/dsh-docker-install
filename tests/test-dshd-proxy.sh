@@ -8,6 +8,12 @@ fail() {
   exit 1
 }
 
+assert_json_file() {
+  local file="$1"
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$file" \
+    || fail "invalid JSON: $file"
+}
+
 test_proxy_defaults_and_nodes() (
   local tmp
   tmp="$(mktemp -d)"
@@ -50,6 +56,7 @@ test_proxy_defaults_and_nodes() (
   grep -Fq '"final":"proxy"' "$PROXY_CONFIG_FILE" || fail "route final missing"
   grep -Fq '"type":"local","tag":"local"' "$PROXY_CONFIG_FILE" || fail "local DNS resolver missing"
   grep -Fq '"default_domain_resolver":"local"' "$PROXY_CONFIG_FILE" || fail "default domain resolver missing"
+  assert_json_file "$PROXY_CONFIG_FILE"
 )
 
 test_proxy_config_persists() (
@@ -168,6 +175,12 @@ test_share_link_imports() (
   grep -Fq '"type":"shadowsocks"' "$(proxy_node_file ss)" || fail "shadowsocks type missing"
   grep -Fq '"method":"aes-256-gcm"' "$(proxy_node_file ss)" || fail "shadowsocks method missing"
   grep -Fq '"password":"ss-secret"' "$(proxy_node_file ss)" || fail "shadowsocks password missing"
+
+  assert_json_file "$(proxy_node_file vless-ws)"
+  assert_json_file "$(proxy_node_file reality)"
+  assert_json_file "$(proxy_node_file trojan)"
+  assert_json_file "$(proxy_node_file hy2)"
+  assert_json_file "$(proxy_node_file ss)"
 )
 
 test_auto_node_names() (
