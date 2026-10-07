@@ -49,6 +49,7 @@ MOUNTS_FILE="${DSHD_MOUNTS_FILE:-$STATE_DIR/mounts.conf}"
 BACKUP_DIR="${DSHD_BACKUP_DIR:-$STATE_DIR/backups}"
 PROXY_DIR="${DSHD_PROXY_DIR:-$STATE_DIR/proxy}"
 PROXY_NODES_DIR="$PROXY_DIR/nodes"
+PROXY_SUBSCRIPTIONS_DIR="$PROXY_DIR/subscriptions"
 PROXY_CONFIG_FILE="$PROXY_DIR/config.json"
 PROXY_RESULTS_FILE="$PROXY_DIR/last-test.tsv"
 
@@ -485,8 +486,8 @@ proxy_network_name() {
 
 proxy_ensure_dirs() {
   ensure_state_dir
-  mkdir -p "$PROXY_NODES_DIR"
-  chmod 700 "$PROXY_DIR" "$PROXY_NODES_DIR"
+  mkdir -p "$PROXY_NODES_DIR" "$PROXY_SUBSCRIPTIONS_DIR"
+  chmod 700 "$PROXY_DIR" "$PROXY_NODES_DIR" "$PROXY_SUBSCRIPTIONS_DIR"
 }
 
 validate_proxy_node_name() {
@@ -1316,6 +1317,104 @@ proxy_supported_uri() {
   esac
 }
 
+
+validate_proxy_subscription_name() {
+  validate_proxy_node_name "$1"
+}
+
+proxy_subscription_source_file() {
+  validate_proxy_subscription_name "$1" || return 1
+  printf '%s/%s.source' "$PROXY_SUBSCRIPTIONS_DIR" "$1"
+}
+
+proxy_subscription_nodes_file() {
+  validate_proxy_subscription_name "$1" || return 1
+  printf '%s/%s.nodes' "$PROXY_SUBSCRIPTIONS_DIR" "$1"
+}
+
+proxy_subscription_exists() {
+  local file
+  file="$(proxy_subscription_source_file "$1" 2>/dev/null || true)"
+  [[ -n "$file" && -f "$file" ]]
+}
+
+proxy_next_subscription_name() {
+  local i=1
+  while proxy_subscription_exists "sub$i"; do i=$((i + 1)); done
+  printf 'sub%s' "$i"
+}
+
+proxy_subscription_source_summary() {
+  local source="$1" summary
+  case "$source" in
+    http://*|https://*)
+      summary="${source%%\?*}"
+      summary="${summary%%#*}"
+      if [[ "$summary" == *"@"* ]]; then
+        summary="${summary%%://*}://${summary##*@}"
+      fi
+      printf '%s' "$summary"
+      ;;
+    -) printf 'stdin（不可刷新）' ;;
+    *) printf '%s' "$source" ;;
+  esac
+}
+
+proxy_list_subscriptions() {
+  proxy_ensure_dirs
+  local file name source nodes count=0
+  for file in "$PROXY_SUBSCRIPTIONS_DIR"/*.source; do
+    [[ -f "$file" ]] || continue
+    name="$(basename "$file" .source)"
+    source="$(cat "$file")"
+    nodes="$(proxy_subscription_nodes_file "$name")"
+    count=0
+    [[ -f "$nodes" ]] && count="$(grep -cve '^[[:space:]]*$' "$nodes" 2>/dev/null || true)"
+    printf '  %-16s %3s 节点  %s\n' "$name" "$count" "$(proxy_subscription_source_summary "$source")"
+  done
+}
+
+proxy_subscription_node_name() {
+  local subscription="$1" uri="$2" index="$3" fragment="" base="" prefix candidate suffix i=2 max_base
+  if [[ "$uri" == *"#"* ]]; then
+    fragment="${uri#*#}"
+    fragment="$(proxy_url_decode "$fragment" 2>/dev/null || true)"
+    base="$(printf '%s' "$fragment" | LC_ALL=C sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^-+//; s/-+$//')"
+  fi
+  [[ -n "$base" ]] || base="node$index"
+  prefix="${subscription}-"
+  max_base=$((64 - ${#prefix}))
+  (( max_base >= 1 )) || die "订阅名称过长: $subscription"
+  base="${base:0:max_base}"
+  [[ "$base" =~ ^[A-Za-z0-9] ]] || base="node-${base:0:$((max_base - 5))}"
+  candidate="${prefix}${base}"
+  while proxy_node_exists "$candidate"; do
+    suffix="-$i"
+    candidate="${prefix}${base:0:$((max_base - ${#suffix}))}${suffix}"
+    i=$((i + 1))
+  done
+  printf '%s' "$candidate"
+}
+
+proxy_subscription_node_owned() {
+  local subscription="$1" node="$2" nodes_file
+  nodes_file="$(proxy_subscription_nodes_file "$subscription")"
+  [[ -f "$nodes_file" ]] && grep -Fxq "$node" "$nodes_file"
+}
+
+proxy_find_node_subscription() {
+  local node="$1" file subscription
+  for file in "$PROXY_SUBSCRIPTIONS_DIR"/*.nodes; do
+    [[ -f "$file" ]] || continue
+    if grep -Fxq "$node" "$file"; then
+      subscription="$(basename "$file" .nodes)"
+      printf '%s' "$subscription"
+      return 0
+    fi
+  done
+  return 1
+}
+
 proxy_read_subscription() {
   local source="$1"
   case "$source" in
@@ -1331,9 +1430,19 @@ proxy_read_subscription() {
   esac
 }
 
+
 proxy_import_subscription() {
-  local source="$1" payload decoded lines line name first_name="" imported=0 skipped=0 failed=0
-  PROXY_IMPORT_FIRST_NAME=""
+  local source="$1" subscription="${2:-}" payload decoded lines line name first_name="" imported=0 skipped=0 failed=0
+  local main_nodes_dir old_nodes_file source_file staging staging_nodes new_nodes_file current_owned=false current_before
+  [[ -n "$subscription" ]] || subscription="$(proxy_next_subscription_name)"
+  validate_proxy_subscription_name "$subscription" || die "订阅名称格式无效: $subscription"
+  proxy_ensure_dirs
+
+  current_before="$DSH_PROXY_NODE"
+  old_nodes_file="$(proxy_subscription_nodes_file "$subscription")"
+  source_file="$(proxy_subscription_source_file "$subscription")"
+  [[ -f "$old_nodes_file" ]] && proxy_subscription_node_owned "$subscription" "$current_before" && current_owned=true
+
   payload="$(proxy_read_subscription "$source")" || die "订阅获取失败。"
   payload="${payload//$'\r'/}"
   [[ -n "$payload" ]] || die "订阅内容为空。"
@@ -1351,6 +1460,18 @@ proxy_import_subscription() {
     fi
   fi
 
+  main_nodes_dir="$PROXY_NODES_DIR"
+  staging="$PROXY_DIR/.subscription-${subscription}-$$"
+  staging_nodes="$staging/nodes"
+  new_nodes_file="$staging/imported.nodes"
+  rm -rf "$staging"
+  mkdir -p "$staging_nodes"
+  chmod 700 "$staging" "$staging_nodes"
+  : >"$new_nodes_file"
+  chmod 600 "$new_nodes_file"
+
+  local PROXY_NODES_DIR="$staging_nodes"
+  local index=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
     [[ -n "$line" && "$line" != \#* ]] || continue
@@ -1358,29 +1479,105 @@ proxy_import_subscription() {
       skipped=$((skipped + 1))
       continue
     fi
-    name="$(proxy_auto_node_name "$line")"
+    index=$((index + 1))
+    name="$(proxy_subscription_node_name "$subscription" "$line" "$index")"
     if (proxy_write_node_input "$name" "$line" >/dev/null 2>&1); then
       imported=$((imported + 1))
       [[ -n "$first_name" ]] || first_name="$name"
-      printf '  [✓] %-18s %s\n' "$name" "$(proxy_node_description "$name")"
+      printf '%s\n' "$name" >>"$new_nodes_file"
+      printf '  [✓] %-24s %s\n' "$name" "$(proxy_node_description "$name")"
     else
       failed=$((failed + 1))
       warn "跳过解析失败的订阅节点: $name"
     fi
   done <<<"$lines"
 
-  (( imported > 0 )) || die "订阅中没有成功导入的受支持节点。"
+  (( imported > 0 )) || { rm -rf "$staging"; die "订阅中没有成功导入的受支持节点。"; }
+
+  # 恢复主节点目录，只有 staging 全部成功后才替换旧订阅节点。
+  PROXY_NODES_DIR="$main_nodes_dir"
+
+  local old_node new_node conflict=false
+  while IFS= read -r new_node; do
+    [[ -n "$new_node" ]] || continue
+    if proxy_node_exists "$new_node" && ! { [[ -f "$old_nodes_file" ]] && grep -Fxq "$new_node" "$old_nodes_file"; }; then
+      err "订阅节点名与现有非订阅节点冲突: $new_node"
+      conflict=true
+    fi
+  done <"$new_nodes_file"
+  [[ "$conflict" == "false" ]] || { rm -rf "$staging"; die "订阅更新已取消，现有节点未修改。"; }
+
+  if [[ -f "$old_nodes_file" ]]; then
+    while IFS= read -r old_node; do
+      [[ -n "$old_node" ]] || continue
+      rm -f "$(proxy_node_file "$old_node" 2>/dev/null || true)"
+    done <"$old_nodes_file"
+  fi
+
+  while IFS= read -r new_node; do
+    [[ -n "$new_node" ]] || continue
+    mv "$staging_nodes/${new_node}.json" "$main_nodes_dir/${new_node}.json"
+    chmod 600 "$main_nodes_dir/${new_node}.json"
+  done <"$new_nodes_file"
+
+  cp "$new_nodes_file" "$old_nodes_file"
+  printf '%s\n' "$source" >"$source_file"
+  chmod 600 "$old_nodes_file" "$source_file"
+  rm -rf "$staging"
+
   PROXY_IMPORT_FIRST_NAME="$first_name"
   if [[ -z "$DSH_PROXY_NODE" ]]; then
     DSH_PROXY_NODE="$first_name"
     ok "已自动选择首个导入节点: $DSH_PROXY_NODE"
+  elif [[ "$current_owned" == "true" ]]; then
+    if ! proxy_node_exists "$DSH_PROXY_NODE"; then
+      DSH_PROXY_NODE="$first_name"
+      warn "原当前节点已从订阅移除，改用: $DSH_PROXY_NODE"
+    fi
   fi
+
   save_config
-  ok "订阅导入完成：成功 $imported，跳过不支持 $skipped，解析失败 $failed。"
-  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
-    info "当前代理节点未自动切换；如需使用新节点，请执行 dshd proxy use NAME。"
+  ok "订阅 $subscription 导入完成：成功 $imported，跳过不支持 $skipped，解析失败 $failed。"
+  if [[ "$DSH_PROXY_ENABLED" == "true" && "$current_owned" == "true" ]]; then
+    proxy_start_sidecar
+    ok "当前出口属于该订阅，已重新加载 sing-box；DSH 容器未重建。"
+  elif [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    info "当前出口不属于该订阅，未自动切换。"
   fi
 }
+
+proxy_refresh_subscription() {
+  local target="${1:-all}" file name source refreshed=0 failed=0
+  proxy_ensure_dirs
+  if [[ "$target" != "all" ]]; then
+    proxy_subscription_exists "$target" || die "订阅不存在: $target"
+    source="$(cat "$(proxy_subscription_source_file "$target")")"
+    [[ "$source" != "-" ]] || die "订阅 $target 来源为 stdin，无法自动刷新。"
+    proxy_import_subscription "$source" "$target"
+    return
+  fi
+
+  for file in "$PROXY_SUBSCRIPTIONS_DIR"/*.source; do
+    [[ -f "$file" ]] || continue
+    name="$(basename "$file" .source)"
+    source="$(cat "$file")"
+    if [[ "$source" == "-" ]]; then
+      warn "跳过不可刷新的 stdin 订阅: $name"
+      failed=$((failed + 1))
+      continue
+    fi
+    info "刷新订阅: $name"
+    if (proxy_import_subscription "$source" "$name"); then
+      refreshed=$((refreshed + 1))
+    else
+      failed=$((failed + 1))
+      warn "订阅刷新失败，旧节点保持不变: $name"
+    fi
+  done
+  (( refreshed > 0 || failed > 0 )) || die "尚未保存任何订阅。"
+  ok "订阅刷新完成：成功 $refreshed，失败/跳过 $failed。"
+}
+
 
 proxy_setup_wizard() {
   heading "sing-box 出口快速配置"
@@ -1521,8 +1718,21 @@ cmd_proxy() {
       return
       ;;
     subscribe|sub|import-sub)
-      [[ "$#" -ge 1 ]] || die "用法: dshd proxy subscribe URL|FILE|-"
-      proxy_import_subscription "$1"
+      [[ "$#" -ge 1 ]] || die "用法: dshd proxy subscribe [NAME] URL|FILE|-"
+      if [[ "$#" -eq 1 ]]; then
+        proxy_import_subscription "$1"
+      else
+        proxy_import_subscription "$2" "$1"
+      fi
+      return
+      ;;
+    subscriptions|subs)
+      heading "代理订阅"
+      proxy_list_subscriptions
+      return
+      ;;
+    refresh|refresh-sub)
+      proxy_refresh_subscription "${1:-all}"
       return
       ;;
     add-json)
@@ -1667,9 +1877,10 @@ cmd_proxy() {
   8) 查看全部节点
   9) 查看 sing-box 日志
  10) 导入订阅 URL / 文件
- 11) 高级：添加 outbound JSON
- 12) 删除节点
- 13) 重新加载 sing-box（不重建 DSH）
+ 11) 查看 / 刷新订阅
+ 12) 高级：添加 outbound JSON
+ 13) 删除节点
+ 14) 重新加载 sing-box（不重建 DSH）
   0) 返回
 EOF
     local choice="" name="" value=""
@@ -1693,17 +1904,22 @@ EOF
         [[ -n "$value" ]] && cmd_proxy subscribe "$value"
         ;;
       11)
+        proxy_list_subscriptions
+        read -r -p "刷新哪个订阅 [all]: " value || true
+        cmd_proxy refresh "${value:-all}"
+        ;;
+      12)
         read -r -p "节点名称: " name || true
         read -r -p "JSON 文件路径（或直接粘贴单行 JSON）: " value || true
         [[ -n "$name" && -n "$value" ]] || { warn "名称和 JSON 来源不能为空"; continue; }
         cmd_proxy add-json "$name" "$value"
         ;;
-      12)
+      13)
         proxy_list_nodes
         read -r -p "删除节点: " name || true
         [[ -n "$name" ]] && confirm "确认删除节点 $name？" N && cmd_proxy remove "$name"
         ;;
-      13) cmd_proxy reload ;;
+      14) cmd_proxy reload ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -3945,7 +4161,9 @@ dshd - DeepSeek Harness Docker 管理器
   dshd proxy setup         首次配置/添加节点向导（推荐）
   dshd proxy add [NAME] URL  导入节点；NAME 省略时从 #备注自动命名
   dshd proxy add-json NAME FILE|JSON|-  添加 sing-box outbound JSON（tag 必须为 proxy）
-  dshd proxy subscribe URL|FILE  导入多行/Base64 订阅
+  dshd proxy subscribe [NAME] URL|FILE  导入并保存订阅
+  dshd proxy subscriptions 查看已保存订阅
+  dshd proxy refresh [NAME|all] 刷新订阅，失败时保留旧节点
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
   dshd proxy disable       关闭代理并恢复直连
