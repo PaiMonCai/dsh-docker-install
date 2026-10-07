@@ -1109,6 +1109,26 @@ proxy_next_node_name() {
   printf 'node%s' "$i"
 }
 
+proxy_auto_node_name() {
+  local uri="$1" fragment="" base="" candidate="" i=2
+  if [[ "$uri" == *"#"* ]]; then
+    fragment="${uri#*#}"
+    fragment="$(proxy_url_decode "$fragment" 2>/dev/null || true)"
+    base="$(printf '%s' "$fragment" | LC_ALL=C sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^-+//; s/-+$//' | cut -c1-56)"
+  fi
+  if [[ -z "$base" ]]; then
+    proxy_next_node_name
+    return
+  fi
+  [[ "$base" =~ ^[A-Za-z0-9] ]] || base="node-$base"
+  candidate="$base"
+  while proxy_node_exists "$candidate"; do
+    candidate="${base:0:56}-$i"
+    i=$((i + 1))
+  done
+  printf '%s' "$candidate"
+}
+
 proxy_setup_wizard() {
   heading "sing-box 出口快速配置"
   info "代理默认只作用于 DSH 容器；不会修改宿主机系统代理。"
@@ -1155,10 +1175,11 @@ EOF
       proxy_node_exists "$name" || die "代理节点不存在: $name"
       ;;
     2)
-      read -r -p "节点名称 [$default_name]: " name || true
-      name="${name:-$default_name}"
       read -r -p "代理/分享链接: " value || true
       [[ -n "$value" ]] || { warn "节点链接不能为空。"; return; }
+      default_name="$(proxy_auto_node_name "$value")"
+      read -r -p "节点名称 [$default_name]: " name || true
+      name="${name:-$default_name}"
       proxy_write_node_input "$name" "$value"
       ;;
     3)
@@ -1216,8 +1237,16 @@ cmd_proxy() {
       return
       ;;
     add|add-url|import)
-      [[ "$#" -ge 2 ]] || die "用法: dshd proxy add NAME URL（支持 http/socks/vless/trojan/hysteria2/ss）"
-      local name="$1" url="$2"
+      [[ "$#" -ge 1 ]] || die "用法: dshd proxy add [NAME] URL（NAME 可省略，支持 http/socks/vless/trojan/hysteria2/ss）"
+      local name="" url=""
+      if [[ "$#" -eq 1 ]]; then
+        url="$1"
+        name="$(proxy_auto_node_name "$url")"
+        info "自动节点名: $name"
+      else
+        name="$1"
+        url="$2"
+      fi
       local was_current=false
       [[ "$DSH_PROXY_NODE" == "$name" ]] && was_current=true
       proxy_write_node_input "$name" "$url"
@@ -3629,7 +3658,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd docker status       检查 Docker Socket
   dshd proxy               管理 DSH 国际网络 / sing-box 出口
   dshd proxy setup         首次配置/添加节点向导（推荐）
-  dshd proxy add NAME URL  导入 HTTP/SOCKS/VLESS/Trojan/Hysteria2/SS 节点
+  dshd proxy add [NAME] URL  导入节点；NAME 省略时从 #备注自动命名
   dshd proxy add-json NAME FILE|JSON|-  添加 sing-box outbound JSON（tag 必须为 proxy）
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
