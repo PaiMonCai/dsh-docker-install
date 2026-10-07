@@ -1362,9 +1362,10 @@ proxy_subscription_source_summary() {
 
 proxy_list_subscriptions() {
   proxy_ensure_dirs
-  local file name source nodes count=0
+  local file name source nodes count=0 found=0
   for file in "$PROXY_SUBSCRIPTIONS_DIR"/*.source; do
     [[ -f "$file" ]] || continue
+    found=1
     name="$(basename "$file" .source)"
     source="$(cat "$file")"
     nodes="$(proxy_subscription_nodes_file "$name")"
@@ -1372,6 +1373,7 @@ proxy_list_subscriptions() {
     [[ -f "$nodes" ]] && count="$(grep -cve '^[[:space:]]*$' "$nodes" 2>/dev/null || true)"
     printf '  %-16s %3s 节点  %s\n' "$name" "$count" "$(proxy_subscription_source_summary "$source")"
   done
+  (( found == 1 )) || info "尚未保存任何订阅。"
 }
 
 proxy_subscription_node_name() {
@@ -1569,15 +1571,42 @@ proxy_refresh_subscription() {
     info "刷新订阅: $name"
     if (proxy_import_subscription "$source" "$name"); then
       refreshed=$((refreshed + 1))
+      load_config
     else
       failed=$((failed + 1))
       warn "订阅刷新失败，旧节点保持不变: $name"
+      load_config
     fi
   done
   (( refreshed > 0 || failed > 0 )) || die "尚未保存任何订阅。"
   ok "订阅刷新完成：成功 $refreshed，失败/跳过 $failed。"
 }
 
+
+
+proxy_remove_subscription() {
+  local subscription="$1" nodes_file source_file node
+  proxy_subscription_exists "$subscription" || die "订阅不存在: $subscription"
+  nodes_file="$(proxy_subscription_nodes_file "$subscription")"
+  source_file="$(proxy_subscription_source_file "$subscription")"
+
+  if [[ -n "$DSH_PROXY_NODE" ]] && proxy_subscription_node_owned "$subscription" "$DSH_PROXY_NODE"; then
+    if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+      die "当前出口 $DSH_PROXY_NODE 属于订阅 $subscription；请先切换节点或关闭代理。"
+    fi
+    DSH_PROXY_NODE=""
+  fi
+
+  if [[ -f "$nodes_file" ]]; then
+    while IFS= read -r node; do
+      [[ -n "$node" ]] || continue
+      rm -f "$(proxy_node_file "$node" 2>/dev/null || true)"
+    done <"$nodes_file"
+  fi
+  rm -f "$nodes_file" "$source_file"
+  save_config
+  ok "订阅已删除: $subscription（所属节点已一并移除）"
+}
 
 proxy_setup_wizard() {
   heading "sing-box 出口快速配置"
@@ -1731,6 +1760,11 @@ cmd_proxy() {
       proxy_list_subscriptions
       return
       ;;
+    unsubscribe|remove-sub|rm-sub)
+      [[ "$#" -ge 1 ]] || die "用法: dshd proxy unsubscribe NAME"
+      proxy_remove_subscription "$1"
+      return
+      ;;
     refresh|refresh-sub)
       proxy_refresh_subscription "${1:-all}"
       return
@@ -1804,8 +1838,10 @@ cmd_proxy() {
       ;;
     remove|rm|del)
       [[ "$#" -ge 1 ]] || die "用法: dshd proxy remove NAME"
-      local rm_name="$1" rm_file
+      local rm_name="$1" rm_file managed_by=""
       proxy_node_exists "$rm_name" || die "代理节点不存在: $rm_name"
+      managed_by="$(proxy_find_node_subscription "$rm_name" 2>/dev/null || true)"
+      [[ -z "$managed_by" ]] || die "节点 $rm_name 由订阅 $managed_by 管理；请刷新订阅或执行 dshd proxy unsubscribe $managed_by。"
       if [[ "$DSH_PROXY_ENABLED" == "true" && "$DSH_PROXY_NODE" == "$rm_name" ]]; then
         die "不能删除正在使用的节点；请先切换节点或关闭代理。"
       fi
@@ -4164,6 +4200,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd proxy subscribe [NAME] URL|FILE  导入并保存订阅
   dshd proxy subscriptions 查看已保存订阅
   dshd proxy refresh [NAME|all] 刷新订阅，失败时保留旧节点
+  dshd proxy unsubscribe NAME 删除订阅及其所属节点
   dshd proxy use NAME      选择节点
   dshd proxy enable [NAME] 开启代理并重建 DSH
   dshd proxy disable       关闭代理并恢复直连
