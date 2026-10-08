@@ -83,7 +83,8 @@ RUN set -eux; \
 
 COPY research/python-requirements.txt /opt/dsh-research/python-requirements.txt
 
-RUN uv venv --seed /opt/dsh-research/venv \
+RUN export UV_NO_CACHE=1 \
+ && uv venv --seed /opt/dsh-research/venv \
  && uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/python-requirements.txt \
  && python --version \
@@ -158,7 +159,8 @@ RUN chmod 0755 \
       rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf; \
     else \
       echo "Skipping Quarto render smoke under emulation: ${BUILDPLATFORM} -> ${TARGETPLATFORM}"; \
-    fi
+    fi \
+ && rm -rf /tmp/dsh-cache/*
 
 WORKDIR /workspace
 
@@ -187,7 +189,7 @@ RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-mo
  && command -v research-econ-data \
  && command -v research-econ-model \
  && command -v research-econ-did \
- && uv pip install --python /opt/dsh-research/venv/bin/python \
+ && UV_NO_CACHE=1 uv pip install --python /opt/dsh-research/venv/bin/python \
       -r /opt/dsh-research/economics-requirements.txt \
  && python -c "import pyfixest, linearmodels, arch, wbgapi, pandas_datareader; print('Economics Research Pack ready')" \
  && research-econ-data --self-test \
@@ -198,7 +200,7 @@ RUN chmod 0755 /usr/local/bin/research-econ-data /usr/local/bin/research-econ-mo
  && grep -q 'template: "economics"' "$tmp/project/research.yaml" \
  && grep -q 'Economics research rules' "$tmp/project/AGENTS.md" \
  && python "$tmp/project/src/econometrics.py" \
- && rm -rf "$tmp"
+ && rm -rf "$tmp" /tmp/dsh-cache/*
 
 WORKDIR /workspace
 

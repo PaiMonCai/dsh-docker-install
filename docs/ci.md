@@ -94,3 +94,13 @@ Research 环境：`DSH_IMAGE=<image>:research-0.2.1-alpha.1`。
 - 镜像包含 Chromium、Python、Go、Docker CLI 和编译工具，因此体积会明显大于最小化 Node 镜像
 - 本方案的基础运行层（patch 绑定、入口分发、沙箱策略）已在
   Docker 26.1.4 / 内核 6.8 上实测通过
+
+## 无损镜像体积优化与审计
+
+镜像默认维持完整的 Standard（Node.js、pnpm、Python、Go、Docker CLI、Chromium）与 Research（Jupyter、Quarto、LaTeX、科研工具链）运行能力，不移除开发/运行组件来换取体积。
+
+- Standard：每次 `npm install` 的 **同一 `RUN` 层**删除 `NPM_CONFIG_CACHE`（包括 npm 临时包与日志）；Playwright 安装系统依赖后，同层删除 apt 索引。后续层再删除缓存只能产生 whiteout，无法缩小已有层。
+- Research：构建时对 `uv venv`、`uv pip install` 设置 `UV_NO_CACHE=1`，避免把下载及解包缓存持久化到镜像层；运行时的 `UV_CACHE_DIR` 设置保持不变。科研 smoke test 结束后清理同层临时缓存。
+- PR：Standard 与 Research 分别实际构建 `linux/amd64`，将本地未压缩大小和主要目录占用写到 GitHub Actions Job Summary；如 GHCR 可拉取现有浮动 tag，同步显示已发布镜像大小作为基线。`main` 发布仍保留 `amd64/arm64`，不改变版本 tag 或默认功能。
+
+**比较口径：** `docker image inspect --format '{{.Size}}'` 是本地未压缩镜像大小，并非 GHCR 传输压缩大小或运行时内存使用量。请以 PR 中真实构建的对比结果判断本次优化收益。

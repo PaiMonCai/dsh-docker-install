@@ -131,7 +131,8 @@ RUN . /usr/local/bin/cn-mirror \
       "pnpm@${PNPM_VERSION}" \
  && test "$(pnpm --version)" = "${PNPM_VERSION}" \
  && PNPM_MAJOR="${PNPM_VERSION%%.*}" \
- && pnpm store path | grep -q "/v${PNPM_MAJOR}$"
+ && pnpm store path | grep -q "/v${PNPM_MAJOR}$" \
+ && rm -rf "${NPM_CONFIG_CACHE}"
 
 RUN . /usr/local/bin/cn-mirror \
  && if is_cn; then \
@@ -145,12 +146,12 @@ RUN . /usr/local/bin/cn-mirror \
  && node /usr/local/bin/patch-workspace-picker-home.js \
  && npx playwright install --with-deps chromium \
  && ln -sf "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name chrome -path '*chrome-linux*' | head -1)" /usr/local/bin/chromium \
- && npm cache clean --force \
  && dsh --version \
  && node --version \
  && test "$(pnpm --version)" = "${PNPM_VERSION}" \
  && pnpm store path \
  && chromium --version \
+ && rm -rf "${NPM_CONFIG_CACHE}" /var/lib/apt/lists/* \
  && rm -f \
       /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-remote-settings.js \

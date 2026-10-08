@@ -200,6 +200,7 @@ jobs:
           target: ${{ matrix.target }}
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           pull: true
           build-args: |
             BASE_IMAGE=${{ steps.base.outputs.image }}
@@ -207,3 +208,32 @@ jobs:
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
+
+      - name: Report Research image footprint
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          AUDIT_IMAGE: ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+        run: |
+          set -euo pipefail
+          bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
+          mib="$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
+          paths="$(docker run --rm --entrypoint bash "$AUDIT_IMAGE" -lc \
+            'du -sh /opt/dsh-research/venv /usr/share/texlive /usr/local/go /ms-playwright /tmp/dsh-cache 2>/dev/null || true')"
+          baseline=""
+          if docker pull "$AUDIT_IMAGE" >/dev/null 2>&1; then
+            baseline_bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
+            baseline_mib="$(awk -v b="$baseline_bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
+            baseline="- Current published tag (local uncompressed): **${baseline_mib} MiB** (${baseline_bytes} bytes)"
+          fi
+          {
+            echo "### DSH ${{ matrix.tag }} image footprint"
+            echo
+            echo "- PR audit image (local uncompressed): **${mib} MiB** (${bytes} bytes)"
+            if [ -n "$baseline" ]; then echo "$baseline"; fi
+            echo
+            echo '#### Major runtime paths'
+            echo '~~~text'
+            printf '%s\n' "$paths"
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
