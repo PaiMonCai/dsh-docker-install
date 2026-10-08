@@ -25,9 +25,19 @@ function patchSharedLoopbackGuard(before) {
   const tail = before.slice(match.index + match[0].length);
   const nextFunction = tail.search(/\n(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/m);
   const body = nextFunction < 0 ? tail : tail.slice(0, nextFunction);
-  const requestUsesHelper = /\bfunction trustedRestartRequest\([^\n]*\)[^{]*\{[\s\S]*?\bdirectLoopbackRequest\(request\)/m;
-  const statusUsesHelper = /\bfunction restartReachableFrom\([^\n]*\)[^{]*\{[\s\S]*?\bdirectLoopbackRequest\(request\)/m;
-  if (!requestUsesHelper.test(before) || !statusUsesHelper.test(before)
+  // Scope recognition to each individual function. A search over the entire
+  // file would accidentally find a call in a subsequent function and falsely
+  // treat a changed upstream restart guard as compatible.
+  const section = (name) => {
+    const declaration = new RegExp('\\bfunction\\s+' + name + '\\([^\\n]*\\)\\s*(?::\\s*boolean)?\\s*\\{', 'm').exec(before);
+    if (declaration === null) return null;
+    const rest = before.slice(declaration.index + declaration[0].length);
+    const next = rest.search(/\n(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/m);
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+  const requestBody = section('trustedRestartRequest');
+  const statusBody = section('restartReachableFrom');
+  if (!requestBody?.includes('directLoopbackRequest(request)') || !statusBody?.includes('directLoopbackRequest(request)')
     || !body.includes('socket.remoteAddress')
     || !body.includes('loopbackAuthority(request.headers.host)')
     || !body.includes("headers['x-forwarded-for']")
