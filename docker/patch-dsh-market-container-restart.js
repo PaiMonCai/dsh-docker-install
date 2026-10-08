@@ -11,7 +11,81 @@ const TRUST_MARKER = 'DSH Docker restart adapter: trust container peer';
 const SCHEDULE_MARKER = 'DSH Docker restart adapter: delegate restart to Docker';
 const PROXY_MARKER = 'DSH Docker restart adapter: trust configured reverse-proxy host';
 
+
+/**
+ * Current dshmarket shares directLoopbackRequest() between the restart guard
+ * and the restartReachable status hint. Restrict the Docker exception to this
+ * function; never modify the separate trustedDownloadRequest() policy.
+ */
+function patchSharedLoopbackGuard(before) {
+  const pattern = /\bfunction directLoopbackRequest\([^\n]*\)\s*(?::\s*boolean)?\s*\{/m;
+  const match = pattern.exec(before);
+  if (match === null) return null; // Old dshmarket has no shared guard.
+
+  const tail = before.slice(match.index + match[0].length);
+  const nextFunction = tail.search(/\n(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/m);
+  const body = nextFunction < 0 ? tail : tail.slice(0, nextFunction);
+  const requestUsesHelper = /\bfunction trustedRestartRequest\([^\n]*\)[^{]*\{[\s\S]*?\bdirectLoopbackRequest\(request\)/m;
+  const statusUsesHelper = /\bfunction restartReachableFrom\([^\n]*\)[^{]*\{[\s\S]*?\bdirectLoopbackRequest\(request\)/m;
+  if (!requestUsesHelper.test(before) || !statusUsesHelper.test(before)
+    || !body.includes('socket.remoteAddress')
+    || !body.includes('loopbackAuthority(request.headers.host)')
+    || !body.includes("headers['x-forwarded-for']")
+    || !body.includes("headers['x-real-ip']")) {
+    return { text: before, changed: false, alreadyPatched: false, reason: 'shared restart guard structure changed; refusing unsafe patch' };
+  }
+
+  if (before.includes(TRUST_MARKER)) {
+    if (body.includes(TRUST_MARKER) && body.includes(PROXY_MARKER)) {
+      return { text: before, changed: false, alreadyPatched: true };
+    }
+    return { text: before, changed: false, alreadyPatched: false, reason: 'restart adapter marker found outside shared guard' };
+  }
+
+  const injected = [
+    '',
+    '  // ' + TRUST_MARKER + '.',
+    '  // ' + PROXY_MARKER + '.',
+    '  // Only Docker-managed hosts accept their OWN default gateway as a peer.',
+    '  // Forwarding headers require an explicitly allowlisted DSH_TRUSTED_HOSTS.',
+    '  // trustedRestartRequest still checks the exact Origin against Host.',
+    "  if (process.env." + ENV_NAME + " === '" + ENV_VALUE + "') {",
+    '    const host = request.headers.host;',
+    "    const trustedHosts = new Set((process.env.DSH_TRUSTED_HOSTS ?? '').split(',').map((s) => s.trim()).filter(Boolean));",
+    '    const trustedProxyHost = host !== undefined && trustedHosts.has(host);',
+    '    const acceptableHost = loopbackAuthority(host) || trustedProxyHost;',
+    '    const forwardedRequest = request.headers.forwarded !== undefined',
+    "      || request.headers['x-forwarded-for'] !== undefined",
+    "      || request.headers['x-real-ip'] !== undefined;",
+    '    if (acceptableHost && (!forwardedRequest || trustedProxyHost)) {',
+    '      try {',
+    '        const address = request.socket.remoteAddress;',
+    "        const routeText = process.getBuiltinModule('fs')?.readFileSync('/proc/net/route', 'utf8');",
+    "        const route = typeof routeText === 'string' ? routeText.split('\\n')",
+    "          .map((line) => line.trim().split(/\\s+/u))",
+    "          .find((fields) => fields.length > 3 && fields[1] === '00000000' && (Number.parseInt(fields[3], 16) & 0x2) !== 0) : undefined;",
+    '        const hex = route?.[2];',
+    '        if (hex !== undefined && /^[0-9A-Fa-f]{8}$/u.test(hex)) {',
+    "          const gateway = [hex.slice(6, 8), hex.slice(4, 6), hex.slice(2, 4), hex.slice(0, 2)]",
+    "            .map((part) => String(Number.parseInt(part, 16))).join('.');",
+    '          if (address === gateway || address === "::ffff:" + gateway) return true;',
+    '        }',
+    '      } catch {}',
+    '    }',
+    '  }',
+    '',
+  ].join('\n');
+
+  return {
+    text: before.slice(0, match.index + match[0].length) + injected + before.slice(match.index + match[0].length),
+    changed: true,
+    alreadyPatched: false,
+  };
+}
+
 function patchTrustedRestartText(before) {
+  const shared = patchSharedLoopbackGuard(before);
+  if (shared !== null) return shared;
   let text = before;
   let changed = false;
 
