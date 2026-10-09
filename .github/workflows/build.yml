@@ -97,6 +97,8 @@ jobs:
           node --check docker/patch-remote-settings.js
           node --check docker/patch-workspace-picker-home.js
           node --check docker/patch-plugin-hub-origin.js
+          node --check docker/resolve-bind-host.js
+          node tests/test-bind-host.js
           node docker/patch-plugin-hub-origin.js --self-test
           bash -n tests/test-dsh-market-docker-restart.sh
           bash tests/test-dsh-market-docker-restart.sh
@@ -217,6 +219,35 @@ jobs:
             test ! -e /usr/local/bin/patch-remote-settings.js
             test ! -e /usr/local/bin/patch-workspace-picker-home.js
           '
+
+      - name: Verify Web bind through published Docker port
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="dsh-ci-web-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d --name "$name" -p 127.0.0.1::3080 dsh-ci:pr
+          mapped_port="$(docker port "$name" 3080/tcp | sed -n 's/^127\\.0\\.0\\.1:\\([0-9][0-9]*\\)$/\\1/p' | head -n 1)"
+          test -n "$mapped_port"
+          for _ in {1..90}; do
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != 'true' ]]; then
+              docker logs "$name"
+              exit 1
+            fi
+            code="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${mapped_port}/" 2>/dev/null || true)"
+            case "$code" in
+              200|302|303|401)
+                echo "DSH Web is reachable through Docker port mapping (HTTP $code)"
+                exit 0
+                ;;
+            esac
+            sleep 1
+          done
+          docker logs "$name"
+          echo "::error::DSH Web did not become reachable through Docker port mapping"
+          exit 1
 
       - name: Report image footprint
         if: github.event_name == 'pull_request'

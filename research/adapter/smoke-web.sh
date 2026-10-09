@@ -22,7 +22,9 @@ if [[ -f /opt/dsh/dsh-bind.patch.yml ]]; then
 fi
 ARGS+=(--port "$PORT" --no-open)
 
-DSH_HOME="$TMP_HOME" dsh "${ARGS[@]}" >"$LOG" 2>&1 &
+# A build-time smoke runs DSH directly, without the Docker entrypoint. Keep it
+# on loopback instead of relying on the old wildcard patch default.
+DSH_HOME="$TMP_HOME" DSH_BIND_HOST=127.0.0.1 dsh "${ARGS[@]}" >"$LOG" 2>&1 &
 PID="$!"
 
 ready=0

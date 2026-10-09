@@ -83,6 +83,12 @@ ensure_reasoning_editor() {
 run_web() {
     local args=(web --patch "$BIND_PATCH" --no-open)
 
+    # Upstream DSH forbids 0.0.0.0 from 0.2.1-alpha.2 onward. Resolve the
+    # container's concrete network address so published Docker ports still work.
+    # A user-provided DSH_BIND_HOST is validated by the same resolver.
+    DSH_BIND_HOST="$(node /usr/local/bin/resolve-dsh-bind-host)"
+    export DSH_BIND_HOST
+
     ensure_reasoning_editor
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
@@ -100,7 +106,7 @@ run_web() {
         done
     fi
 
-    log "启动 Web GUI（DSH_HOME=$DSH_HOME, bind=${DSH_BIND_HOST:-0.0.0.0}, workspace=$(pwd)）"
+    log "启动 Web GUI（DSH_HOME=$DSH_HOME, bind=${DSH_BIND_HOST}, workspace=$(pwd)）"
     exec dsh "${args[@]}" "$@"
 }
 
