@@ -16,7 +16,7 @@
 - **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
   `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
   `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
-  然后调用 build 工作流构建新镜像，并把**检测时刻**的 npm 通道名一并传入。
+  先用待升级版本构建 amd64 镜像并执行实际 Docker Web/开发环境预检（此阶段不推送）；预检成功后才提交版本更新并正式发布，npm 通道名采用**检测时刻**的快照。预检失败不会修改 main 或覆盖 GHCR tag。
   也可在 Actions 页面手动触发。
 
 使用前确认仓库 **Settings → Actions → General → Workflow permissions** 选择

@@ -42,6 +42,11 @@ on:
         type: string
   workflow_call:
     inputs:
+      preflight_only:
+        description: Validate upstream DSH without publishing images
+        required: false
+        type: boolean
+        default: false
       dsh_version:
         description: 覆盖 dsh 版本（留空则读 Dockerfile 里的 DSH_VERSION）
         required: false
@@ -288,7 +293,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && inputs.preflight_only != true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -296,6 +301,7 @@ jobs:
 
       - uses: docker/build-push-action@v6
         id: publish
+        if: inputs.preflight_only != true
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -310,7 +316,7 @@ jobs:
   research:
     name: Rebuild Research images
     needs: build
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
     uses: ./.github/workflows/build-research.yml
     with:
       base_image: ${{ needs.build.outputs.base_image }}

@@ -78,11 +78,33 @@ jobs:
             echo "channels=$CHANNELS"
           } >> "$GITHUB_OUTPUT"
 
+  # Avoid committing a potentially incompatible upstream DSH version.
+  preflight:
+    needs: check
+    if: needs.check.outputs.updated == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      dsh_version: ${{ needs.check.outputs.latest }}
+      preflight_only: true
+    permissions:
+      contents: read
+
+  commit:
+    needs: [check, preflight]
+    if: needs.check.outputs.updated == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Bump version and commit
-        if: steps.check.outputs.updated == 'true'
         run: |
-          CURRENT="${{ steps.check.outputs.current }}"
-          LATEST="${{ steps.check.outputs.latest }}"
+          set -euo pipefail
+          CURRENT="${{ needs.check.outputs.current }}"
+          LATEST="${{ needs.check.outputs.latest }}"
+          actual="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
+          if [[ "$actual" != "$CURRENT" ]]; then
+            echo "::error::DSH version changed during preflight: expected $CURRENT, found $actual"
+            exit 1
+          fi
           sed -i "s/^ARG DSH_VERSION=.*/ARG DSH_VERSION=${LATEST}/" Dockerfile
           sed -i "s/^\(\s*DSH_VERSION: \)[\"']*${CURRENT}[\"']*$/\1\"${LATEST}\"/" docker-compose.yml
           sed -i "s/dsh:${CURRENT}/dsh:${LATEST}/g" docker-compose.yml README.md
@@ -90,11 +112,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Dockerfile docker-compose.yml README.md
+          git diff --cached --quiet && { echo "::error::No version changes staged"; exit 1; }
           git commit -m "chore: bump dsh ${CURRENT} -> ${LATEST}"
           git push
 
+
   build:
-    needs: check
+    needs: [check, commit]
     if: needs.check.outputs.updated == 'true'
     uses: ./.github/workflows/build.yml
     with:
