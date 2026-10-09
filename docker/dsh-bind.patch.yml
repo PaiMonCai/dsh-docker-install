@@ -1,19 +1,13 @@
-# DeepSeek Harness 容器内叠加层（overlay patch）。
+# DSH WebServer now requires one concrete bind address. Wildcards such as
+# 0.0.0.0 are rejected upstream because they expose the Web API on all interfaces.
+# The Docker entrypoint resolves DSH_BIND_HOST to the container's interface IP.
+# Direct launches (including Research build smokes) default safely to loopback.
 #
-# 为什么需要它：容器里的 GUI 必须监听 0.0.0.0 才能被端口映射访问，但 CLI 出于
-# 安全考虑明确拒绝 `dsh web --host 0.0.0.0`（见 dsh-web-app/startup.ts）。该配置项
-# 本身是 schema 允许的（host 只能是 127.0.0.1 或 0.0.0.0），所以这里用官方支持的
-# patch 层把 bind host 打开，而不去伪造命令行参数。
-#
-# 优先级：bundles → $DSH_HOME/profiles/web/cordis.patch.yml → $DSH_HOME/cordis.patch.yml
-#        → --patch（本文件，最后生效）
-#
-# patch 会整体替换该行的 config，因此 webserver 行的每个键都要重新写全。
+# --host takes precedence over DSH_BIND_HOST; keep the upstream CLI override.
+# The patch replaces the whole webserver config, so retain all compression keys.
 - id: webserver
   config:
-    # 显式 --host 优先；其次 DSH_BIND_HOST；容器默认 0.0.0.0。
-    host: !!js ctx.webStartup.host ?? process.env.DSH_BIND_HOST ?? '0.0.0.0'
-    # 保留命令行 --port / DSH_PORT 的能力。
+    host: !!js ctx.webStartup.host ?? process.env.DSH_BIND_HOST ?? '127.0.0.1'
     port: !!js ctx.webStartup.port ?? 3080
     compression: gzip
     compressionLevel: 1

@@ -42,6 +42,11 @@ on:
         type: string
   workflow_call:
     inputs:
+      preflight_only:
+        description: Validate upstream DSH without publishing images
+        required: false
+        type: boolean
+        default: false
       dsh_version:
         description: 覆盖 dsh 版本（留空则读 Dockerfile 里的 DSH_VERSION）
         required: false
@@ -97,11 +102,14 @@ jobs:
           node --check docker/patch-remote-settings.js
           node --check docker/patch-workspace-picker-home.js
           node --check docker/patch-plugin-hub-origin.js
+          node --check docker/resolve-bind-host.js
+          node tests/test-bind-host.js
           node docker/patch-plugin-hub-origin.js --self-test
           bash -n tests/test-dsh-market-docker-restart.sh
           bash tests/test-dsh-market-docker-restart.sh
           bash -n ci/image-tags.sh
           bash tests/test-image-tags.sh
+          node tests/test-semver-max.mjs
 
       - name: Resolve dsh version
         id: ver
@@ -149,8 +157,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # A smoke-tested amd64 image is mandatory BEFORE any multi-arch GHCR push,
+      # including scheduled upstream upgrades. Building alone is not a release gate.
       - name: Build amd64 audit image
-        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -164,7 +173,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Verify runtime development capabilities
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           docker run --rm --entrypoint bash dsh-ci:pr -c '
@@ -218,6 +226,35 @@ jobs:
             test ! -e /usr/local/bin/patch-workspace-picker-home.js
           '
 
+      - name: Verify Web bind through published Docker port
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="dsh-ci-web-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d --name "$name" -p 127.0.0.1::3080 dsh-ci:pr
+          mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
+          mapped_port="${mapped_port##*:}"
+          [[ "$mapped_port" =~ ^[0-9]+$ ]]
+          for _ in {1..90}; do
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != 'true' ]]; then
+              docker logs "$name"
+              exit 1
+            fi
+            code="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${mapped_port}/" 2>/dev/null || true)"
+            case "$code" in
+              200|302|303|401)
+                echo "DSH Web is reachable through Docker port mapping (HTTP $code)"
+                exit 0
+                ;;
+            esac
+            sleep 1
+          done
+          docker logs "$name"
+          echo "::error::DSH Web did not become reachable through Docker port mapping"
+          exit 1
+
       - name: Report image footprint
         if: github.event_name == 'pull_request'
         shell: bash
@@ -257,7 +294,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && inputs.preflight_only != true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -265,6 +302,7 @@ jobs:
 
       - uses: docker/build-push-action@v6
         id: publish
+        if: inputs.preflight_only != true
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -279,7 +317,7 @@ jobs:
   research:
     name: Rebuild Research images
     needs: build
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
     uses: ./.github/workflows/build-research.yml
     with:
       base_image: ${{ needs.build.outputs.base_image }}

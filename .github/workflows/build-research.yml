@@ -173,8 +173,10 @@ jobs:
         shell: bash
         env:
           REQUESTED_BASE_IMAGE: ${{ inputs.base_image }}
-          DEFAULT_BASE_IMAGE: ${{ steps.img.outputs.name }}:latest
+          DEFAULT_BASE_IMAGE: ${{ steps.img.outputs.name }}:${{ steps.dsh.outputs.version }}
         run: |
+          # Independent Research builds must use the matching versioned Standard
+          # image, not a mutable :latest that may contain another DSH release.
           base="$REQUESTED_BASE_IMAGE"
           if [ -z "$base" ]; then
             base="$DEFAULT_BASE_IMAGE"

@@ -6,11 +6,13 @@
 
 ## 关键设计
 
-1. **`--host 0.0.0.0` 是禁区，用 patch 层绕过**：CLI 会明确拒绝
-   `dsh web --host 0.0.0.0`（怕把 RCE 暴露到网络），但 webserver 的 schema 本身
-   接受 `0.0.0.0`。所以镜像用 `dsh web --patch /opt/dsh/dsh-bind.patch.yml` 这个
-   **官方叠加层**改 bind host（见 `docker/dsh-bind.patch.yml`），用户显式传
-   `--host` 仍然优先。
+1. **禁止通配地址，运行时选择具体网卡 IP**：从 DSH `0.2.1-alpha.2` 起，CLI 与
+   webserver 都拒绝 `0.0.0.0` / `::`（Web API 可以执行代码，禁止绑定所有接口）。
+   Docker 入口用 `docker/resolve-bind-host.js` 解析具体 IPv4/IPv6 地址，并通过
+   `docker/dsh-bind.patch.yml` 传入上游 WebServer；没有外部网卡时回退到
+   `127.0.0.1`。用户显式指定合法的 `DSH_BIND_HOST` 或 `--host` 可以覆盖。
+   `DSH_BIND_HOST=127.0.0.1` 仅可在容器内部访问，Docker 端口发布通常无法转发到该地址。
+   宿主机的端口监听范围则由 `dshd` / Compose 的 `127.0.0.1:PORT:PORT` 决定。
 2. **Host 围栏**：回环 Host 永远受信任；域名/局域网访问要用 `DSH_TRUSTED_HOSTS`
    声明对外 authority（逗号分隔），否则 `/api` 返回 401/403。
 3. **默认 root 运行**：bind mount 权限最省事，文件级限制交给 dsh 自己的沙箱。
@@ -214,7 +216,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DEEPSEEK_BASE_URL` | — | 可选；留空使用 DeepSeek 官方默认地址，自定义兼容 API 时填写 |
 | `DSH_HOME` | `/root/.dsh` | profile / 会话 / 凭据目录（持久卷） |
 | `DSH_PORT` | `3080` | 监听端口（命令行 `--port` 优先） |
-| `DSH_BIND_HOST` | `0.0.0.0` | bind host（patch 层读取；改成 127.0.0.1 仅容器内可访问） |
+| `DSH_BIND_HOST` | 容器具体网卡 IP（自动解析） | 支持显式设置具体 IPv4/IPv6；禁止 `0.0.0.0` / `::`；无外部网卡回退 127.0.0.1 |
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
 | `DSH_REASONING_EDITOR` | `true` | 是否启用内置自定义模型 `reasoningEfforts` 编辑器；`false` 时通过 DSH Plugin Manager 移除 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |

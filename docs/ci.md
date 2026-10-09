@@ -6,17 +6,18 @@
 
 ## 自动构建与更新（GitHub Actions）
 
-- **`.github/workflows/build.yml`** — 构建并推送镜像到 GHCR
+- **`.github/workflows/build.yml`** — 每次正式发布前先构建 amd64 审计镜像，验证开发工具与实际 Docker Web/端口映射能启动，全部通过后才推送镜像到 GHCR
   （`ghcr.io/<owner>/<repo>`），amd64 + arm64 双架构。触发方式：镜像相关文件变更、
   手动触发、被更新检查调用。发布哪些 tag 见[镜像 tag 与上游发布通道](#镜像-tag-与上游发布通道)。
 - **`.github/workflows/build-research.yml`** — 构建 Research Core 与 Economics Pack。
-  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64。除浮动的 `:research` /
+  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64。独立运行时以 DSH 精确版本 tag 为基础镜像；被 Standard 发布工作流调用时使用刚发布的精确 digest。除浮动的 `:research` /
   `:research-economics` 外，版本与通道 tag 都带上 edition 前缀，并跟随**它实际包住的
   dsh 版本**（tag 明细见下一节）。
 - **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
   `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
   `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
-  然后调用 build 工作流构建新镜像，并把**检测时刻**的 npm 通道名一并传入。
+  先用待升级版本构建 amd64 镜像并执行实际 Docker Web/开发环境预检（此阶段不推送）；预检成功后才提交版本更新并正式发布，npm 通道名采用**检测时刻**的快照。预检失败不会修改 main 或覆盖 GHCR tag。
+  版本比较由 `ci/semver-max.mjs` 按 SemVer 预发布优先级处理；npm 元数据不可用时明确失败，不提交不确定版本。
   也可在 Actions 页面手动触发。
 
 使用前确认仓库 **Settings → Actions → General → Workflow permissions** 选择
