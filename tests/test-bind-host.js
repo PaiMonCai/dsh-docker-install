@@ -26,4 +26,9 @@ for (const invalid of [
 for (const valid of ['::1', '2001:db8::42', '::ffff:127.0.0.1']) {
   assert.equal(isWildcardHost(valid), false)
 }
+// Compose must forward its .env bind override into the container environment.
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const compose = readFileSync(join(__dirname, '..', 'docker-compose.yml'), 'utf8')
+assert.match(compose, /DSH_BIND_HOST:\s*"\$\{DSH_BIND_HOST:-\}"/)
 console.log('[✓] Concrete DSH container bind-host tests passed')
