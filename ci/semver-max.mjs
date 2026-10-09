@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Build metadata does not affect SemVer precedence; prerelease length does.
 function parseVersion(version) {
@@ -41,7 +43,7 @@ function detectUpdate(meta, current) {
 
 export { compareVersions, detectUpdate }
 
-if (process.argv[1]?.endsWith('semver-max.mjs')) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   try {
     const meta = JSON.parse(readFileSync(0, 'utf8'))
     const result = detectUpdate(meta, process.argv[2] || '')
