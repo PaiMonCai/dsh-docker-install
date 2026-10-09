@@ -109,6 +109,7 @@ jobs:
           bash tests/test-dsh-market-docker-restart.sh
           bash -n ci/image-tags.sh
           bash tests/test-image-tags.sh
+          node tests/test-semver-max.mjs
 
       - name: Resolve dsh version
         id: ver
