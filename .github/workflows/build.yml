@@ -229,8 +229,9 @@ jobs:
           cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           docker run -d --name "$name" -p 127.0.0.1::3080 dsh-ci:pr
-          mapped_port="$(docker port "$name" 3080/tcp | sed -n 's/^127\\.0\\.0\\.1:\\([0-9][0-9]*\\)$/\\1/p' | head -n 1)"
-          test -n "$mapped_port"
+          mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
+          mapped_port="${mapped_port##*:}"
+          [[ "$mapped_port" =~ ^[0-9]+$ ]]
           for _ in {1..90}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != 'true' ]]; then
               docker logs "$name"
