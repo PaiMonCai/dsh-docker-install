@@ -1,7 +1,7 @@
 'use strict'
 
 const assert = require('node:assert/strict')
-const { resolveBindHost } = require('../docker/resolve-bind-host.js')
+const { resolveBindHost, isWildcardHost } = require('../docker/resolve-bind-host.js')
 
 const interfaces = {
   lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
@@ -13,8 +13,17 @@ assert.equal(resolveBindHost('127.0.0.1', interfaces), '127.0.0.1')
 assert.equal(resolveBindHost('::1', interfaces), '::1')
 assert.equal(resolveBindHost('10.20.30.40', interfaces), '10.20.30.40')
 assert.equal(resolveBindHost('', { enp0s3: interfaces.eth1 }), '172.20.0.4')
-assert.throws(() => resolveBindHost('', { lo: interfaces.lo }), /non-loopback/)
-for (const invalid of ['0.0.0.0', '::', '::ffff:0.0.0.0', 'localhost', 'example.com']) {
+assert.equal(resolveBindHost('', { lo: interfaces.lo }), '127.0.0.1')
+assert.equal(resolveBindHost('', { eth0: [{ address: '2001:db8::42', family: 'IPv6', internal: false }] }), '2001:db8::42')
+assert.equal(resolveBindHost('', { eth0: [{ address: 'fe80::42', family: 'IPv6', internal: false }] }), '127.0.0.1')
+for (const invalid of [
+  '0.0.0.0', '::', '::0', '0:0:0:0:0:0:0:0',
+  '::ffff:0:0', '::ffff:0.0.0.0', '0:0:0:0:0:ffff:0:0',
+  'localhost', 'example.com',
+]) {
   assert.throws(() => resolveBindHost(invalid, interfaces), /DSH_BIND_HOST/)
+}
+for (const valid of ['::1', '2001:db8::42', '::ffff:127.0.0.1']) {
+  assert.equal(isWildcardHost(valid), false)
 }
 console.log('[✓] Concrete DSH container bind-host tests passed')

@@ -362,10 +362,10 @@ docker run -d --name dsh \
 
 ```bash
 docker logs dsh | grep 'dsh web:'
-# dsh web: http://0.0.0.0:3080/?token=xxxxxxxx
+# dsh web: http://172.18.0.2:3080/?token=xxxxxxxx  （示例：实际 IP 取决于 Docker 网络）
 ```
 
-把 host 换成 `127.0.0.1` 后在浏览器打开。不带 token 访问一律 401；带 token 首次访问
+若按示例把宿主机端口映射到 `127.0.0.1:3080`，应在宿主机浏览器打开 `http://127.0.0.1:3080` 并保留 URL 中的 token；日志中的 IP 是**容器内部地址**，不要作为公网访问入口。不带 token 访问一律 401；带 token 首次访问
 返回 302/303 并种下 30 天签名 cookie，之后同一会话不用再带。
 
 ## 远程 Settings

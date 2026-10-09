@@ -151,8 +151,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # A smoke-tested amd64 image is mandatory BEFORE any multi-arch GHCR push,
+      # including scheduled upstream upgrades. Building alone is not a release gate.
       - name: Build amd64 audit image
-        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -166,7 +167,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Verify runtime development capabilities
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           docker run --rm --entrypoint bash dsh-ci:pr -c '
@@ -221,7 +221,6 @@ jobs:
           '
 
       - name: Verify Web bind through published Docker port
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
