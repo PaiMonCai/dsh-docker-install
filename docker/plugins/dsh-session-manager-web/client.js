@@ -69,18 +69,21 @@ window.__ModuleLoader__.load({
     function move(id, title) {
       api('trash', id, title).then(() => notice(t.done)).catch(e => show({ type: 'error', message: e.message }))
     }
-    function menu(label, click, props) {
+    function menu(label, click, props, danger = false, separatorBefore = false) {
       const [, setOpen] = props.useMenuOpenState()
-      return h(MenuItemButton, { onSelect: () => { setOpen(false); click() } }, label)
+      return h(MenuItemButton, {
+        danger, separatorBefore,
+        onSelect: () => { setOpen(false); click() },
+      }, label)
     }
     function TrashMenu(props) {
-      return menu(t.trash, () => move(props.sessionId, props.displayTitle), props)
+      return menu(t.trash, () => move(props.sessionId, props.displayTitle), props, false, true)
     }
     function PermanentMenu(props) {
       return menu(t.permanent, () => show({
         type: 'confirm', sessionId: props.sessionId, title: props.displayTitle || props.sessionId,
         action: 'permanent',
-      }), props)
+      }), props, true)
     }
     function RecycleMenu(props) {
       return menu(t.recycle, () => show({ type: 'recycle' }), props)
@@ -137,7 +140,8 @@ window.__ModuleLoader__.load({
             setItems(await loadTrash())
           } else {
             setPending(false)
-            notice(t.done)
+            if (selected.returnToTrash) show({ type: 'recycle' })
+            else notice(t.done)
             return
           }
         } catch (e) { setError(e.message || t.failed) }
