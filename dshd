@@ -4910,6 +4910,13 @@ menu_render_main() {
     bold=$'\033[1m'
   fi
 
+  local columns="${COLUMNS:-80}" small=0 line first_token after second_token first
+  if [[ ! "$columns" =~ ^[0-9]+$ ]]; then columns=80; fi
+  # 两列宽约 68 字符；窄终端自动改为单列，并缩短分隔线。
+  (( columns < 72 )) && small=1
+  local rule='──────────────────────────────────────────────────────────'
+  (( columns < 60 )) && rule='────────────────────────────────────'
+
   local state health docker_color state_color health_color
   state="$(container_state 2>/dev/null || printf 'unknown')"
   health="$(health_state 2>/dev/null || printf 'unknown')"
@@ -4931,17 +4938,14 @@ menu_render_main() {
 
   printf '\n  %s◆%s %sDSH%s %s/ Docker Manager%s  %sv%s\n' \
     "$cyan" "$reset" "$bold" "$reset" "$muted" "$reset" "$muted" "$DSHD_VERSION"
-  printf '  %s──────────────────────────────────────────────────────────%s\n' "$muted" "$reset"
+  printf '  %s%s%s\n' "$muted" "$rule" "$reset"
   printf '  %s容器%s %s   %s状态%s %s● %s%s   %s健康%s %s● %s%s\n' \
     "$muted" "$reset" "$DSH_NAME" "$muted" "$reset" "$state_color" "$state" "$reset" "$muted" "$reset" "$health_color" "$health" "$reset"
   printf '  %sEdition%s %s   %sPack%s %s   %sDocker 管理%s %s%s%s\n' \
     "$muted" "$reset" "$DSH_EDITION" "$muted" "$reset" "$DSH_RESEARCH_PACK" "$muted" "$reset" \
     "$docker_color" "$DSH_DOCKER_ACCESS" "$reset"
 
-  local columns="${COLUMNS:-80}" small=0 line first_token after second_token first
-  if [[ ! "$columns" =~ ^[0-9]+$ ]]; then columns=80; fi
-  # 两列宽约 68 字符；窄终端自动改为单列。
-  (( columns < 72 )) && small=1
+
   while IFS= read -r line; do
     case "$line" in
       '@'*) printf '\n  %s▌%s %s%s%s\n' "$blue" "$reset" "$bold" "${line#@}" "$reset" ;;
@@ -4984,7 +4988,7 @@ menu_render_main() {
   [20] 卸载
 MENU_ITEMS
 
-  printf '\n  %s──────────────────────────────────────────────────────────%s\n' "$muted" "$reset"
+  printf '\n  %s%s%s\n' "$muted" "$rule" "$reset"
   menu_option_line '  [ 0] 退出' "$cyan" "$red" "$muted" "$reset"
   printf '  %s输入编号后回车 · Ctrl-D 退出%s\n' "$muted" "$reset"
 }
