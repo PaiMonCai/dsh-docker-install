@@ -5037,7 +5037,7 @@ main() {
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
-    token|url) cmd_token "$@" ;;
+    token|url) shift; cmd_token "$@" ;;
     backup) cmd_backup ;;
     restore) shift; cmd_restore "${1:-}" ;;
     doctor|check) cmd_doctor ;;
