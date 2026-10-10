@@ -501,3 +501,27 @@ entrypoint 会在每次启动 DSH 前对已安装 profile 做**幂等运行时 p
 Plugin Hub 升级覆盖 node_modules 后，下一次 `dshd restart` / `dshd recreate`
 会再次自动应用 patch；若上游结构变化导致无法匹配，entrypoint 会明确告警，
 `dshd doctor` 也会提示 patch 未生效，而不会静默把问题误报成 pnpm 故障。
+
+
+## Web 插件文件管理 HTTP 405 修复
+
+某些第三方文件管理插件调用 `connection.rpc.handle('/plugin-route', ...)`
+注册自己的 RPC 通道。DSH 0.2.1-alpha.2 使用的 Connection Host 实现会在未注入
+`webServer` 的 Provider Context 上读取 `owner.webServer`，
+导致这些自定义路由注册失败；随后对 `/plugin-route/*` 的 POST 落入静态资源
+兜底处理，表现为 `HTTP 405 Method Not Allowed`。这是上游连接服务问题，
+并非文件系统读写权限不足。
+
+本镜像构建时通过 `docker/patch-connection-rpc-routes.js` 对
+`@deepseek-ai/dsh-client-connection/lib/rpc-host.js` 做一次**精确补丁**：
+把唯一有问题的 `owner.webServer.register(route)` 改为与服务已有
+`admit()` 方法一致的 `this.ctx.get('webServer').register(route)`。
+保留原有 Host/Origin 校验、浏览器认证、路由 handler 和 Cordis effect
+回收机制，不扩大文件访问权限。补丁可重复执行；无法匹配预期上游布局时，
+镜像构建会失败而不是悄悄发布仍返回 405 的镜像。
+
+更新镜像并重建：`dshd update`，然后浏览器强制刷新文件管理插件。
+要确认是否属于同一类问题，可在浏览器开发者工具 Network 里检查失败请求：
+**插件私有路由的 POST 405** 符合这个缺陷；若是上游内置
+`/api` 下的 `workspaceFiles.list` 失败或反向代理返回 405，
+应检查具体 Request URL、反向代理路由和 DSH 日志，不能归入该补丁。

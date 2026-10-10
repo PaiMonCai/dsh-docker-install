@@ -220,3 +220,10 @@ runtime state        → 始终由 DSH 自己拥有
 ```
 
 不为了“方便”维护第二套 DSH 状态，不把 UI 适配描述成安全沙箱，也不让 Research 层反向接管 DSH Core。
+
+
+### Web 文件管理插件 405
+
+镜像已内置 DSH 第三方 RPC 通道路由修复。若文件管理等插件的私有 RPC
+接口返回 HTTP 405，可执行 `dshd update` 更新镜像。修复和排查边界见
+[Web 插件文件管理 HTTP 405 修复](docs/deployment.md#web-插件文件管理-http-405-修复)。
