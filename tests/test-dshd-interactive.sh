@@ -215,7 +215,7 @@ timeout 60 bash -c '
   menu
 ' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '6\n\n\n\n\n\n0\n')" || true
 grep -q '已取消当前操作' "$TMP/ctrlc.out" || { echo "Ctrl-C 应提示已取消当前操作"; cat "$TMP/ctrlc.out"; exit 1; }
-[[ "$(grep -c 'DeepSeek Harness Docker Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
+[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
   || { echo "Ctrl-C 之后应重新回到菜单"; cat "$TMP/ctrlc.out"; exit 1; }
 
 printf 'test-dshd-interactive: ok\n'
