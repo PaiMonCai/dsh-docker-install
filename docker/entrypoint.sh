@@ -105,6 +105,13 @@ run_web() {
     DSH_BIND_HOST="$(node /usr/local/bin/resolve-dsh-bind-host)"
     export DSH_BIND_HOST
 
+    # Use the same secret across every restart/recreate. The file is inside
+    # persistent DSH_HOME (0600), and is never passed through docker run -e.
+    # A malformed/insecure token file must fail closed instead of falling
+    # back to a fresh random per-process token.
+    DSH_WEB_LOGIN_TOKEN="$(node /usr/local/bin/dsh-web-token.js print)"
+    export DSH_WEB_LOGIN_TOKEN
+
     ensure_reasoning_editor
     ensure_session_manager_web
 
