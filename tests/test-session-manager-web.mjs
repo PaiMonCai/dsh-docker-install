@@ -53,7 +53,7 @@ const ctx = {
   logger: { warn() {} },
 }
 function request(method, value, opts = {}) {
-  const raw = opts.raw ?? JSON.stringify(value)
+  const raw = opts.raw ?? JSON.stringify(value ?? {})
   const req = Readable.from([Buffer.from(raw)])
   req.url = opts.path ?? ENDPOINT
   req.method = method
