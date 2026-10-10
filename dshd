@@ -4869,6 +4869,130 @@ dshd - DeepSeek Harness Docker 管理器
 EOF
 }
 
+
+# 仅在彩色终端使用 ANSI，重定向/NO_COLOR/TERM=dumb 保持纯文本。
+menu_colors_enabled() {
+  [[ -t 1 && -z "${NO_COLOR:-}" && "${CLICOLOR:-1}" != "0" && "${TERM:-}" != "dumb" ]]
+}
+
+# 在不改变双列对齐的前提下突出显示快捷键。
+menu_option_line() {
+  local remaining="$1" cyan="$2" red="$3" muted="$4" reset="$5"
+  local token prefix color danger=0
+  while [[ "$remaining" =~ \[[0-9][0-9]\]|\[\ 0\] ]]; do
+    token="${BASH_REMATCH[0]}"
+    prefix="${remaining%%"$token"*}"
+    remaining="${remaining#*"$token"}"
+    case "$token" in
+      '[20]') color="$red"; danger=1 ;;
+      '[ 0]') color="$muted" ;;
+      *) color="$cyan" ;;
+    esac
+    printf '%s%s%s%s' "$prefix" "$color" "$token" "$reset"
+  done
+  if (( danger )); then
+    printf '%s%s%s\n' "$red" "$remaining" "$reset"
+  else
+    printf '%s\n' "$remaining"
+  fi
+}
+
+menu_render_main() {
+  local reset="" cyan="" blue="" green="" yellow="" red="" muted="" bold=""
+  if menu_colors_enabled; then
+    reset=$'\033[0m'
+    cyan=$'\033[1;36m'
+    blue=$'\033[1;34m'
+    green=$'\033[1;32m'
+    yellow=$'\033[1;33m'
+    red=$'\033[1;31m'
+    muted=$'\033[90m'
+    bold=$'\033[1m'
+  fi
+
+  local columns="${COLUMNS:-80}" small=0 line first_token after second_token first
+  if [[ ! "$columns" =~ ^[0-9]+$ ]]; then columns=80; fi
+  # 两列宽约 68 字符；窄终端自动改为单列，并缩短分隔线。
+  (( columns < 72 )) && small=1
+  local rule='──────────────────────────────────────────────────────────'
+  (( columns < 60 )) && rule='────────────────────────────────────'
+
+  local state health docker_color state_color health_color
+  state="$(container_state 2>/dev/null || printf 'unknown')"
+  health="$(health_state 2>/dev/null || printf 'unknown')"
+  case "$state" in
+    running) state_color="$green" ;;
+    exited|dead|removing|paused) state_color="$red" ;;
+    *) state_color="$yellow" ;;
+  esac
+  case "$health" in
+    healthy) health_color="$green" ;;
+    unhealthy) health_color="$red" ;;
+    none|n/a) health_color="$muted" ;;
+    *) health_color="$yellow" ;;
+  esac
+  case "$DSH_DOCKER_ACCESS" in
+    true) docker_color="$green" ;;
+    *) docker_color="$muted" ;;
+  esac
+
+  printf '\n  %s◆%s %sDSH%s %s/ Docker Manager%s  %sv%s\n' \
+    "$cyan" "$reset" "$bold" "$reset" "$muted" "$reset" "$muted" "$DSHD_VERSION"
+  printf '  %s%s%s\n' "$muted" "$rule" "$reset"
+  printf '  %s容器%s %s   %s状态%s %s● %s%s   %s健康%s %s● %s%s\n' \
+    "$muted" "$reset" "$DSH_NAME" "$muted" "$reset" "$state_color" "$state" "$reset" "$muted" "$reset" "$health_color" "$health" "$reset"
+  printf '  %sEdition%s %s   %sPack%s %s   %sDocker 管理%s %s%s%s\n' \
+    "$muted" "$reset" "$DSH_EDITION" "$muted" "$reset" "$DSH_RESEARCH_PACK" "$muted" "$reset" \
+    "$docker_color" "$DSH_DOCKER_ACCESS" "$reset"
+
+
+  while IFS= read -r line; do
+    case "$line" in
+      '@'*) printf '\n  %s▌%s %s%s%s\n' "$blue" "$reset" "$bold" "${line#@}" "$reset" ;;
+      '') ;;
+      *)
+        if (( small )) && [[ "$line" =~ \[[0-9][0-9]\] ]]; then
+          first_token="${BASH_REMATCH[0]}"
+          after="${line#*"$first_token"}"
+          if [[ "$after" =~ \[[0-9][0-9]\] ]]; then
+            second_token="${BASH_REMATCH[0]}"
+            first="${line%%"$second_token"*}"
+            first="${first%"${first##*[![:space:]]}"}"
+            menu_option_line "$first" "$cyan" "$red" "$muted" "$reset"
+            menu_option_line "  ${second_token}${line#*"$second_token"}" "$cyan" "$red" "$muted" "$reset"
+            continue
+          fi
+        fi
+        menu_option_line "$line" "$cyan" "$red" "$muted" "$reset"
+        ;;
+    esac
+  done <<'MENU_ITEMS'
+@容器运行
+  [01] 安装 / 初始化                    [02] 查看状态
+  [03] 启动                             [04] 停止
+  [05] 重启                             [06] 查看实时日志
+  [07] 更新镜像并重建                   [18] 按当前配置重建
+@配置与连接
+  [08] 修改完整配置                     [09] DeepSeek API / Base URL
+  [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
+  [11] Docker 项目管理权限              [27] 国际网络 / sing-box
+  [21] Standard / Research 版本切换     [22] Research Pack 切换
+@开发与数据
+  [12] 查看容器开发环境                 [13] 显示首次访问 Token URL
+  [14] 进入容器 Shell                   [28] 会话管理
+  [15] 备份数据                         [16] 恢复数据
+  [23] 查看持久化存储                   [26] 自定义持久化挂载
+  [24] Research Dashboard
+@诊断与维护
+  [17] 环境诊断                         [19] 检查更新 dshd 自身
+  [20] 卸载
+MENU_ITEMS
+
+  printf '\n  %s%s%s\n' "$muted" "$rule" "$reset"
+  menu_option_line '  [ 0] 退出' "$cyan" "$red" "$muted" "$reset"
+  printf '  %s输入编号后回车 · Ctrl-D 退出%s\n' "$muted" "$reset"
+}
+
 menu() {
   DSHD_MENU_ACTIVE=1
   export DSHD_MENU_ACTIVE
@@ -4879,41 +5003,14 @@ menu() {
   fi
   while true; do
     clear 2>/dev/null || true
-    printf '%sDeepSeek Harness Docker Manager%s  v%s\n' "$C_CYAN" "$C_RESET" "$DSHD_VERSION"
-    printf '  容器: %s  |  状态: %s  |  健康: %s\n' \
-      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)"
-    printf '  版本: %s  |  Pack: %s  |  Docker 管理: %s\n' \
-      "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$DSH_DOCKER_ACCESS"
-    cat <<'EOF'
-
-  ── 容器运行 ──────────────────────────────────────────────
-  [01] 安装 / 初始化                    [02] 查看状态
-  [03] 启动                             [04] 停止
-  [05] 重启                             [06] 查看实时日志
-  [07] 更新镜像并重建                   [18] 按当前配置重建
-
-  ── 配置与连接 ────────────────────────────────────────────
-  [08] 修改完整配置                     [09] DeepSeek API / Base URL
-  [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
-  [11] Docker 项目管理权限              [27] 国际网络 / sing-box
-  [21] Standard / Research 版本切换     [22] Research Pack 切换
-
-  ── 开发与数据 ────────────────────────────────────────────
-  [12] 查看容器开发环境                 [13] 显示首次访问 Token URL
-  [14] 进入容器 Shell                   [28] 会话管理
-  [15] 备份数据                         [16] 恢复数据
-  [23] 查看持久化存储                   [26] 自定义持久化挂载
-  [24] Research Dashboard
-
-  ── 诊断与维护 ────────────────────────────────────────────
-  [17] 环境诊断                         [19] 检查更新 dshd 自身
-  [20] 卸载
-
-  [ 0] 退出
-EOF
+    menu_render_main
     local choice=""
     local menu_rc=0
-    menu_read choice $'\n请选择: ' || menu_rc=$?
+    if menu_colors_enabled; then
+      menu_read choice $'\n\033[1;36m›\033[0m 请选择: ' || menu_rc=$?
+    else
+      menu_read choice $'\n请选择: ' || menu_rc=$?
+    fi
     if (( menu_rc == 2 )); then continue; fi
     (( menu_rc == 0 )) || return 0
     printf '\n'
