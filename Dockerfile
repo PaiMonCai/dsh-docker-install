@@ -167,6 +167,8 @@ COPY docker/ensure-session-manager-web.sh /usr/local/bin/ensure-dsh-session-mana
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
+# Keep the source module name beside the health probe for Node require().
+COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
 COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-editor
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
