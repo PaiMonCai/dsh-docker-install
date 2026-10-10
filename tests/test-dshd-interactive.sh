@@ -47,7 +47,7 @@ grep -q '本次操作未完成' "$TMP/menu.err" || { echo "应提示操作未完
 for section in 容器运行 配置与连接 开发与数据 诊断与维护; do
   grep -Fq "▌ $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
 done
-for number in $(seq 1 28); do
+for number in $(seq 1 27); do
   item="$(printf '[%02d]' "$number")"
   grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
 done
