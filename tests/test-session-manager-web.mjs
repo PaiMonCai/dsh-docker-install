@@ -75,6 +75,13 @@ function request(method, value, opts = {}) {
 }
 
 try {
+  const client = await readFile(new URL('../docker/plugins/dsh-session-manager-web/client.js', import.meta.url), 'utf8')
+  assert.match(client, /trash: '删除会话'/)
+  assert.match(client, /dangerTitle: '确定永久删除此会话？'/)
+  assert.doesNotMatch(client, /PermanentMenu|dsh-docker\.permanent/)
+  assert.doesNotMatch(client, /navigator\.language|document\.documentElement\.lang/)
+  assert.match(client, /action: 'purge', returnToTrash: true/)
+
   apply(ctx)
   await create(id)
   await create(other)
