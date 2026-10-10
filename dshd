@@ -4090,6 +4090,45 @@ cmd_token() {
       ;;
   esac
 }
+
+# 主菜单 [13]：集中管理 Web 首次登录 Token。底层操作复用 dshd token
+# 子命令，避免菜单和 CLI 维护两套验证、隐藏输入或重启逻辑。
+cmd_token_menu() {
+  menu_signal_guard
+  load_config_guarded || return 1
+
+  while true; do
+    local choice="" menu_rc=0 cyan="" red="" reset="" muted=""
+    if menu_colors_enabled; then
+      cyan="$C_CYAN"
+      red="$C_RED"
+      muted=$'\033[2m'
+      reset="$C_RESET"
+    fi
+    heading "Web 登录 Token 管理"
+    printf '  %s首次登录 Token 默认持久化；修改后将重启 DSH 容器生效。%s\n\n' "$muted" "$reset"
+    printf '  %s1%s) 查看登录地址\n' "$cyan" "$reset"
+    printf '  %s2%s) 查看 Token 模式\n' "$cyan" "$reset"
+    printf '  %s3%s) 设置自定义 Token\n' "$cyan" "$reset"
+    printf '  %s4%s) 重置随机 Token\n' "$red" "$reset"
+    printf '  %s0%s) 返回主菜单\n' "$muted" "$reset"
+
+    menu_read choice $'\n请选择: ' || menu_rc=$?
+    if (( menu_rc == 2 )); then continue; fi
+    (( menu_rc == 0 )) || return 0
+    case "$choice" in
+      1) run_action cmd_token url ;;
+      2) run_action cmd_token status ;;
+      3) run_action cmd_token set ;;
+      4) run_action cmd_token reset ;;
+      0) return 0 ;;
+      *) warn "无效选项"; continue ;;
+    esac
+    # 返回子菜单，而不是多弹一次主菜单的“按 Enter 继续”。
+    read -r -p $'\n按 Enter 返回 Token 菜单...' _ || return 0
+  done
+}
+
 dashboard_container_name() {
   printf '%s-dashboard' "$DSH_NAME"
 }
@@ -4931,7 +4970,7 @@ menu_render_main() {
   [11] Docker 项目管理权限              [27] 国际网络 / sing-box
   [21] Standard / Research 版本切换     [22] Research Pack 切换
 @开发与数据
-  [12] 查看容器开发环境                 [13] 显示首次访问 Token URL
+  [12] 查看容器开发环境                 [13] Web 登录 Token 管理
   [14] 进入容器 Shell
   [15] 备份数据                         [16] 恢复数据
   [23] 查看持久化存储                   [26] 自定义持久化挂载
@@ -4980,7 +5019,7 @@ menu() {
       10) run_action cmd_hosts ;;
       11) run_action cmd_docker_access ;;
       12) run_action cmd_env ;;
-      13) run_action cmd_token ;;
+      13) run_action cmd_token_menu ;;
       14) run_action cmd_shell ;;
       15) run_action cmd_backup ;;
       16) run_action cmd_restore ;;
@@ -4998,7 +5037,7 @@ menu() {
       0) return ;;
       *) warn "无效选项" ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "14" ]]; then
+    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" ]]; then
       read -r -p $'\n按 Enter 返回菜单...' _ || true
     fi
     load_config_guarded || warn "当前配置存在问题，部分操作可能不可用。"
