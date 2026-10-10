@@ -51,8 +51,6 @@ dshd proxy setup
 # 或查看现有配置
 dshd proxy status
 dshd doctor
-dshd sessions list
-dshd sessions               # 会话管理
 ```
 
 切换 Research：
@@ -72,18 +70,21 @@ dshd edition standard
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
-## 会话管理
+## Web 会话管理插件
 
-使用 `dshd sessions` 可以按序号选择存储中的会话，移入回收区、恢复，以及永久清理。
-也可通过 `dshd sessions list`、`dshd sessions delete PROJECT/ID`、
-`dshd sessions trash`、`dshd sessions restore TRASH_ID`、
-`dshd sessions purge TRASH_ID` 进行管理。
+DSH 会话管理现由内置 `dsh-docker-session-manager` **Web 插件**提供，不再需要 `dshd sessions` CLI：
 
-删除会话日志之前，管理器会暂时停止正在运行的 DSH，操作完成后自动尝试恢复启动。
-Web 界面通过内置 `dsh-docker-session-manager` 插件，在会话右侧 `···` 菜单加入“删除会话”。
-提交删除后，Host 将请求写入持久化队列，再由 Docker 容器受控重启时的入口脚本
-将会话移入回收区，避免在运行期间直接修改日志。若禁用自动重启，则通过
-`dshd restart` 应用删除请求。Web 插件可通过 `DSH_SESSION_MANAGER_WEB=false` 关闭。
+- DSH 左侧边栏底部「回收站」可查看删除记录并恢复。
+- 会话右侧 `···` 菜单提供独立的「删除会话」与「永久删除」。
+- 「删除会话」先通过 DSH 原生安全归档机制隐藏会话，同时保存回收站记录；原始会话文件仍在原处，恢复时立即取消归档。它不会停止 DSH 或改变项目工作区。
+- 「永久删除」使用会话持久化写锁，只有已经没有活动 Agent / 写入所有者的会话才会清理；仍被占用时返回提示让用户重试。操作不重启 Docker，且无法恢复。
+- 回收站中的会话也可单独永久清理；任何删除操作均不会删除 `/workspace` 文件。
+- 浏览器需要刷新一次以加载新版插件；若需关闭，可设 `DSH_SESSION_MANAGER_WEB=false` 后重建容器。
+
+旧版本（V1）已通过 CLI/重启方式移入 `.dshd-session-trash` 的记录不属于新版 Web 逻辑回收站，仍需先在安全备份中手动处理；升级不会自动清除旧回收数据。
+
+> 上游 DSH 暂无公开的会话存储删除 API。为确保不损坏正在写入的日志，新版 **不会**尝试强行卸载正在运行或已挂载的 Agent。遇到「会话正在使用」请先结束任务并释放该会话后重试；不会通过重启 Docker 来强制执行。
+
 详见 [Runtime 与运维](docs/runtime.md)。
 
 ## Standard 提供什么
