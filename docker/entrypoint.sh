@@ -80,6 +80,22 @@ ensure_reasoning_editor() {
     log "警告：内置自定义模型推理等级编辑器未能完成 profile 对账；DSH 将继续启动"
 }
 
+ensure_session_manager_web() {
+    local reconciler="/usr/local/bin/ensure-dsh-session-manager-web"
+    [[ -x "$reconciler" ]] || return 0
+    if ! "$reconciler"; then
+        log "警告：会话管理 Web 插件安装失败；DSH 仍可启动。"
+    fi
+}
+
+apply_pending_session_deletions() {
+    local reconciler="/usr/local/bin/apply-dsh-session-deletions"
+    [[ -x "$reconciler" ]] || return 0
+    if ! "$reconciler"; then
+        log "警告：部分会话删除请求未应用。待处理队列将保留以供下次启动重试。"
+    fi
+}
+
 run_web() {
     local args=(web --patch "$BIND_PATCH" --no-open)
 
@@ -90,6 +106,7 @@ run_web() {
     export DSH_BIND_HOST
 
     ensure_reasoning_editor
+    ensure_session_manager_web
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then
@@ -110,6 +127,7 @@ run_web() {
     exec dsh "${args[@]}" "$@"
 }
 
+apply_pending_session_deletions
 repair_stale_workspace_cwd
 apply_plugin_hub_reverse_proxy_patch
 apply_dsh_market_container_restart_patch

@@ -1,0 +1,4 @@
+# Built-in Web session manager through the official Web plugin slots.
+- insert:
+    - id: dsh-docker-session-manager
+      name: dsh-docker-session-manager
