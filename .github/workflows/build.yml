@@ -94,6 +94,8 @@ jobs:
           bash tests/test-dshd-proxy.sh
           bash -n tests/test-reasoning-editor.sh
           bash tests/test-reasoning-editor.sh
+          bash -n tests/test-dsh-session-manager.sh
+          bash tests/test-dsh-session-manager.sh
           bash -n docker/entrypoint.sh
           bash -n docker/ensure-reasoning-editor.sh
           sh -n docker/cn-mirror.sh

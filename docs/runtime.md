@@ -235,3 +235,29 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `CHROME_BIN` / `CHROMIUM_PATH` | `/usr/local/bin/chromium` | 内置 Chromium 路径 |
 | `TZ` | `Asia/Shanghai` | 容器运行时实际时区（dshd 由 `DSH_TIMEZONE` 注入） |
 | `NPM_CONFIG_CACHE` | `/tmp/npm-cache` | npm 实际 cache 路径（dshd 由 `DSH_NPM_CACHE` 注入） |
+
+
+## 会话管理（删除与回收区）
+
+`dshd sessions` 在宿主机打开交互式会话管理菜单，可查看列表、按序号移入回收区、
+恢复会话和清空指定回收区条目。镜像内置
+`/usr/local/bin/dsh-session-manager`，Standard 与 Research 均可用。
+旧部署先运行 `dshd update` 更新镜像。
+
+```bash
+dshd sessions list
+dshd sessions delete PROJECT/SESSION_ID
+dshd sessions trash
+dshd sessions restore TRASH_ID
+dshd sessions purge TRASH_ID
+```
+
+删除将物理会话目录移到同卷 `DSH_HOME/.dshd-session-trash/`，不是立即销毁。
+恢复若目标目录已存在将拒绝覆盖；永久清理需要确认并再次输入完整的回收区编号。
+非交互写操作须明确追加 `--yes`，不允许隐式批准。
+读取时临时 Docker 容器只读挂载当前持久卷；写操作暂停正在运行的 DSH 并在完成后
+尝试重新启动。辅助容器使用 `--network none`。
+
+本功能管理上游 JSONL Session 目录，不删除工作区、备份、插件持有的引用和上游
+Workspace 注册信息，也不级联删除 fork 或子会话；清理父会话前请确认关联会话。
+若其他容器共用相同持久化卷，应先停止其他写入者。

@@ -51,6 +51,8 @@ dshd proxy setup
 # 或查看现有配置
 dshd proxy status
 dshd doctor
+dshd sessions list
+dshd sessions               # 会话管理
 ```
 
 切换 Research：
@@ -69,6 +71,18 @@ dshd edition standard
 
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
+
+## 会话管理
+
+使用 `dshd sessions` 可以按序号选择存储中的会话，移入回收区、恢复，以及永久清理。
+也可通过 `dshd sessions list`、`dshd sessions delete PROJECT/ID`、
+`dshd sessions trash`、`dshd sessions restore TRASH_ID`、
+`dshd sessions purge TRASH_ID` 进行管理。
+
+删除会话日志之前，管理器会暂时停止正在运行的 DSH，操作完成后自动尝试恢复启动。
+此功能目前属于宿主机 `dshd` 运维菜单，不是 Web 内的删除按钮：
+上游尚没有正式的会话删除 API，因此不安全地在 Web 进程中直接移除文件会损坏会话状态。
+详见 [Runtime 与运维](docs/runtime.md)。
 
 ## Standard 提供什么
 

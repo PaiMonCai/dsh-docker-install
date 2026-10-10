@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.9.0"
+DSHD_VERSION="0.9.1"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -4391,6 +4391,104 @@ EOF
 }
 
 
+# ---------- 内置会话管理（离线持久化操作） ----------
+session_backend() {
+  local ro=""
+  case "${1:-}" in
+    list|trash) ro=":ro" ;;
+    delete|restore|purge) ;;
+    *) return 2 ;;
+  esac
+  docker_cmd run --rm --network none --entrypoint /usr/local/bin/dsh-session-manager \
+    -v "$(storage_source):/data${ro}" "$DSH_IMAGE" "$@"
+}
+
+session_mutate_offline() (
+  set -Eeuo pipefail
+  local was_running=false rc=0
+  if container_running; then
+    warn "正在临时停止 DSH，以保护会话存储。"
+    docker_cmd stop "$DSH_NAME" >/dev/null
+    was_running=true
+  fi
+  trap 'if [[ "$was_running" == true ]]; then docker_cmd start "$DSH_NAME" >/dev/null || warn "无法自动启动 DSH，请执行 dshd start"; fi' EXIT
+  session_backend "$@" || rc=$?
+  if [[ "$was_running" == true ]]; then
+    if docker_cmd start "$DSH_NAME" >/dev/null; then was_running=false
+    else warn "无法自动启动 DSH，请执行 dshd start"; rc=1; fi
+  fi
+  return "$rc"
+)
+
+session_choose() {
+  local op="$1" output_var="$2" data choice i
+  local -a rows=()
+  data="$(session_backend "$op")" || return 1
+  [[ -n "$data" ]] || { info "没有可管理的条目"; return 1; }
+  mapfile -t rows <<< "$data"
+  for ((i=0; i<${#rows[@]}; i++)); do
+    printf ' %d) %s\n' "$((i+1))" "${rows[i]}"
+  done
+  read -r -p '输入序号（空白取消）: ' choice || return 1
+  [[ "$choice" =~ ^[0-9]+$ ]] || return 1
+  (( 10#$choice >= 1 && 10#$choice <= ${#rows[@]} )) || return 1
+  printf -v "$output_var" '%s' "${rows[10#$choice-1]%%$'\t'*}"
+}
+
+cmd_sessions() {
+  local mode="${1:-menu}" target="${2:-}" approve="${3:-}" choice="" typed=""
+  load_config
+  docker_ready || die "Docker 不可访问"
+  case "$DSH_STORAGE_MODE" in
+    bind) [[ -d "$DSH_DATA_DIR" ]] || die "数据目录不存在: $DSH_DATA_DIR" ;;
+    volume) docker_cmd volume inspect "$DSH_VOLUME" >/dev/null 2>&1 || die "数据卷不存在: $DSH_VOLUME" ;;
+    *) die "无效存储模式: $DSH_STORAGE_MODE" ;;
+  esac
+  case "$mode" in
+    list|trash)
+      heading "DSH 会话 $mode"
+      session_backend "$mode" || die "读取失败，请先执行 dshd update 更新镜像"
+      ;;
+    delete|restore|purge)
+      [[ -n "$target" ]] || die "缺少目标，先执行 sessions list 或 trash"
+      if ! is_tty && [[ "$approve" != "--yes" ]]; then die "非交互写操作必须追加 --yes"; fi
+      if is_tty; then
+        confirm "确认执行 $mode：$target？" N || return 0
+        if [[ "$mode" == purge ]]; then
+          read -r -p "永久清理无法撤销，请再次输入 $target 确认: " typed || return 1
+          [[ "$typed" == "$target" ]] || { warn "确认不匹配，已取消"; return 1; }
+        fi
+      fi
+      session_mutate_offline "$mode" "$target"
+      ;;
+    menu)
+      while true; do
+        heading "DSH 会话管理"
+        cat <<'SESS_MENU'
+  1) 查看会话
+  2) 选择会话移入回收区
+  3) 查看回收区
+  4) 恢复会话
+  5) 永久清理回收区
+  0) 返回
+SESS_MENU
+        read -r -p '请选择: ' choice || return 0
+        case "$choice" in
+          1) session_backend list || warn '读取失败' ;;
+          2) target=""; if session_choose list target; then cmd_sessions delete "$target" || true; fi ;;
+          3) session_backend trash || warn '读取失败' ;;
+          4) target=""; if session_choose trash target; then cmd_sessions restore "$target" || true; fi ;;
+          5) target=""; if session_choose trash target; then cmd_sessions purge "$target" || true; fi ;;
+          0) return ;;
+          *) warn '无效选项' ;;
+        esac
+        read -r -p $'\n按 Enter 继续...' _ || true
+      done
+      ;;
+    *) die "未知会话命令: $mode" ;;
+  esac
+}
+
 cmd_backup() {
   load_config; ensure_docker; ensure_state_dir; ensure_storage
   local ts file source
@@ -4749,6 +4847,12 @@ dshd - DeepSeek Harness Docker 管理器
   dshd env                 查看容器开发环境版本
   dshd shell               进入容器 Shell
   dshd token               显示首次访问 URL
+  dshd sessions            会话管理菜单
+  dshd sessions list       查看会话目录
+  dshd sessions delete PROJECT/ID [--yes]  移入回收区
+  dshd sessions trash      列出回收区
+  dshd sessions restore TRASH_ID [--yes]    恢复
+  dshd sessions purge TRASH_ID [--yes]      永久清理
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复持久化数据备份
   dshd doctor              环境/网络/容器诊断
@@ -4807,6 +4911,7 @@ menu() {
  25) Whale Widget 远程写权限
  26) 自定义持久化挂载
  27) 国际网络 / sing-box
+ 28) 会话管理
 
   0) 退出
 EOF
@@ -4844,6 +4949,7 @@ EOF
       25) run_action cmd_admin_hosts ;;
       26) run_action cmd_mounts_menu ;;
       27) run_action cmd_proxy ;;
+      28) run_action cmd_sessions menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -4884,6 +4990,7 @@ main() {
     storage|data-storage) shift; cmd_storage "$@" ;;
     mounts|mount|persistent-mounts) shift; cmd_mounts "$@" ;;
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
+    sessions|session) shift; cmd_sessions "${1:-menu}" "${2:-}" "${3:-}" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
     token|url) cmd_token ;;

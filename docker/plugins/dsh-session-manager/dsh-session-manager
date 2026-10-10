@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Offline DSH session-storage management. Stop DSH before any write operation.
+set -Eeuo pipefail
+
+root="${DSH_SESSION_DATA_ROOT:-/data}"
+[[ "$root" == /* && "$root" != / && -d "$root" && ! -L "$root" ]] || {
+  echo 'session-manager: invalid persistent data root' >&2; exit 2;
+}
+sessions="$root/sessions"
+trash="$root/.dshd-session-trash"
+
+fail() { printf 'session-manager: %s\n' "$*" >&2; exit 2; }
+valid_segment() {
+  [[ "$1" =~ ^[A-Za-z0-9_.~%-]+$ && "$1" != . && "$1" != .. ]]
+}
+valid_key() {
+  [[ "$1" == */* && "$1" != */*/* ]] || return 1
+  valid_segment "${1%%/*}" && valid_segment "${1#*/}"
+}
+valid_trash_id() { [[ "$1" =~ ^session-[A-Za-z0-9]{8}$ ]]; }
+check_root() { [[ ! -L "$sessions" ]] || fail 'session root must not be a symlink'; }
+check_trash() { [[ ! -L "$trash" ]] || fail 'trash root must not be a symlink'; }
+
+list_sessions() {
+  check_root
+  [[ -d "$sessions" ]] || return 0
+  local dir key size when
+  while IFS= read -r -d '' dir; do
+    key="${dir#"$sessions"/}"
+    valid_key "$key" || continue
+    size="$(du -sk -- "$dir" | cut -f1)"
+    when="$(stat -c %y -- "$dir" | cut -d. -f1)"
+    printf '%s\t%s KiB\t%s\n' "$key" "$size" "$when"
+  done < <(find "$sessions" -mindepth 2 -maxdepth 2 -type d -print0 | sort -z)
+}
+
+list_trash() {
+  check_trash
+  [[ -d "$trash" ]] || return 0
+  local entry id origin
+  for entry in "$trash"/session-*; do
+    [[ -d "$entry" && ! -L "$entry" ]] || continue
+    id="${entry##*/}"
+    valid_trash_id "$id" || continue
+    [[ -f "$entry/origin" && ! -L "$entry/origin" && -d "$entry/session" ]] || continue
+    IFS= read -r origin < "$entry/origin" || true
+    valid_key "$origin" || continue
+    printf '%s\t%s\n' "$id" "$origin"
+  done
+}
+
+move_to_trash() {
+  local key="$1" dir entry
+  valid_key "$key" || fail 'expected project/session-id (as printed by list)'
+  check_root; check_trash
+  dir="$sessions/$key"
+  [[ -d "$dir" && ! -L "$dir" && ! -L "${dir%/*}" ]] || fail 'session not found or unsafe path'
+  mkdir -p -- "$trash"
+  entry="$(mktemp -d "$trash/session-XXXXXXXX")" || fail 'cannot create trash entry'
+  if ! printf '%s\n' "$key" > "$entry/origin"; then
+    rmdir -- "$entry" 2>/dev/null || true
+    fail 'cannot write trash manifest'
+  fi
+  if ! mv -- "$dir" "$entry/session"; then
+    rm -f -- "$entry/origin"
+    rmdir -- "$entry" 2>/dev/null || true
+    fail 'cannot move session to trash'
+  fi
+  rmdir -- "${dir%/*}" 2>/dev/null || true
+  printf 'moved to trash: %s (from %s)\n' "${entry##*/}" "$key"
+}
+
+restore_from_trash() {
+  local id="$1" entry key dest project
+  valid_trash_id "$id" || fail 'invalid trash entry id'
+  check_root; check_trash
+  entry="$trash/$id"
+  [[ -d "$entry" && ! -L "$entry" && -f "$entry/origin" && ! -L "$entry/origin" && -d "$entry/session" && ! -L "$entry/session" ]] || fail 'trash entry not found'
+  IFS= read -r key < "$entry/origin" || true
+  valid_key "$key" || fail 'invalid trash manifest'
+  dest="$sessions/$key"
+  project="${dest%/*}"
+  [[ ! -e "$dest" && ! -L "$dest" && ! -L "$project" ]] || fail 'destination exists or is a symlink'
+  mkdir -p -- "$project"
+  mv -- "$entry/session" "$dest"
+  rm -f -- "$entry/origin"
+  rmdir -- "$entry"
+  printf 'restored: %s\n' "$key"
+}
+
+purge_trash() {
+  local id="$1" entry
+  valid_trash_id "$id" || fail 'invalid trash entry id'
+  check_trash
+  entry="$trash/$id"
+  [[ -d "$entry" && ! -L "$entry" && -f "$entry/origin" && -d "$entry/session" ]] || fail 'trash entry not found'
+  rm -rf -- "$entry"
+  printf 'permanently purged: %s\n' "$id"
+}
+
+case "${1:-}" in
+  list) [[ $# == 1 ]] || fail 'list takes no arguments'; list_sessions ;;
+  trash) [[ $# == 1 ]] || fail 'trash takes no arguments'; list_trash ;;
+  delete) [[ $# == 2 ]] || fail 'usage: delete project/session-id'; move_to_trash "$2" ;;
+  restore) [[ $# == 2 ]] || fail 'usage: restore trash-id'; restore_from_trash "$2" ;;
+  purge) [[ $# == 2 ]] || fail 'usage: purge trash-id'; purge_trash "$2" ;;
+  *) fail 'usage: list | trash | delete project/session-id | restore trash-id | purge trash-id' ;;
+esac
