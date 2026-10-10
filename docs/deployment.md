@@ -513,7 +513,7 @@ Plugin Hub 升级覆盖 node_modules 后，下一次 `dshd restart` / `dshd recr
 并非文件系统读写权限不足。
 
 本镜像构建时通过 `docker/patch-connection-rpc-routes.js` 对
-`@deepseek-ai/dsh-client-connection/lib/rpc-host.js` 做一次**精确补丁**：
+`@deepseek-ai/dsh-client-connection/lib/index.js` 做一次**精确补丁**：
 把唯一有问题的 `owner.webServer.register(route)` 改为与服务已有
 `admit()` 方法一致的 `this.ctx.get('webServer').register(route)`。
 保留原有 Host/Origin 校验、浏览器认证、路由 handler 和 Cordis effect

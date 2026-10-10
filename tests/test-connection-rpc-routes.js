@@ -12,7 +12,7 @@ const root = mkdtempSync(join(tmpdir(), 'dsh-rpc-405-'))
 try {
   const dir = join(root, '@deepseek-ai', 'dsh-client-connection', 'lib')
   mkdirSync(dir, { recursive: true })
-  const file = join(dir, 'rpc-host.js')
+  const file = join(dir, 'index.js')
   const vulnerable = [
     'class HostConnectionService {',
     '  register(owner, route) {',

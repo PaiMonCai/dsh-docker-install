@@ -9,7 +9,7 @@ const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 
 const MARKER = 'DSH Docker RPC channel route fix'
-const suffix = path.join('@deepseek-ai', 'dsh-client-connection', 'lib', 'rpc-host.js')
+const suffix = path.join('@deepseek-ai', 'dsh-client-connection', 'lib', 'index.js')
 const BUG = /owner\.effect\(\s*\(\)\s*=>\s*owner\.webServer\.register\(route\)/g
 
 // Keep the existing owner.effect lifetime and authentication route handler.
