@@ -37,11 +37,23 @@ container_running() { return 1; }
 DSH_NAME=dsh
 DSH_PORT=3080
 set +e
-printf '6\n\n2\n0\n' | menu >/dev/null 2>"$TMP/menu.err"
+printf '6\n\n2\n0\n' | menu >"$TMP/menu.out" 2>"$TMP/menu.err"
 menu_rc=$?
 set -e
 [[ "$menu_rc" -eq 0 ]] || { echo "菜单应正常退出(0)，实际 $menu_rc"; cat "$TMP/menu.err"; exit 1; }
 grep -q '本次操作未完成' "$TMP/menu.err" || { echo "应提示操作未完成并返回菜单"; cat "$TMP/menu.err"; exit 1; }
+
+# 菜单重排只改变展示，不应丢失选项或修改原有数字快捷键。
+for section in 容器运行 配置与连接 开发与数据 诊断与维护; do
+  grep -Fq "── $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
+done
+for number in $(seq 1 28); do
+  item="$(printf '[%02d]' "$number")"
+  grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
+done
+grep -Fq '[ 0] 退出' "$TMP/menu.out" || { echo "主菜单缺少退出选项"; exit 1; }
+grep -q '容器: .*状态: .*健康:' "$TMP/menu.out" || { echo "运行状态应分行显示"; exit 1; }
+grep -q '版本: .*Pack: .*Docker 管理:' "$TMP/menu.out" || { echo "版本与 Docker 权限应分行显示"; exit 1; }
 
 # --- 2) 修改配置：端口输错后重问，正确值被保存 -----------------------------------
 FORCED_TTY=1
