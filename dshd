@@ -4023,18 +4023,72 @@ cmd_shell() {
 }
 cmd_token() {
   load_config; ensure_docker
-  container_exists || die "容器不存在。"
-  local url public_url
-  url="$(docker_cmd logs "$DSH_NAME" 2>&1 | grep -oE 'http://[^ ]*\?token=[A-Za-z0-9_-]+' | tail -1 || true)"
-  [[ -n "$url" ]] || die "未从日志找到 token URL。"
+  local action="${1:-url}" url public_url mode secret confirm_secret
+  shift || true
+  [[ $# -eq 0 ]] || die "用法: dshd token [set|reset|status]（请勿在命令行传入 Token）"
 
-  public_url="$(public_token_url "$url" 2>/dev/null || true)"
-  if [[ -n "$public_url" ]]; then
-    printf '%s\n' "$public_url"
-  else
-    local_token_url "$url"
-    printf '\n'
-  fi
+  case "$action" in
+    url|show)
+      container_exists || die "容器不存在。"
+      url="$(docker_cmd logs "$DSH_NAME" 2>&1 | grep -oE 'http://[^ ]*\?token=[A-Za-z0-9_-]+' | tail -1 || true)"
+      [[ -n "$url" ]] || die "未从日志找到 Token URL。"
+      public_url="$(public_token_url "$url" 2>/dev/null || true)"
+      if [[ -n "$public_url" ]]; then
+        printf '%s\n' "$public_url"
+      else
+        local_token_url "$url"
+        printf '\n'
+      fi
+      ;;
+    set|reset|status)
+      container_running || die "需要 DSH 容器处于运行状态；请先执行 dshd start。"
+      docker_cmd exec "$DSH_NAME" test -f /usr/local/bin/dsh-web-token.js >/dev/null 2>&1 \
+        || die "当前镜像尚不支持固定 Token；请先执行 dshd update。"
+      case "$action" in
+        status)
+          mode="$(docker_cmd exec "$DSH_NAME" node /usr/local/bin/dsh-web-token.js status)" || return 1
+          case "$mode" in
+            auto) info "Web 登录 Token: 持久化随机模式（重建后保持不变）" ;;
+            custom) info "Web 登录 Token: 自定义模式（重建后保持不变）" ;;
+            uninitialized) warn "Web 登录 Token 尚未初始化。" ;;
+            *) die "未知 Token 状态: $mode" ;;
+          esac
+          info "凭据保存在容器持久化 DSH_HOME 内；此命令不显示 Token 明文。"
+          return 0
+          ;;
+        set)
+          heading "设置固定 Web 登录 Token"
+          info "长度为 32–128 字符，仅允许字母、数字、_、-。请使用高强度随机字符串。"
+          if [[ -t 0 ]]; then
+            IFS= read -r -s -p "新 Token（输入不回显）: " secret || return 1
+            printf '\n'
+            IFS= read -r -s -p "再次输入确认: " confirm_secret || return 1
+            printf '\n'
+            [[ "$secret" == "$confirm_secret" ]] || die "两次输入的 Token 不一致。"
+          else
+            IFS= read -r secret || die "请通过标准输入提供 Token；不要把 Token 写在命令行参数中。"
+          fi
+          [[ "$secret" =~ ^[A-Za-z0-9_-]{32,128}$ ]] \
+            || die "Token 仅支持 32–128 位字母、数字、_、-。"
+          if ! printf '%s\n' "$secret" | docker_cmd exec -i "$DSH_NAME" node /usr/local/bin/dsh-web-token.js set; then
+            unset secret confirm_secret
+            die "无法保存 Token，容器不做重启。"
+          fi
+          unset secret confirm_secret
+          ;;
+        reset)
+          confirm "重置 Web 首次登录 Token？旧 Token 链接将失效（现有浏览器 Cookie 不会自动失效）。" N || return 0
+          docker_cmd exec "$DSH_NAME" node /usr/local/bin/dsh-web-token.js reset || return 1
+          ;;
+      esac
+      info "重启 DSH 容器应用新的首次登录 Token（持久化数据不受影响）..."
+      docker_cmd restart "$DSH_NAME" >/dev/null || die "Token 已保存，但容器重启失败；请执行 dshd restart。"
+      ok "Token 已生效；使用 dshd token 查看新的访问 URL。"
+      ;;
+    *)
+      die "未知 token 子命令: $action（可用: set/reset/status）"
+      ;;
+  esac
 }
 dashboard_container_name() {
   printf '%s-dashboard' "$DSH_NAME"
@@ -4749,6 +4803,9 @@ dshd - DeepSeek Harness Docker 管理器
   dshd env                 查看容器开发环境版本
   dshd shell               进入容器 Shell
   dshd token               显示首次访问 URL
+  dshd token status        查看持久 Token 模式（不显示秘密）
+  dshd token set           隐藏输入自定义 Token 并重启生效
+  dshd token reset         重新生成随机 Token 并重启生效
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复持久化数据备份
   dshd doctor              环境/网络/容器诊断
@@ -4980,7 +5037,7 @@ main() {
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;
     env|environment) shift; cmd_env "$@" ;;
     shell) cmd_shell ;;
-    token|url) cmd_token ;;
+    token|url) cmd_token "$@" ;;
     backup) cmd_backup ;;
     restore) shift; cmd_restore "${1:-}" ;;
     doctor|check) cmd_doctor ;;
