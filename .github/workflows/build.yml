@@ -94,6 +94,8 @@ jobs:
           bash tests/test-reasoning-editor.sh
           bash -n tests/test-dsh-session-manager.sh
           bash tests/test-dsh-session-manager.sh
+          node --check docker/plugins/dsh-session-manager-web/index.js
+          node --check docker/plugins/dsh-session-manager-web/client.js
           node tests/test-session-manager-web.mjs
           node tests/test-connection-rpc-routes.js
           bash -n docker/entrypoint.sh
