@@ -1,5 +1,5 @@
-/* Web-only session lifecycle controls. Native archive feeds hide/restore rows
- * immediately; the plugin never restarts Docker or rewrites an active log. */
+/* Web-only session lifecycle controls. Chinese-first, delete to trash,
+ * then force purge from trash. No Docker restart or direct list purge. */
 window.__ModuleLoader__.load({
   id: 'dsh-docker-session-manager',
   factory(require) {
@@ -12,30 +12,16 @@ window.__ModuleLoader__.load({
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
     const snapshot = () => overlay
     const show = value => { overlay = value; for (const fn of listeners) fn() }
-    const isZh = (document.documentElement.lang || navigator.language || '')
-      .toLowerCase().startsWith('zh')
-    const t = isZh ? {
+    // This deployment is Chinese-first regardless of browser/system locale.
+    const t = {
       trash: '删除会话', permanent: '永久删除', recycle: '回收站',
-      moveHint: '移入回收站后可以随时恢复，不会删除项目文件。',
-      dangerTitle: '永久删除会话？',
-      dangerHint: '这一操作会清除会话记录，无法恢复；项目工作区文件不受影响。正在使用的会话会被拒绝删除，不会重启 Docker。',
-      cancel: '取消', confirm: '确认永久删除', restore: '恢复',
+      dangerTitle: '确定永久删除此会话？',
+      dangerHint: '会话及其历史记录将被强制清除，无法恢复。若该会话正在运行，相关任务也会被终止；其他会话和工作区文件不受影响。无需重启 Docker。',
+      cancel: '取消', confirm: '永久删除', restore: '恢复',
       empty: '回收站是空的', loading: '加载中…', close: '关闭',
-      busy: '操作中…', done: '操作已完成', failed: '操作失败',
-      inUse: '会话正在使用中，无法安全删除。请先结束相关任务或关闭该会话后重试。',
-      active: '会话存在正在进行的任务，请先结束任务后重试。',
+      done: '操作已完成', failed: '操作失败',
+      firstTrash: '请先删除会话，将其移入回收站，再执行永久删除。',
       unavailable: '会话管理暂不可用，请检查服务器日志。',
-    } : {
-      trash: 'Delete session', permanent: 'Delete permanently', recycle: 'Trash',
-      moveHint: 'Move to trash to recover later. Workspace files remain untouched.',
-      dangerTitle: 'Permanently delete session?',
-      dangerHint: 'Session history cannot be recovered. Workspace files remain untouched. Active sessions cannot be deleted and Docker will not restart.',
-      cancel: 'Cancel', confirm: 'Delete permanently', restore: 'Restore',
-      empty: 'Trash is empty', loading: 'Loading…', close: 'Close',
-      busy: 'Working…', done: 'Done', failed: 'Operation failed',
-      inUse: 'Session in use. Finish its work or close the session and try again.',
-      active: 'Session has active work. Finish it before retrying.',
-      unavailable: 'Session manager is unavailable. Check server logs.',
     }
 
     async function api(action, sessionId, title) {
@@ -47,8 +33,8 @@ window.__ModuleLoader__.load({
       const data = await response.json()
       if (!response.ok) {
         const code = data?.error
-        throw new Error(code === 'session-in-use' ? t.inUse
-          : code === 'session-active' ? t.active : String(code || t.failed))
+        throw new Error(code === 'delete-to-trash-first' ? t.firstTrash
+          : String(code || t.failed))
       }
       return data
     }
@@ -78,15 +64,6 @@ window.__ModuleLoader__.load({
     }
     function TrashMenu(props) {
       return menu(t.trash, () => move(props.sessionId, props.displayTitle), props, false, true)
-    }
-    function PermanentMenu(props) {
-      return menu(t.permanent, () => show({
-        type: 'confirm', sessionId: props.sessionId, title: props.displayTitle || props.sessionId,
-        action: 'permanent',
-      }), props, true)
-    }
-    function RecycleMenu(props) {
-      return menu(t.recycle, () => show({ type: 'recycle' }), props)
     }
     function RecycleFooter({ wide }) {
       return h('button', {
@@ -174,7 +151,7 @@ window.__ModuleLoader__.load({
             h('div', { style: { flex: 1, minWidth: 0 } },
               h('div', { style: { wordBreak: 'break-word', fontSize: 13 } }, item.title),
               h('div', { style: { color: 'gray', fontSize: 11 } },
-                new Date(item.deletedAt).toLocaleString())),
+                new Date(item.deletedAt).toLocaleString('zh-CN', { hour12: false }))),
             button(t.restore, () => act('restore', item.sessionId), pending),
             button(t.permanent, () => show({ type: 'confirm', title: item.title,
               sessionId: item.sessionId, action: 'purge', returnToTrash: true }), pending, true)))),
@@ -187,10 +164,6 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('sidebar.workspaces.session.menu.item', function* () {
           yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item',
             id: 'dsh-docker.trash', order: 700 }, TrashMenu)
-          yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item',
-            id: 'dsh-docker.permanent', order: 710 }, PermanentMenu)
-          yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item',
-            id: 'dsh-docker.recycle', order: 720 }, RecycleMenu)
         })
         ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
           name: 'sidebar.footer.action', id: 'dsh-docker.recycle-footer', order: 450,
