@@ -183,7 +183,7 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 **它实际包住的 DSH 版本**：`:research-<dsh版本>`、`:research-alpha`。
 `research/VERSION` 只标识研究引擎自身版本，不参与镜像 tag。
 
-基础镜像更新后，CI 会先发布 Standard，再把这次发布的**精确镜像 digest**传给 Research 构建，避免 Research 继续基于旧的 `:latest`；同时把解析到的通道名一并传入，让两类镜像的通道 tag 始终一致。
+基础镜像更新后，**Standard CI 会先独立完成并发布**，随后启动另一次 GitHub Actions 运行构建 Research；科研版失败不会影响已发布的基础版。该独立运行使用刚发布的**精确镜像 digest**、源码 commit、DSH 版本和通道快照，避免基于旧的 `:latest`。仅修改 Research 时可以单独构建；同一提交同时修改两者时，会等待基础版发布后再启动 Research。
 
 构建、GHCR、镜像 tag 通道对齐与自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
 

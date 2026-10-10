@@ -1,7 +1,8 @@
-name: Build & Publish Image
+name: Build & Publish Standard Image
 
 # PR：校验脚本并实际构建 amd64/arm64，但不推送镜像。
-# main / workflow_dispatch / workflow_call：构建并推送 GHCR。
+# main / workflow_dispatch / workflow_call：基础版测试、推送 GHCR 后独立触发 Research。
+# 基础版发布成功即可结束本次工作流；科研版在另一条工作流里构建。
 
 on:
   push:
@@ -66,13 +67,10 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      base_image: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
-      dsh_version: ${{ steps.ver.outputs.version }}
-      channels: ${{ steps.tags.outputs.channels }}
     permissions:
       contents: read
       packages: write
+      actions: write # 允许独立触发 Research 的 workflow_dispatch
     steps:
       - uses: actions/checkout@v4
 
@@ -113,6 +111,8 @@ jobs:
           bash tests/test-dsh-market-docker-restart.sh
           bash -n ci/image-tags.sh
           bash tests/test-image-tags.sh
+          bash tests/test-research-release-gate.sh
+          node tests/test-release-workflows.mjs
           node tests/test-semver-max.mjs
 
       - name: Resolve dsh version
@@ -318,16 +318,35 @@ jobs:
           cache-to: type=gha,mode=max
 
 
-  research:
-    name: Rebuild Research images
-    needs: build
-    if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
-    uses: ./.github/workflows/build-research.yml
-    with:
-      base_image: ${{ needs.build.outputs.base_image }}
-      # 研究镜像的发布 tag 跟随它实际包住的 dsh 版本与通道。
-      dsh_version: ${{ needs.build.outputs.dsh_version }}
-      channel_tags: ${{ needs.build.outputs.channels }}
-    permissions:
-      contents: read
-      packages: write
+      # A GITHUB_TOKEN workflow_dispatch triggers an independent run.
+      # This is intentionally a dispatch step, NOT a reusable Research job:
+      # Standard's success no longer waits for Research/Economics.
+      - name: Queue independent Research release
+        if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_IMAGE: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_CHANNELS: ${{ steps.tags.outputs.channels }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Standard 推送没有返回有效 digest: $RELEASE_IMAGE"
+            exit 1
+          fi
+          gh workflow run build-research.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field "base_image=$RELEASE_IMAGE" \
+            --field "dsh_version=$RELEASE_VERSION" \
+            --field "channel_tags=$RELEASE_CHANNELS" \
+            --field "source_sha=$SOURCE_SHA"
+          {
+            echo "### Standard 发布完成，Research 已单独排队"
+            echo
+            echo "- Standard: $RELEASE_IMAGE"
+            echo "- Research: Build & Publish Research Image (independent workflow)"
+            echo "- Source SHA: $SOURCE_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
