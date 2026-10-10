@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process')
 
 const MARKER = 'DSH Docker persistent Web login token'
 const suffix = path.join('@deepseek-ai', 'dsh-client-connection', 'lib', 'index.js')
-const pattern = /(\b(?:const|let|var)\s+created\s*=\s*)encodeBase64Url\(\s*randomBytes\(\s*(?:SECRET_BYTES|32)\s*\)\s*\)/g
+const pattern = /(\b(?:const|let|var)\s+created\s*=\s*)(encodeBase64Url\(\s*randomBytes\(\s*(?:SECRET_BYTES|32)\s*\)\s*\))/g
 
 function transform(source) {
   if (source.includes(MARKER)) return { content: source, status: 'already-patched' }
@@ -19,9 +19,9 @@ function transform(source) {
     throw new Error('unrecognized DSH browser launch-token implementation')
   }
   let matches = 0
-  const content = source.replace(pattern, (whole, prefix) => {
+  const content = source.replace(pattern, (whole, prefix, fallback) => {
     matches++
-    return prefix + '(/* ' + MARKER + ' */ process.env.DSH_WEB_LOGIN_TOKEN || encodeBase64Url(randomBytes(SECRET_BYTES)))'
+    return prefix + '(/* ' + MARKER + ' */ process.env.DSH_WEB_LOGIN_TOKEN || ' + fallback + ')'
   })
   if (matches !== 1) throw new Error('expected one upstream launch-token generator, found ' + matches)
   return { content, status: 'patched' }
