@@ -19,11 +19,11 @@ async function create(id) {
   await mkdir(directory(id), { recursive: true })
   await writeFile(join(directory(id), 'session.v4.jsonl'), '{"type":"header"}\n')
 }
-let inUse = new Set()
+const inUse = new Set()
 let active = false
-let busyLease = false
-let handleCloses = 0
-let handler, nextCount = 0, kills = 0
+let stopRequests = 0
+let openAttempts = 0
+let handler, nextCount = 0
 const archived = new Set()
 const removed = []
 const ctx = {
@@ -32,22 +32,27 @@ const ctx = {
       const dir = await readdir(join(home, 'sessions', project)).catch(() => [])
       return dir.includes(sessionId) ? { header: { id: sessionId } } : undefined
     },
-    async open(id, mode) {
-      assert.equal(mode, 'write')
-      if (busyLease) throw new Error('SessionAlreadyOwnedError: busy')
-      return { async close() { handleCloses++ } }
+    async open() {
+      openAttempts++
+      throw new Error('SessionAlreadyOwnedError: owner still active')
     },
   },
   workspaceRegistry: {
     archivedSessionIds: archived,
-    async archiveSession(id) {
-      if (active) throw new Error('session active: turn running')
+    async archiveSession(id, options = {}) {
+      assert.equal(options.stopActivity, true)
       archived.add(id)
     },
     async unarchiveSession(id) { archived.delete(id) },
   },
   sessions: { get(id) { return inUse.has(id) ? { id } : undefined } },
   agents: { get() { return active ? { status: 'running' } : undefined } },
+  async parallel(event, { sessionId }) {
+    assert.equal(event, 'workspace/session-stop')
+    assert.ok(sessionId)
+    stopRequests++
+    active = false
+  },
   on(name, fn) { assert.equal(name, 'connection/request'); handler = fn },
   emit(name, id) { if (name === 'api-session/removed') removed.push(id) },
   logger: { warn() {} },
@@ -95,36 +100,43 @@ try {
   assert.equal(archived.has(id), false)
   assert.deepEqual((await request('GET')).data.items, [])
 
+  // Permanent deletion from the main list is impossible, even with a
+  // hand-crafted POST that bypasses the browser menu.
+  assert.equal((await request('POST', { action: 'permanent', sessionId: id })).code, 409)
+  assert.equal((await request('POST', { action: 'purge', sessionId: id })).code, 409)
+  assert.equal((await readdir(directory(id))).includes('session.v4.jsonl'), true)
+
+  // A running session is allowed into trash. Its work receives native stop.
   active = true
-  assert.equal((await request('POST', { action: 'trash', sessionId: id })).code, 409)
-  active = false
   inUse.add(id)
-  assert.equal((await request('POST', { action: 'permanent', sessionId: id })).code, 409)
-  assert.equal(archived.has(id), false)
-  inUse.delete(id)
-
-  busyLease = true
-  assert.equal((await request('POST', { action: 'permanent', sessionId: id })).code, 409)
-  assert.equal(archived.has(id), false)
-  busyLease = false
-  const deleted = await request('POST', { action: 'permanent', sessionId: id })
-  assert.deepEqual(deleted, { code: 200, data: { purged: true } })
+  assert.equal((await request('POST', { action: 'trash', sessionId: id })).code, 200)
+  assert.equal(archived.has(id), true)
+  // Pretend the Host still keeps a stale Agent and exclusive writer, as on
+  // actual long-running Web processes. Force purge must not open the lease.
+  active = true
+  assert.equal((await request('POST', { action: 'purge', sessionId: id })).code, 200)
   assert.equal(removed.includes(id), true)
-  assert.equal(handleCloses, 1)
+  assert.ok(stopRequests >= 1)
+  assert.equal(openAttempts, 0)
   assert.deepEqual(await readdir(join(home, 'sessions', project)), [other])
+  assert.equal(archived.has(id), true, 'retain archived tombstone for cached live sessions')
   assert.equal((await request('POST', { action: 'restore', sessionId: id })).code, 404)
+  assert.deepEqual((await request('GET')).data.items, [])
 
+  // A second session follows the same two-stage workflow.
+  assert.equal((await request('POST', { action: 'purge', sessionId: other })).code, 409)
   await request('POST', { action: 'trash', sessionId: other })
   assert.equal((await request('POST', { action: 'purge', sessionId: other })).code, 200)
   assert.deepEqual((await request('GET')).data.items, [])
-  assert.equal(archived.has(other), false)
-  assert.equal(handleCloses, 2)
+  assert.equal(archived.has(other), true)
+  assert.equal(openAttempts, 0)
+  assert.equal((await request('POST', { action: 'purge', sessionId: other })).code, 409)
 
   const unsafe = 'session-abcdef01'
   await symlink('/tmp', directory(unsafe))
   assert.equal((await request('POST', { action: 'trash', sessionId: unsafe })).code, 404)
-  assert.equal(kills, 0)
-  console.log('Web-only session trash / restore / no-restart permanent deletion checks passed')
+  assert.equal(process.env.DSH_DOCKER_RESTART, 'container')
+  console.log('Web session two-stage trash / forced purge / no Docker restart checks passed')
 } finally {
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome
