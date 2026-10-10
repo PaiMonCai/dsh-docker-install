@@ -45,15 +45,40 @@ grep -q '本次操作未完成' "$TMP/menu.err" || { echo "应提示操作未完
 
 # 菜单重排只改变展示，不应丢失选项或修改原有数字快捷键。
 for section in 容器运行 配置与连接 开发与数据 诊断与维护; do
-  grep -Fq "── $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
+  grep -Fq "▌ $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
 done
 for number in $(seq 1 28); do
   item="$(printf '[%02d]' "$number")"
   grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
 done
 grep -Fq '[ 0] 退出' "$TMP/menu.out" || { echo "主菜单缺少退出选项"; exit 1; }
-grep -q '容器: .*状态: .*健康:' "$TMP/menu.out" || { echo "运行状态应分行显示"; exit 1; }
-grep -q '版本: .*Pack: .*Docker 管理:' "$TMP/menu.out" || { echo "版本与 Docker 权限应分行显示"; exit 1; }
+grep -q '容器 .*状态 .*健康 ' "$TMP/menu.out" || { echo "顶部未显示完整运行状态"; exit 1; }
+grep -q 'Edition .*Pack .*Docker 管理' "$TMP/menu.out" || { echo "顶部未显示版本与 Docker 权限"; exit 1; }
+if grep -Fq $'\033[' "$TMP/menu.out"; then
+  echo "重定向输出不应包含 ANSI 颜色控制符"; exit 1
+fi
+
+# 测试主题颜色：实际菜单只在彩色终端启用，测试在子 shell 中显式模拟彩色输出。
+(
+  menu_colors_enabled() { return 0; }
+  container_state() { printf 'running'; }
+  health_state() { printf 'healthy'; }
+  menu <<<"0"
+) >"$TMP/menu-colored.out" 2>&1
+grep -Fq $'\033[1;36m[01]' "$TMP/menu-colored.out" || { echo "选项快捷键应为青色"; exit 1; }
+grep -Fq $'\033[1;31m[20]' "$TMP/menu-colored.out" || { echo "卸载选项应为红色"; exit 1; }
+grep -Fq $'\033[1;32m● running' "$TMP/menu-colored.out" || { echo "运行状态应为绿色"; exit 1; }
+grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状态应为绿色"; exit 1; }
+
+# 小屏幕不再挤压两列：每个快捷键各占一行。
+(
+  COLUMNS=60
+  menu <<<"0"
+) >"$TMP/menu-narrow.out" 2>&1
+grep -Fq '[28] 会话管理' "$TMP/menu-narrow.out" || { echo "窄屏缺少会话管理"; exit 1; }
+if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
+  echo "窄屏应切换为单列菜单"; exit 1
+fi
 
 # --- 2) 修改配置：端口输错后重问，正确值被保存 -----------------------------------
 FORCED_TTY=1
