@@ -43,7 +43,8 @@ bash "$manager" purge "$trash_id" >/dev/null
 [[ -d "$DSH_SESSION_DATA_ROOT/sessions/--workspace--/session-first" ]]
 
 grep -Fq 'COPY docker/plugins/dsh-session-manager/dsh-session-manager' Dockerfile
-grep -Fq '[28] 会话管理' dshd
-grep -Fq '28) run_action cmd_sessions menu ;;' dshd
-grep -Fq 'sessions|session)' dshd
+# The Web plugin is the only user-facing session manager.
+! grep -Fq '28) run_action cmd_sessions menu ;;' dshd
+! grep -Fq 'sessions|session)' dshd
+grep -Fq 'sidebar.footer.action' docker/plugins/dsh-session-manager-web/client.js
 echo 'offline session management checks passed'
