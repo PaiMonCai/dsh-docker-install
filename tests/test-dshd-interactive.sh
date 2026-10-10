@@ -85,8 +85,8 @@ fi
 # --- 1b) Token 子菜单：保留 [13] 编号，四项操作全部使用已有命令 -------------
 # 不使用真实 Docker，确认交互路线与子命令一一对应。
 (
-  cmd_token() { printf 'token-action:%s\\n' "$1"; }
-  printf '13\\n无效\\n1\\n\\n2\\n\\n3\\n\\n4\\n\\n0\\n0\\n' | menu
+  cmd_token() { printf 'token-action:%s\n' "$1"; }
+  printf '13\n无效\n1\n\n2\n\n3\n\n4\n\n0\n0\n' | menu
 ) >"$TMP/token-menu.out" 2>"$TMP/token-menu.err"
 grep -Fq 'Web 登录 Token 管理' "$TMP/token-menu.out" || { echo "主菜单 13 未进入 Token 子菜单"; exit 1; }
 grep -Fq '无效选项' "$TMP/token-menu.err" || { echo "Token 子菜单应允许重输无效选项"; exit 1; }
@@ -105,7 +105,7 @@ fi
 # 失败只退出单次动作，不结束子菜单；EOF 也不会循环。
 (
   cmd_token() { [[ "$1" != set ]]; }
-  printf '3\\n\\n2\\n\\n0\\n' | cmd_token_menu
+  printf '3\n\n2\n\n0\n' | cmd_token_menu
 ) >"$TMP/token-error.out" 2>"$TMP/token-error.err"
 grep -Fq '本次操作未完成' "$TMP/token-error.err" || { echo "失败应回到 Token 子菜单"; exit 1; }
 [[ "$(grep -c 'Web 登录 Token 管理' "$TMP/token-error.out")" -ge 2 ]] || {
