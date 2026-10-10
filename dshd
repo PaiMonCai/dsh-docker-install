@@ -4880,40 +4880,36 @@ menu() {
   while true; do
     clear 2>/dev/null || true
     printf '%sDeepSeek Harness Docker Manager%s  v%s\n' "$C_CYAN" "$C_RESET" "$DSHD_VERSION"
-    printf '容器: %-16s 状态: %-12s 健康: %-10s Edition: %-8s Pack: %-10s Docker管理: %s\n' \
-      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)" "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$DSH_DOCKER_ACCESS"
+    printf '  容器: %s  |  状态: %s  |  健康: %s\n' \
+      "$DSH_NAME" "$(container_state 2>/dev/null || echo unknown)" "$(health_state 2>/dev/null || echo unknown)"
+    printf '  版本: %s  |  Pack: %s  |  Docker 管理: %s\n' \
+      "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$DSH_DOCKER_ACCESS"
     cat <<'EOF'
 
-  1) 安装 / 初始化
-  2) 查看状态
-  3) 启动
-  4) 停止
-  5) 重启
-  6) 查看实时日志
-  7) 更新镜像并重建
-  8) 修改完整配置
-  9) DeepSeek API / Base URL 配置
- 10) 快捷管理 Trusted Hosts
- 11) Docker 项目管理权限
- 12) 查看容器开发环境
- 13) 显示首次访问 Token URL
- 14) 进入容器 Shell
- 15) 备份数据
- 16) 恢复数据
- 17) 环境诊断
- 18) 按当前配置重建
- 19) 检查更新 dshd 自身
- 20) 卸载
- 21) Standard / Research 版本切换
- 22) Research Pack 切换
- 23) 查看持久化存储
- 24) Research Dashboard
- 25) Whale Widget 远程写权限
- 26) 自定义持久化挂载
- 27) 国际网络 / sing-box
- 28) 会话管理
+  ── 容器运行 ──────────────────────────────────────────────
+  [01] 安装 / 初始化                    [02] 查看状态
+  [03] 启动                             [04] 停止
+  [05] 重启                             [06] 查看实时日志
+  [07] 更新镜像并重建                   [18] 按当前配置重建
 
-  0) 退出
+  ── 配置与连接 ────────────────────────────────────────────
+  [08] 修改完整配置                     [09] DeepSeek API / Base URL
+  [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
+  [11] Docker 项目管理权限              [27] 国际网络 / sing-box
+  [21] Standard / Research 版本切换     [22] Research Pack 切换
+
+  ── 开发与数据 ────────────────────────────────────────────
+  [12] 查看容器开发环境                 [13] 显示首次访问 Token URL
+  [14] 进入容器 Shell                   [28] 会话管理
+  [15] 备份数据                         [16] 恢复数据
+  [23] 查看持久化存储                   [26] 自定义持久化挂载
+  [24] Research Dashboard
+
+  ── 诊断与维护 ────────────────────────────────────────────
+  [17] 环境诊断                         [19] 检查更新 dshd 自身
+  [20] 卸载
+
+  [ 0] 退出
 EOF
     local choice=""
     local menu_rc=0
