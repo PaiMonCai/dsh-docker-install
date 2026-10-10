@@ -525,3 +525,11 @@ Plugin Hub 升级覆盖 node_modules 后，下一次 `dshd restart` / `dshd recr
 **插件私有路由的 POST 405** 符合这个缺陷；若是上游内置
 `/api` 下的 `workspaceFiles.list` 失败或反向代理返回 405，
 应检查具体 Request URL、反向代理路由和 DSH 日志，不能归入该补丁。
+
+
+### 内置「文件」面板 HTTP 405
+
+「文件」页对应的内置请求是 `POST /api/workspaceFiles/list`，不同于第三方插件的私有 RPC 接口。
+它属于 DSH 核心 Connection API；正常无 Cookie 请求应该返回 `401 unauthorized`，
+而不是 `405`。若出现 405，按 [内置文件面板 405 回归检测](ci.md#内置文件面板-405-回归检测)
+分别测试 Docker 本机端口和域名反代端口，依据哪个入口返回 405 确定根因。

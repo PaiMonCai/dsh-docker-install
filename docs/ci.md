@@ -101,3 +101,31 @@ Research 环境：`DSH_IMAGE=<image>:research-0.2.1-alpha.1`。
 - PR：Standard 与 Research 分别实际构建 `linux/amd64`，将本地未压缩大小和主要目录占用写到 GitHub Actions Job Summary；如 GHCR 可拉取现有浮动 tag，同步显示已发布镜像大小作为基线。`main` 发布仍保留 `amd64/arm64`，不改变版本 tag 或默认功能。
 
 **比较口径：** `docker image inspect --format '{{.Size}}'` 是本地未压缩镜像大小，并非 GHCR 传输压缩大小或运行时内存使用量。请以 PR 中真实构建的对比结果判断本次优化收益。
+
+
+## 内置文件面板 405 回归检测
+
+Standard 的 Docker Web smoke 不再只检查首页 GET 可达：
+实际启动镜像并经映射端口发送未登录的
+`POST /api/workspaceFiles/list`（DSH 内置「文件」面板的目录加载接口）。
+预期由已注册的 Connection API 路由返回 `401 unauthorized`；
+`405` 表示请求落入 Web 静态资源兜底，镜像验收直接失败。
+这不会伪造用户 Cookie，也不会访问或修改会话文件。
+
+线上若仍在文件面板看到红色 `HTTP 405`，先比较：
+
+```bash
+# 服务器本机，经 DSH 宿主机映射端口（用部署实际端口替换 3080）
+curl -i -X POST http://127.0.0.1:3080/api/workspaceFiles/list \
+  -H 'content-type: application/json' -d '{}'
+
+# 然后在域名反代入口执行同样的请求
+curl -i -X POST https://你的DSH域名/api/workspaceFiles/list \
+  -H 'content-type: application/json' -d '{}'
+```
+
+两条请求在未携带登录 Cookie 时都应返回 `401 unauthorized`。
+本机 `401`、域名 `405` 时排查 Nginx/1Panel/OpenResty 对 `/api` 的代理路由、路径重写和域名路径前缀；
+两边都 `405` 时确认部署的镜像确实更新、DSH Host 的 Connection `/api` 路由是否加载；
+若浏览器的 Request URL 根本不是 `/api/workspaceFiles/list`（例如出现额外前缀），检查代理路径与 HTML base URL。
+`403` 才主要排查原始 Host/Origin 与 DSH_TRUSTED_HOSTS。

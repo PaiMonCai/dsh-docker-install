@@ -250,14 +250,36 @@ jobs:
             case "$code" in
               200|302|303|401)
                 echo "DSH Web is reachable through Docker port mapping (HTTP $code)"
-                exit 0
+                break
                 ;;
             esac
             sleep 1
           done
-          docker logs "$name"
-          echo "::error::DSH Web did not become reachable through Docker port mapping"
-          exit 1
+          if [[ "$code" != 200 && "$code" != 302 && "$code" != 303 && "$code" != 401 ]]; then
+            docker logs "$name"
+            echo "::error::DSH Web did not become reachable through Docker port mapping"
+            exit 1
+          fi
+
+          # A rendered index does NOT prove the Web API route exists.
+          # Built-in Files uses POST /api/workspaceFiles/list; without a browser
+          # auth cookie it must be intercepted as 401 by Connection, not 405
+          # from the static-resource fallback (nor 403 from the Host fence).
+          rpc_url="http://127.0.0.1:${mapped_port}/api/workspaceFiles/list"
+          response_file="$(mktemp)"
+          status="$(curl -sS --max-time 8 -o "$response_file" -w '%{http_code}' \
+            -X POST -H 'content-type: application/json' \
+            --data '{"type":"client-request","rpcId":"dsh-web-ci","method":"workspaceFiles/list","payload":{"args":[]}}' \
+            "$rpc_url")"
+          if [[ "$status" != 401 ]] || [[ "$(cat "$response_file")" != unauthorized ]]; then
+            echo "::error::Built-in Files API route failed: POST /api/workspaceFiles/list returned $status, expected unauthenticated 401. Check Connection /api mount or reverse-proxy routing (405=static fallback)."
+            docker logs "$name" | sed -E 's/(token=)[^&[:space:]]+/\\1[REDACTED]/g'
+            rm -f "$response_file"
+            exit 1
+          fi
+          rm -f "$response_file"
+          echo "DSH built-in Files API route is mounted (unauthenticated POST -> 401)."
+
 
       - name: Report image footprint
         if: github.event_name == 'pull_request'
