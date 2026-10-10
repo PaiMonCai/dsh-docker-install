@@ -167,9 +167,13 @@ COPY docker/ensure-session-manager-web.sh /usr/local/bin/ensure-dsh-session-mana
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
+# Keep the source module name beside the health probe for Node require().
+COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
+COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
 COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-editor
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
+ && node --check /usr/local/bin/dsh-healthcheck.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
  && bash -n /usr/local/bin/dsh-session-manager \
@@ -186,8 +190,10 @@ WORKDIR /workspace
 VOLUME ["/root/.dsh"]
 EXPOSE 3080
 
+# The entrypoint binds Web to a concrete container IP, not necessarily loopback.
+# Reuse the same resolver; the healthcheck is also inherited by Research images.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${DSH_PORT:-3080}/" | grep -qE '^(200|302|401)$'
+    CMD ["node", "/usr/local/bin/dsh-healthcheck.js"]
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dsh-entrypoint"]
 CMD ["web"]
