@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Docker built-in Web session delete action (restart-safe)",
+  "description": "DSH Docker 内置 Web 会话管理（安全重启后移入回收区）",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
