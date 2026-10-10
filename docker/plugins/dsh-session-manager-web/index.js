@@ -111,7 +111,9 @@ async function moveToTrash(ctx, home, id, title) {
   const existing = await recordOf(home, id)
   if (existing) return { trashed: true, existing: true }
   const session = await ctx.sessionPersistence.stat(id)
-  if (!session || session.header?.id !== id) deny(404, 'session-not-found')
+  if (!session || session.header?.id !== id || !await locateSession(home, id)) {
+    deny(404, 'session-not-found')
+  }
   // Mark first, then ask DSH to stop only this Session's active work.
   // The log is left untouched until the user chooses permanent deletion.
   await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
@@ -145,7 +147,10 @@ async function erase(ctx, home, id) {
   // Reissue targeted stop even for an already archived V2 trash entry.
   await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
   if (typeof ctx.parallel === 'function') {
+    // The Host handles stopping work best-effort; force purge is not
+    // blocked by a provider that cannot stop a stale task.
     await ctx.parallel('workspace/session-stop', { sessionId: id })
+      .catch(error => ctx.logger?.warn?.('dsh session-manager: stop request: ' + String(error)))
   }
 
   const source = await locateSession(home, id)
