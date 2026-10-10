@@ -1,11 +1,12 @@
 /**
  * Web-only DSH session lifecycle extension.
  *
- * "Delete" is a reversible, durable trash mark on DSH's native archive set.
- * Its session files stay in place so an active persistence handle is never
- * renamed out from under the running Web process. "Permanently delete" takes
- * a per-session exclusive write lease, rejects live sessions, moves the
- * cold directory out of the session root and purges it without restarting DSH.
+ * "Delete" is a reversible trash mark on DSH's native archive set.
+ * "Permanently delete" is available only from the trash, immediately
+ * detaches the directory and removes it without restarting the Docker
+ * container, even if the target Session is still attached to the Host.
+ * A force purge first archives/stops the target work via DSH's native
+ * workspace lifecycle; other sessions are not stopped.
  * All routes sit behind the standard authenticated connection/request gate.
  */
 import { readdir, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
@@ -88,10 +89,6 @@ async function locateSession(home, id) {
   }
   return target
 }
-function active(ctx, id) {
-  return !!ctx.sessions.get(id) || !!ctx.agents.get(id)
-}
-
 async function listTrash(home) {
   const dir = trashDir(home)
   if (!await realDir(dir)) {
@@ -114,18 +111,10 @@ async function moveToTrash(ctx, home, id, title) {
   const existing = await recordOf(home, id)
   if (existing) return { trashed: true, existing: true }
   const session = await ctx.sessionPersistence.stat(id)
-  if (!session || session.header?.id !== id || !await locateSession(home, id)) {
-    deny(404, 'session-not-found')
-  }
-  if (active(ctx, id) && ctx.agents.get(id)?.status === 'running') deny(409, 'session-active')
-  try {
-    // DSH itself checks all registered work sources (turns, jobs, schedules)
-    // and refuses the transition if any still has work, without stopping it.
-    await ctx.workspaceRegistry.archiveSession(id)
-  } catch (error) {
-    if (/active|running|activity/i.test(String(error))) deny(409, 'session-active')
-    throw error
-  }
+  if (!session || session.header?.id !== id) deny(404, 'session-not-found')
+  // Mark first, then ask DSH to stop only this Session's active work.
+  // The log is left untouched until the user chooses permanent deletion.
+  await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
   try {
     await saveRecord(home, {
       sessionId: id, title: title || id, deletedAt: new Date().toISOString(),
@@ -145,55 +134,35 @@ async function restore(ctx, home, id) {
   return { restored: true }
 }
 
-async function erase(ctx, home, id, fromTrash) {
-  const record = await recordOf(home, id)
-  if (fromTrash && !record) deny(404, 'not-in-trash')
-  const known = await ctx.sessionPersistence.stat(id)
-  if (!known || known.header?.id !== id) deny(404, 'session-not-found')
-  if (active(ctx, id)) deny(409, 'session-in-use')
-  // Archive first, preventing new work from being admitted by DSH's native
-  // workspace activity gate. Do NOT auto-stop an in-flight Agent.
-  const wasArchived = ctx.workspaceRegistry.archivedSessionIds?.has?.(id)
-    || ctx.workspaceRegistry.archivedSessionIds?.includes?.(id) || false
-  if (!wasArchived) {
-    try { await ctx.workspaceRegistry.archiveSession(id) }
-    catch (error) {
-      if (/active|running|activity/i.test(String(error))) deny(409, 'session-active')
-      throw error
-    }
+async function erase(ctx, home, id) {
+  // The server enforces the same two-stage workflow as the Web UI.
+  // A direct POST cannot bypass the trash or purge an ordinary session.
+  if (!await recordOf(home, id)) deny(409, 'delete-to-trash-first')
+
+  // Keep the native archive tombstone after purging. In some DSH versions
+  // an attached Session/Agent remains cached until its owning context exits.
+  // Unarchiving a physically purged id would surface a ghost Session row.
+  // Reissue targeted stop even for an already archived V2 trash entry.
+  await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+  if (typeof ctx.parallel === 'function') {
+    await ctx.parallel('workspace/session-stop', { sessionId: id })
   }
-  let handle
-  let moved = false
-  try {
-    // Upstream holds both an in-process claim and an OS session.lock lease for
-    // the duration of this write handle. If another writer exists, fail closed.
-    try { handle = await ctx.sessionPersistence.open(id, 'write') }
-    catch (error) {
-      if (/owned|lock|busy|lease|already/i.test(String(error))) deny(409, 'session-in-use')
-      throw error
-    }
-    if (active(ctx, id)) deny(409, 'session-in-use')
-    const source = await locateSession(home, id)
-    if (!source) deny(404, 'session-not-materialized')
+
+  const source = await locateSession(home, id)
+  if (source) {
     const dir = await prepareTrash(home)
-    const purgePath = join(dir, '.purge-' + randomUUID())
-    await rename(source, purgePath)
-    moved = true
-    // Release the writer lease before unlinking its inode.
-    await handle.close()
-    handle = null
-    await rm(purgePath, { recursive: true, force: true })
-    await discardRecord(home, id)
-    await ctx.workspaceRegistry.unarchiveSession(id)
-    // Signal native client session lists to shed a now-absent row immediately.
-    ctx.emit?.('api-session/removed', id)
-    return { purged: true }
-  } finally {
-    if (handle) await handle.close()
-    if (!moved && !wasArchived) {
-      await ctx.workspaceRegistry.unarchiveSession(id).catch(() => {})
-    }
+    const detached = join(dir, '.purge-' + randomUUID())
+    // Rename is atomic within DSH_HOME and removes the Session from the
+    // persistence scan before recursively unlinking its files. No write
+    // lease is requested: force-delete deliberately overrides live ownership.
+    await rename(source, detached)
+    await rm(detached, { recursive: true, force: true })
   }
+  // A session created in-memory but not yet materialized has no disk
+  // directory; its persisted trash marker can still be purged.
+  await discardRecord(home, id)
+  ctx.emit?.('api-session/removed', id)
+  return { purged: true }
 }
 
 async function body(req) {
@@ -245,8 +214,8 @@ export function apply(ctx) {
           result = await moveToTrash(ctx, home, id, data.title?.trim())
           break
         case 'restore': result = await restore(ctx, home, id); break
-        case 'permanent': result = await erase(ctx, home, id, false); break
-        case 'purge': result = await erase(ctx, home, id, true); break
+        case 'permanent': deny(409, 'delete-to-trash-first')
+        case 'purge': result = await erase(ctx, home, id); break
         default: deny(400, 'invalid-action')
       }
       send(res, 200, result)
