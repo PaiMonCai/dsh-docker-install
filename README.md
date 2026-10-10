@@ -80,8 +80,10 @@ dshd edition standard
 `dshd sessions purge TRASH_ID` 进行管理。
 
 删除会话日志之前，管理器会暂时停止正在运行的 DSH，操作完成后自动尝试恢复启动。
-此功能目前属于宿主机 `dshd` 运维菜单，不是 Web 内的删除按钮：
-上游尚没有正式的会话删除 API，因此不安全地在 Web 进程中直接移除文件会损坏会话状态。
+Web 界面通过内置 `dsh-docker-session-manager` 插件，在会话右侧 `···` 菜单加入“删除会话”。
+提交删除后，Host 将请求写入持久化队列，再由 Docker 容器受控重启时的入口脚本
+将会话移入回收区，避免在运行期间直接修改日志。若禁用自动重启，则通过
+`dshd restart` 应用删除请求。Web 插件可通过 `DSH_SESSION_MANAGER_WEB=false` 关闭。
 详见 [Runtime 与运维](docs/runtime.md)。
 
 ## Standard 提供什么

@@ -35,6 +35,8 @@ services:
       DSHW_ADMIN_HOSTS: "${DSHW_ADMIN_HOSTS:-}"
       # 内置自定义模型 reasoningEfforts 编辑器；false 时通过 DSH Plugin Manager 移除。
       DSH_REASONING_EDITOR: "${DSH_REASONING_EDITOR:-true}"
+      # 内置 Web 会话管理菜单，删除时重启并进入回收区；false 时移除该插件。
+      DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
       # 默认使用中国标准时间；可在 .env 覆盖。
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"
       # Landlock 沙箱下 /root/.npm 不可写，默认把 npm cache 放到 /tmp。

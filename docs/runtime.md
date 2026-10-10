@@ -261,3 +261,19 @@ dshd sessions purge TRASH_ID
 本功能管理上游 JSONL Session 目录，不删除工作区、备份、插件持有的引用和上游
 Workspace 注册信息，也不级联删除 fork 或子会话；清理父会话前请确认关联会话。
 若其他容器共用相同持久化卷，应先停止其他写入者。
+
+
+### Web 会话管理插件
+
+镜像还内置 `dsh-docker-session-manager` Web 插件，通过 DSH Plugin Manager
+注册到 `web` profile，默认启用（`DSH_SESSION_MANAGER_WEB=false` 禁用）。
+在会话行 `···` 菜单选择“删除会话…”后，会显示确认弹窗。
+浏览器请求通过 DSH Connection 的已认证 `/api` 通道，
+Host **只写入** `DSH_HOME/.dshd-session-manager/pending` 队列，不直接修改活动日志。
+`DSH_DOCKER_RESTART=container` 时会触发 Docker 重新启动；新进程在 Session
+Store 启动前处理队列，将对应会话移入与命令行相同的回收区。
+没有自动重启时，执行 `dshd restart` 生效。
+
+仅允许匹配上游 Session Persistence 已确认存在、且物理目录匹配的会话 ID。
+删除请求不会清理工作区文件、已归档备份和相关 fork 子会话。
+部署需要限制 DSH Web 对外访问；已认证的 Web 用户可以提交删除请求。
