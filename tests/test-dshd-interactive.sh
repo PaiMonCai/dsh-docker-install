@@ -52,6 +52,7 @@ for number in $(seq 1 27); do
   grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
 done
 grep -Fq '[ 0] 退出' "$TMP/menu.out" || { echo "主菜单缺少退出选项"; exit 1; }
+grep -Fq '[13] Web 登录 Token 管理' "$TMP/menu.out" || { echo "主菜单 [13] 应显示 Token 管理而非旧访问链接"; exit 1; }
 grep -q '容器 .*状态 .*健康 ' "$TMP/menu.out" || { echo "顶部未显示完整运行状态"; exit 1; }
 grep -q 'Edition .*Pack .*Docker 管理' "$TMP/menu.out" || { echo "顶部未显示版本与 Docker 权限"; exit 1; }
 if grep -Fq $'\033[' "$TMP/menu.out"; then
@@ -79,6 +80,43 @@ grep -Fq '[14] 进入容器 Shell' "$TMP/menu-narrow.out" || { echo "窄屏缺�
 if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
   echo "窄屏应切换为单列菜单"; exit 1
 fi
+
+
+# --- 1b) Token 子菜单：保留 [13] 编号，四项操作全部使用已有命令 -------------
+# 不使用真实 Docker，确认交互路线与子命令一一对应。
+(
+  cmd_token() { printf 'token-action:%s\\n' "$1"; }
+  printf '13\\n无效\\n1\\n\\n2\\n\\n3\\n\\n4\\n\\n0\\n0\\n' | menu
+) >"$TMP/token-menu.out" 2>"$TMP/token-menu.err"
+grep -Fq 'Web 登录 Token 管理' "$TMP/token-menu.out" || { echo "主菜单 13 未进入 Token 子菜单"; exit 1; }
+grep -Fq '无效选项' "$TMP/token-menu.err" || { echo "Token 子菜单应允许重输无效选项"; exit 1; }
+for action in url status set reset; do
+  [[ "$(grep -Fc "token-action:$action" "$TMP/token-menu.out")" == "1" ]] || {
+    echo "Token 子菜单未正确路由 $action"; cat "$TMP/token-menu.out"; exit 1;
+  }
+done
+[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/token-menu.out")" == "2" ]] || {
+  echo "退出 Token 子菜单应直接回主菜单一次"; exit 1;
+}
+if grep -Fq '[13] 显示首次访问 Token URL' "$TMP/token-menu.out"; then
+  echo "Token 主菜单文案未同步"; exit 1
+fi
+
+# 失败只退出单次动作，不结束子菜单；EOF 也不会循环。
+(
+  cmd_token() { [[ "$1" != set ]]; }
+  printf '3\\n\\n2\\n\\n0\\n' | cmd_token_menu
+) >"$TMP/token-error.out" 2>"$TMP/token-error.err"
+grep -Fq '本次操作未完成' "$TMP/token-error.err" || { echo "失败应回到 Token 子菜单"; exit 1; }
+[[ "$(grep -c 'Web 登录 Token 管理' "$TMP/token-error.out")" -ge 2 ]] || {
+  echo "失败后 Token 子菜单未继续工作"; exit 1;
+}
+timeout 5 bash -c '
+  export DSHD_LIB_ONLY=1 DSHD_NO_SELF_UPDATE=1 DSHD_STATE_DIR="'"$DSHD_STATE_DIR"'"
+  export DSHD_CONFIG_FILE="'"$DSHD_CONFIG_FILE"'"
+  source "'"$ROOT"'/dshd"
+  cmd_token_menu </dev/null
+' >"$TMP/token-eof.out" 2>&1 || { echo "Token 子菜单 EOF 不应挂死"; exit 1; }
 
 # --- 2) 修改配置：端口输错后重问，正确值被保存 -----------------------------------
 FORCED_TTY=1
