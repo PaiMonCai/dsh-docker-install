@@ -263,6 +263,31 @@ http://127.0.0.1:8765/
 
 Dashboard Preview 本身不提供登录认证，也不会默认监听公网地址。页面只通过 Stable JSON API v1 读取 Project / Check / Data / Pipeline / Result 状态，不提供任意 shell、模型运行或数据修改接口。
 
+### 固定 Web 登录 Token
+
+从本镜像版本开始，首次启动 DSH Web 时会自动生成 32 字节随机 Token，
+持久保存到 `$DSH_HOME/.dshd-web-login-token.json`（文件权限 `0600`，属于已挂载的持久化目录）。
+以后即使通过 `dshd update`、`dshd recreate` 或 Docker 重启，首次登录 Token 也保持不变。
+该文件只在运行时生成，**不会写入镜像、`docker run -e` 参数或 `dshd` 普通配置文件**。
+
+```bash
+dshd token                  # 显示带固定 Token 的登录地址
+dshd token status           # 查看 auto/custom 模式，不泄露值
+dshd token set              # 安全隐藏输入自定义 Token，并自动重启 Web
+dshd token reset            # 重新生成随机 Token，并自动重启 Web
+```
+
+自定义 Token 必须为 **32–128 个**字母、数字、下划线或连字符组成的高强度字符串。
+`set` 从终端隐藏读取两次，不允许把 Token 明文放在命令行参数中；
+也支持通过标准输入输入，但不建议直接在 shell 历史命令中写出秘密。
+设置、重置和查询状态需要当前 DSH 容器运行，旧镜像需先 `dshd update`。
+
+**注意：** `token reset` 只令旧的 `?token=...` 首次登录链接失效。
+已通过浏览器 Cookie 登录的用户通常仍能使用现有 Cookie（默认 30 天），
+因为 Cookie 的签名密钥独立存储于 `$DSH_HOME/.credentials.yaml`。
+需要撤销所有已登录浏览器时，应按上游凭据轮换流程处理，不能把重置首次登录 Token 当作全员登出。
+不要把 Token 贴进公开聊天、GitHub Issues 或反向代理访问日志。
+
 ### 自定义容器环境变量
 
 需要向 DSH 容器传入代理、第三方工具或其他自定义环境变量时，使用：

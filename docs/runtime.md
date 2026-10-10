@@ -237,6 +237,23 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `NPM_CONFIG_CACHE` | `/tmp/npm-cache` | npm 实际 cache 路径（dshd 由 `DSH_NPM_CACHE` 注入） |
 
 
+## 持久化 Web 首次登录 Token
+
+官方 DSH 启动 Token 原本为进程级随机值，因此镜像重建后首次访问 URL 会变。
+镜像在构建阶段对 DSH Connection 的**启动 Token 生成点**做精确版本适配，
+不改动 Cookie 签名、Host/Origin 校验或浏览器会话验证。
+CI 会启动真实镜像，并在完全移除再创建 Docker 容器后验证 Token 一致。
+
+启动时从持久化的 `$DSH_HOME/.dshd-web-login-token.json` 读取 Token；
+缺失则生成一次 32 字节高强度随机值，保存为 `0600`。
+Token 仅进入 Web 进程环境，未进入 Docker 配置的环境变量列表。
+非法 JSON、软链接、宽松文件权限都会拒绝启动 Web，而不是默默换成随机 Token。
+
+`dshd token set` 安全交互输入自定义 Token；`dshd token reset` 换新随机 Token；
+`dshd token status` 不输出明文，只显示 auto/custom 模式。修改后自动重启容器以生效。
+已有浏览器 Cookie 的签名凭据独立于此 Token，重置首次登录 Token **不等于注销现有浏览器**。
+保存了 DSH_HOME 的备份也可能包含 Token，请保护备份权限。
+
 ## Web 会话管理（删除 / 永久删除 / 回收站）
 
 `dsh-docker-session-manager` 是容器内默认启用的 Web 插件；会话管理不再提供

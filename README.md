@@ -70,6 +70,15 @@ dshd edition standard
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
+## 固定 Web 登录 Token
+
+首次启动会自动生成高强度 Token 并保存在 DSH 的持久卷中，后续镜像更新、
+容器重建或 Docker 重启不再改变 `?token=...` 首次登录链接。
+支持 `dshd token status` 查询模式、`dshd token set` 自定义以及
+`dshd token reset` 重新生成；自定义值使用隐藏式终端输入，不写入 Docker 环境参数。
+旧版已登录浏览器的 Cookie 独立持久，重置 Token 并不会注销已有登录。
+详细说明见 [部署文档](docs/deployment.md#固定-web-登录-token)。
+
 ## Web 会话管理插件
 
 DSH 会话管理现由内置 `dsh-docker-session-manager` **Web 插件**提供，不再需要 `dshd sessions` CLI：

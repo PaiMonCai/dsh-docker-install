@@ -36,6 +36,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
 COPY docker/patch-connection-rpc-routes.js /usr/local/bin/patch-connection-rpc-routes.js
+COPY docker/patch-web-launch-token.js /usr/local/bin/patch-web-launch-token.js
 COPY docker/patch-workspace-picker-home.js /usr/local/bin/patch-workspace-picker-home.js
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
 COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
@@ -145,6 +146,7 @@ RUN . /usr/local/bin/cn-mirror \
       playwright \
  && node /usr/local/bin/patch-remote-settings.js \
  && node /usr/local/bin/patch-connection-rpc-routes.js \
+ && node /usr/local/bin/patch-web-launch-token.js \
  && node /usr/local/bin/patch-workspace-picker-home.js \
  && npx playwright install --with-deps chromium \
  && ln -sf "$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -name chrome -path '*chrome-linux*' | head -1)" /usr/local/bin/chromium \
@@ -158,6 +160,7 @@ RUN . /usr/local/bin/cn-mirror \
       /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-remote-settings.js \
       /usr/local/bin/patch-connection-rpc-routes.js \
+      /usr/local/bin/patch-web-launch-token.js \
       /usr/local/bin/patch-workspace-picker-home.js
 
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
@@ -170,10 +173,12 @@ COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
 # Keep the source module name beside the health probe for Node require().
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
+COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-editor
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
+ && node --check /usr/local/bin/dsh-web-token.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
  && bash -n /usr/local/bin/dsh-session-manager \

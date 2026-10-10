@@ -98,6 +98,9 @@ jobs:
           node --check docker/plugins/dsh-session-manager-web/client.js
           node tests/test-session-manager-web.mjs
           node tests/test-connection-rpc-routes.js
+          node --check docker/dsh-web-token.js
+          node --check docker/patch-web-launch-token.js
+          node tests/test-web-token.js
           bash -n docker/entrypoint.sh
           bash -n docker/ensure-reasoning-editor.sh
           sh -n docker/cn-mirror.sh
@@ -239,9 +242,14 @@ jobs:
         run: |
           set -euo pipefail
           name="dsh-ci-web-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+          token_volume="dsh-ci-token-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            docker volume rm "$token_volume" >/dev/null 2>&1 || true
+          }
           trap cleanup EXIT
-          docker run -d --name "$name" -p 127.0.0.1::3080 dsh-ci:pr
+          docker volume create "$token_volume" >/dev/null
+          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 dsh-ci:pr
           mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
           mapped_port="${mapped_port##*:}"
           [[ "$mapped_port" =~ ^[0-9]+$ ]]
@@ -323,6 +331,26 @@ jobs:
           fi
           rm -f "$cookie_file" "$response_file"
           echo "DSH Web session-manager authenticated trash route is mounted"
+
+          # Docker recreate must not change the launch Token. The second
+          # container uses the same DSH_HOME volume, not just a process restart.
+          test "$(docker exec "$name" node /usr/local/bin/dsh-web-token.js status)" = auto
+          saved_token="$(docker exec "$name" node /usr/local/bin/dsh-web-token.js print)"
+          [[ "$saved_token" == "$token" ]]
+          docker rm -f "$name" >/dev/null
+          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 dsh-ci:pr >/dev/null
+          new_token=""
+          for _ in {1..90}; do
+            new_token="$(docker logs "$name" 2>&1 | sed -nE 's/.*\?token=([A-Za-z0-9_-]+).*/\1/p' | tail -n 1)"
+            [[ -n "$new_token" ]] && break
+            sleep 1
+          done
+          if [[ -z "$new_token" || "$new_token" != "$saved_token" ]]; then
+            echo "::error::Web login Token changed after container recreate on the same volume"
+            exit 1
+          fi
+          echo "DSH Web login Token is stable across Docker container recreates"
+
 
 
 
