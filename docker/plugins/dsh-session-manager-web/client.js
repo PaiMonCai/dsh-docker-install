@@ -7,21 +7,17 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-session-manager/delete'
 
-    function locale() {
-      const zh = (document.documentElement.lang || navigator.language || '').toLowerCase().startsWith('zh')
-      return zh ? {
-        action: '删除会话…', title: '删除会话', cancel: '取消', confirm: '删除并重启',
-        caution: '会话将移入回收区，工作区文件不会被删除。为避免损坏正在写入的历史记录，DSH 需要重启。fork 子会话不会自动删除。',
-        pending: '正在提交删除请求…', accepted: '删除请求已保存。DSH 将重启并移入回收区。',
-        manual: '删除请求已保存，需执行 dshd restart 才能生效。',
-        failed: '提交删除请求失败。请检查服务器日志。',
-      } : {
-        action: 'Delete session…', title: 'Delete session', cancel: 'Cancel', confirm: 'Delete and restart',
-        caution: 'The session will be moved to trash. Workspace files are untouched. DSH must restart to avoid removing active history. Forks are not deleted automatically.',
-        pending: 'Submitting deletion request…', accepted: 'Deletion queued. DSH will restart and move it to trash.',
-        manual: 'Deletion queued. Run dshd restart for it to take effect.',
-        failed: 'Unable to queue deletion. Check server logs.',
-      }
+    // Keep the built-in destructive action in Chinese on every browser locale.
+    const copy = {
+      action: '删除会话…',
+      title: '删除会话',
+      cancel: '取消',
+      confirm: '删除并重启',
+      caution: '会话将移入回收区，工作区文件不会被删除。为避免损坏正在写入的历史记录，DSH 需要重启。fork 子会话不会自动删除。',
+      pending: '正在提交删除请求…',
+      accepted: '删除请求已保存。DSH 将重启并移入回收区。',
+      manual: '删除请求已保存，需执行 dshd restart 才能生效。',
+      failed: '提交删除请求失败。请检查服务器日志。',
     }
 
     return {
@@ -32,12 +28,12 @@ window.__ModuleLoader__.load({
         const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
         const snapshot = () => request
         const setRequest = value => { request = value; for (const notify of listeners) notify() }
-        const copy = locale()
 
         function SessionDeleteMenu({ sessionId, displayTitle, useMenuOpenState }) {
           const [, setMenuOpen] = useMenuOpenState()
           return h(MenuItemButton, {
             separatorBefore: true,
+            danger: true,
             onSelect: () => {
               setMenuOpen(false)
               setRequest({ sessionId, displayTitle })
