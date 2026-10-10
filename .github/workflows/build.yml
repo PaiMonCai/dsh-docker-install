@@ -97,6 +97,7 @@ jobs:
           bash -n tests/test-dsh-session-manager.sh
           bash tests/test-dsh-session-manager.sh
           node tests/test-session-manager-web.mjs
+          node tests/test-connection-rpc-routes.js
           bash -n docker/entrypoint.sh
           bash -n docker/ensure-reasoning-editor.sh
           sh -n docker/cn-mirror.sh
