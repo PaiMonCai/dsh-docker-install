@@ -25,6 +25,10 @@ on:
         description: 额外通道 tag，逗号分隔（如 alpha）；留空则按上游 npm dist-tag 自动推导
         required: false
         type: string
+      source_sha:
+        description: 固定科研版使用的源码 commit；Standard 自动触发时传入
+        required: false
+        type: string
   workflow_call:
     inputs:
       base_image:
@@ -42,6 +46,11 @@ on:
         required: false
         type: string
         default: ""
+      source_sha:
+        description: 固定 Research 源码 commit；留空使用当前提交
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   # Called workflows inherit the caller's github.workflow value. Use a
@@ -53,8 +62,41 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
+  # Mixed Standard+Research commits should never start Research on push.
+  # Standard's post-publish dispatch will create a new independent run with
+  # the exact base digest and source commit.
+  prepare:
+    name: Determine Research build trigger
+    runs-on: ubuntu-latest
+    outputs:
+      run_research: ${{ steps.gate.outputs.run_research }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Skip mixed push until Standard publishes
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'push' ]]; then
+            should_run="$(bash ci/research-push-gate.sh "$BEFORE_SHA" "$GITHUB_SHA")"
+          else
+            should_run=true
+          fi
+          echo "run_research=$should_run" >> "$GITHUB_OUTPUT"
+          if [[ "$should_run" == false ]]; then
+            echo "Same push changed Standard and Research: wait for Standard dispatch."
+          fi
+
   build:
     name: build (${{ matrix.tag }})
+    needs: prepare
+    if: ${{ needs.prepare.outputs.run_research == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -70,6 +112,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Validate Research scripts
         run: |

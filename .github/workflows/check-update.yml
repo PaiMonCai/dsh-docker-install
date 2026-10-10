@@ -105,3 +105,4 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write # called Standard workflow dispatches independent Research

@@ -9,10 +9,7 @@
 - **`.github/workflows/build.yml`** — 每次正式发布前先构建 amd64 审计镜像，验证开发工具与实际 Docker Web/端口映射能启动，全部通过后才推送镜像到 GHCR
   （`ghcr.io/<owner>/<repo>`），amd64 + arm64 双架构。触发方式：镜像相关文件变更、
   手动触发、被更新检查调用。发布哪些 tag 见[镜像 tag 与上游发布通道](#镜像-tag-与上游发布通道)。
-- **`.github/workflows/build-research.yml`** — 构建 Research Core 与 Economics Pack。
-  PR 仅做 amd64 验证；合并到 `main` 后发布 amd64 + arm64。独立运行时以 DSH 精确版本 tag 为基础镜像；被 Standard 发布工作流调用时使用刚发布的精确 digest。除浮动的 `:research` /
-  `:research-economics` 外，版本与通道 tag 都带上 edition 前缀，并跟随**它实际包住的
-  dsh 版本**（tag 明细见下一节）。
+- **`.github/workflows/build-research.yml`** — **独立 GitHub Actions 运行**，构建 Research Core 与 Economics Pack。Standard 推送成功后以 `workflow_dispatch` 启动新运行，固定传入刚发布镜像的 digest、代码 commit、DSH 版本和通道快照；基础版 **不等待科研构建**，科研失败也不会回滚基础版。Research-only 提交可独立构建；同一次 push 同时更改两版时，Research push 触发会跳过，等待基础版发布后再启动，以避免抢跑与重复构建。PR 只进行 amd64 验证，正式发布为 amd64 + arm64。手动运行时默认以 DSH 精确版本 tag 为基础镜像。除 `:research` / `:research-economics` 浮动 tag 外，版本和通道 tag 都跟随**实际包住的 DSH 版本**。
 - **`.github/workflows/check-update.yml`** — 每天检查 npm registry 上
   `@deepseek-ai/dsh` 的最新版本，发现新版本时自动修改
   `Dockerfile` / `docker-compose.yml` / `README.md` 中的版本号并提交，
@@ -80,8 +77,7 @@ docker pull <image>:research-alpha  ≈    研究镜像 ⊃ 上面那个 alpha
 只想补某个通道 tag 时，手动触发 build（或 build-research）工作流并填
 `channel_tags`（如 `next`）即可；该输入只影响附加 tag，不改变构建内容。
 
-Standard 构建会把解析到的通道名一并传给 Research 构建（`channel_tags` 输入），
-所以两类镜像的通道 tag 始终来自同一次解析，不会各自漂移。
+Standard 构建成功推送之后，调用 `gh workflow run build-research.yml` 排队一个独立工作流，通过 `base_image` 固定基础镜像 digest、`source_sha` 固定代码来源、`dsh_version` 与 `channel_tags` 固定版本及通道快照。基础版的发布状态不再受 Research 构建耗时或失败影响；两个科研镜像仍在自己的工作流里并行构建。
 
 容器侧要固定跟随某个通道，把 `DSH_IMAGE` 指向对应 tag 即可
 （新装可用环境变量传入，已有安装改 `config.env` 里的 `DSH_IMAGE` 后 `dshd update`；
