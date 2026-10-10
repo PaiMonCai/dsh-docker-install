@@ -1,9 +1,9 @@
 {
   "name": "dsh-docker-session-manager",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Docker built-in Web session delete action (restart-safe)",
+  "description": "DSH Web session trash, restore and no-restart permanent deletion",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",

@@ -1,75 +1,130 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, symlink, readdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { spawnSync } from 'node:child_process'
 import { apply, ENDPOINT } from '../docker/plugins/dsh-session-manager-web/index.js'
 
-const home = await mkdtemp(join(tmpdir(), 'dsh-web-sessions-'))
+const home = await mkdtemp(join(tmpdir(), 'dsh-web-trash-'))
 const oldHome = process.env.DSH_HOME
 const oldRestart = process.env.DSH_DOCKER_RESTART
 process.env.DSH_HOME = home
-process.env.DSH_DOCKER_RESTART = ''
-const id = 'session-12345678-abcd'
-const project = '--workspace--'
-const session = join(home, 'sessions', project, id)
+process.env.DSH_DOCKER_RESTART = 'container'
 
-async function request(listener, method, input) {
-  const req = Readable.from([Buffer.from(JSON.stringify(input))])
-  req.url = ENDPOINT
+const project = '--workspace--'
+const id = 'session-aabbccdd'
+const other = 'session-11223344'
+const directory = id => join(home, 'sessions', project, id)
+async function create(id) {
+  await mkdir(directory(id), { recursive: true })
+  await writeFile(join(directory(id), 'session.v4.jsonl'), '{"type":"header"}\n')
+}
+let inUse = new Set()
+let active = false
+let busyLease = false
+let handleCloses = 0
+let handler, nextCount = 0, kills = 0
+const archived = new Set()
+const removed = []
+const ctx = {
+  sessionPersistence: {
+    async stat(sessionId) {
+      const dir = await readdir(join(home, 'sessions', project)).catch(() => [])
+      return dir.includes(sessionId) ? { header: { id: sessionId } } : undefined
+    },
+    async open(id, mode) {
+      assert.equal(mode, 'write')
+      if (busyLease) throw new Error('SessionAlreadyOwnedError: busy')
+      return { async close() { handleCloses++ } }
+    },
+  },
+  workspaceRegistry: {
+    archivedSessionIds: archived,
+    async archiveSession(id) {
+      if (active) throw new Error('session active: turn running')
+      archived.add(id)
+    },
+    async unarchiveSession(id) { archived.delete(id) },
+  },
+  sessions: { get(id) { return inUse.has(id) ? { id } : undefined } },
+  agents: { get() { return active ? { status: 'running' } : undefined } },
+  on(name, fn) { assert.equal(name, 'connection/request'); handler = fn },
+  emit(name, id) { if (name === 'api-session/removed') removed.push(id) },
+  logger: { warn() {} },
+}
+function request(method, value, opts = {}) {
+  const raw = opts.raw ?? JSON.stringify(value ?? {})
+  const req = Readable.from([Buffer.from(raw)])
+  req.url = opts.path ?? ENDPOINT
   req.method = method
-  let status = 0, body = ''
+  req.headers = { 'content-type': 'application/json' }
+  let code = 0, text = ''
   const res = {
     writableEnded: false,
-    writeHead(code) { status = code },
-    end(chunk = '') { body += chunk; this.writableEnded = true },
+    writeHead(status) { code = status },
+    end(s = '') { text += s; this.writableEnded = true },
   }
-  await listener(req, res, async () => { throw new Error('should not call next') })
-  return { status, data: JSON.parse(body) }
+  return handler(req, res, async () => { nextCount++ }).then(() => ({
+    code, data: text ? JSON.parse(text) : null,
+  }))
 }
 
 try {
-  await mkdir(session, { recursive: true })
-  await writeFile(join(session, 'session.v4.jsonl'), '{}\n')
-
-  let handler
-  const ctx = {
-    sessionPersistence: {
-      async stat(sessionId) { return sessionId === id ? { header: { id: sessionId } } : undefined },
-    },
-    on(event, callback) { assert.equal(event, 'connection/request'); handler = callback },
-    logger: { warn() {} },
-  }
   apply(ctx)
-  assert.equal(typeof handler, 'function')
-  assert.equal((await request(handler, 'GET', { sessionId: id })).status, 405)
-  assert.equal((await request(handler, 'POST', { sessionId: '../bad' })).status, 400)
-  assert.equal((await request(handler, 'POST', { sessionId: 'session-nope' })).status, 404)
-  const done = await request(handler, 'POST', { sessionId: id })
-  assert.deepEqual(done, { status: 202, data: { queued: true, restartScheduled: false } })
-  const queueDir = join(home, '.dshd-session-manager')
-  assert.equal(await readFile(join(queueDir, 'pending'), 'utf8'), project + '/' + id + '\n')
-  const applying = spawnSync('bash', ['docker/apply-session-deletions.sh'], {
-    env: { ...process.env, DSH_HOME: home, DSH_SESSION_MANAGER_BIN: join(process.cwd(), 'docker/plugins/dsh-session-manager/dsh-session-manager') },
-    encoding: 'utf8',
-  })
-  assert.equal(applying.status, 0, applying.stderr)
-  const trash = spawnSync('bash', ['docker/plugins/dsh-session-manager/dsh-session-manager', 'trash'], {
-    env: { ...process.env, DSH_SESSION_DATA_ROOT: home }, encoding: 'utf8',
-  })
-  assert.equal(trash.status, 0, trash.stderr)
-  assert.match(trash.stdout, new RegExp(project + '/' + id))
-  assert.deepEqual(await readdir(join(home, 'sessions')).catch(() => []), [])
-  assert.equal(await readFile(join(queueDir, 'pending'), 'utf8').catch(()=>''), '')
+  await create(id)
+  await create(other)
+  assert.equal((await request('GET', {}, { path: '/api/other' })).code, 0)
+  assert.equal(nextCount, 1)
+  assert.equal((await request('DELETE', {})).code, 405)
+  assert.equal((await request('POST', { action: 'trash', sessionId: '../etc' })).code, 400)
+  assert.equal((await request('POST', {}, { raw: '{' })).code, 400)
+  assert.equal((await request('POST', { action: 'trash', sessionId: 'session-nope' })).code, 404)
 
-  const second = 'session-abcd5678'
-  const dir = join(home,'sessions',project,second)
-  await mkdir(dir,{recursive:true})
-  await writeFile(join(dir,'session.v4.jsonl'),'{}\n')
-  await symlink(dir,join(home,'sessions',project,'session-symlink'))
-  assert.equal((await request(handler,'POST',{sessionId:'session-symlink'})).status,404)
-  console.log('Web session manager queue, authentication hook, and offline application tests passed')
+  const submitted = await request('POST', { action: 'trash', sessionId: id, title: 'Test session' })
+  assert.equal(submitted.code, 200)
+  assert.deepEqual(submitted.data, { trashed: true })
+  assert.equal(archived.has(id), true)
+  assert.equal((await readdir(directory(id))).includes('session.v4.jsonl'), true)
+  assert.equal((await request('POST', { action: 'trash', sessionId: id })).data.existing, true)
+  let list = await request('GET')
+  assert.equal(list.code, 200)
+  assert.equal(list.data.items.length, 1)
+  assert.equal(list.data.items[0].title, 'Test session')
+  assert.match(await readFile(join(home, '.dshd-session-trash-v2', id + '.json'), 'utf8'), /Test session/)
+  assert.equal((await request('POST', { action: 'restore', sessionId: id })).code, 200)
+  assert.equal(archived.has(id), false)
+  assert.deepEqual((await request('GET')).data.items, [])
+
+  active = true
+  assert.equal((await request('POST', { action: 'trash', sessionId: id })).code, 409)
+  active = false
+  inUse.add(id)
+  assert.equal((await request('POST', { action: 'permanent', sessionId: id })).code, 409)
+  assert.equal(archived.has(id), false)
+  inUse.delete(id)
+
+  busyLease = true
+  assert.equal((await request('POST', { action: 'permanent', sessionId: id })).code, 409)
+  assert.equal(archived.has(id), false)
+  busyLease = false
+  const deleted = await request('POST', { action: 'permanent', sessionId: id })
+  assert.deepEqual(deleted, { code: 200, data: { purged: true } })
+  assert.equal(removed.includes(id), true)
+  assert.equal(handleCloses, 1)
+  assert.deepEqual(await readdir(join(home, 'sessions', project)), [other])
+  assert.equal((await request('POST', { action: 'restore', sessionId: id })).code, 404)
+
+  await request('POST', { action: 'trash', sessionId: other })
+  assert.equal((await request('POST', { action: 'purge', sessionId: other })).code, 200)
+  assert.deepEqual((await request('GET')).data.items, [])
+  assert.equal(archived.has(other), false)
+  assert.equal(handleCloses, 2)
+
+  const unsafe = 'session-abcdef01'
+  await symlink('/tmp', directory(unsafe))
+  assert.equal((await request('POST', { action: 'trash', sessionId: unsafe })).code, 404)
+  assert.equal(kills, 0)
+  console.log('Web-only session trash / restore / no-restart permanent deletion checks passed')
 } finally {
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome

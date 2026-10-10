@@ -237,43 +237,33 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `NPM_CONFIG_CACHE` | `/tmp/npm-cache` | npm 实际 cache 路径（dshd 由 `DSH_NPM_CACHE` 注入） |
 
 
-## 会话管理（删除与回收区）
+## Web 会话管理（删除 / 永久删除 / 回收站）
 
-`dshd sessions` 在宿主机打开交互式会话管理菜单，可查看列表、按序号移入回收区、
-恢复会话和清空指定回收区条目。镜像内置
-`/usr/local/bin/dsh-session-manager`，Standard 与 Research 均可用。
-旧部署先运行 `dshd update` 更新镜像。
+`dsh-docker-session-manager` 是容器内默认启用的 Web 插件；会话管理不再提供
+`dshd sessions` CLI 命令。通过 DSH 左侧边栏底部的「回收站」入口管理已删除会话；
+在每个会话的 `···` 菜单内分别显示「删除会话」和「永久删除」。
 
-```bash
-dshd sessions list
-dshd sessions delete PROJECT/SESSION_ID
-dshd sessions trash
-dshd sessions restore TRASH_ID
-dshd sessions purge TRASH_ID
-```
+- **删除会话**：调用 DSH 原生 `workspaceRegistry.archiveSession(id)` 进行安全归档，
+  再将会话 ID、标题和删除时间保存到
+  `DSH_HOME/.dshd-session-trash-v2/session-*.json`。
+  已删除会话从普通列表隐藏，但原始 JSONL 文件仍保留在 `sessions` 中；
+  恢复操作会取消归档并移除回收站记录。
+- **永久删除**：确认后首先检查此会话是否仍被运行时引用，随后调用
+  `sessionPersistence.open(id, 'write')` 取得独占写锁。只有无活动
+  Agent、无其他写入所有者且日志目录路径安全时，才会将目录移出持久化会话根、
+  释放写锁并物理清除。失败即保留数据并报错，不会重启 Docker。
+- **回收站永久清理**：同永久删除，但要求回收站中确实存在该会话。
+- 所有请求必须通过 DSH Connection 已认证的 `/api` HTTP 通道；
+  用户请求大小受限、会话 ID 被严格校验、符号链接路径会被拒绝。
+- 会话存储删除不会删除 `/workspace` 项目文件，也不会级联删除 fork 子会话。
+- Web 插件默认启用，设置 `DSH_SESSION_MANAGER_WEB=false` 可禁用（变更需要重建容器）。
 
-删除将物理会话目录移到同卷 `DSH_HOME/.dshd-session-trash/`，不是立即销毁。
-恢复若目标目录已存在将拒绝覆盖；永久清理需要确认并再次输入完整的回收区编号。
-非交互写操作须明确追加 `--yes`，不允许隐式批准。
-读取时临时 Docker 容器只读挂载当前持久卷；写操作暂停正在运行的 DSH 并在完成后
-尝试重新启动。辅助容器使用 `--network none`。
+**安全边界：** DSH 当前 Session Persistence API 不提供官方删除操作，也不向
+外部插件暴露强制卸载活跃 Agent 的能力。若目标会话正被运行时引用，永久删除
+会返回 `session-in-use`，而不会通过强制重启、直接 `rm -rf` 或取消其他任务来绕过保护。
+回收站保存的是可恢复的**逻辑删除标记**，不是物理移出的会话目录；
+这保证了日常删除与恢复对运行中日志无侵入。
 
-本功能管理上游 JSONL Session 目录，不删除工作区、备份、插件持有的引用和上游
-Workspace 注册信息，也不级联删除 fork 或子会话；清理父会话前请确认关联会话。
-若其他容器共用相同持久化卷，应先停止其他写入者。
-
-
-### Web 会话管理插件
-
-镜像还内置 `dsh-docker-session-manager` Web 插件，通过 DSH Plugin Manager
-注册到 `web` profile，默认启用（`DSH_SESSION_MANAGER_WEB=false` 禁用）。
-在会话行 `···` 菜单选择“删除会话…”后，会显示确认弹窗。
-浏览器请求通过 DSH Connection 的已认证 `/api` 通道，
-Host **只写入** `DSH_HOME/.dshd-session-manager/pending` 队列，不直接修改活动日志。
-`DSH_DOCKER_RESTART=container` 时会触发 Docker 重新启动；新进程在 Session
-Store 启动前处理队列，将对应会话移入与命令行相同的回收区。
-没有自动重启时，执行 `dshd restart` 生效。
-
-仅允许匹配上游 Session Persistence 已确认存在、且物理目录匹配的会话 ID。
-删除请求不会清理工作区文件、已归档备份和相关 fork 子会话。
-部署需要限制 DSH Web 对外访问；已认证的 Web 用户可以提交删除请求。
+**升级兼容：** V1 曾经经 `DSH_HOME/.dshd-session-manager/pending` 队列和
+`DSH_HOME/.dshd-session-trash` 保存离线删除记录。V2 不再创建新离线任务，
+也不主动迁移或销毁旧回收记录；请先备份旧目录，需要时通过原版本或人工离线恢复。

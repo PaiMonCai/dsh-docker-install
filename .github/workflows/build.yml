@@ -94,6 +94,8 @@ jobs:
           bash tests/test-reasoning-editor.sh
           bash -n tests/test-dsh-session-manager.sh
           bash tests/test-dsh-session-manager.sh
+          node --check docker/plugins/dsh-session-manager-web/index.js
+          node --check docker/plugins/dsh-session-manager-web/client.js
           node tests/test-session-manager-web.mjs
           node tests/test-connection-rpc-routes.js
           bash -n docker/entrypoint.sh
@@ -299,6 +301,29 @@ jobs:
           fi
           rm -f "$response_file"
           echo "DSH built-in Files API route is mounted (unauthenticated POST -> 401)."
+
+          # Exercise the real loaded Web plugin over authenticated Connection.
+          # This temporary CI token is neither printed nor retained.
+          token="$(docker logs "$name" 2>&1 | sed -nE 's/.*\?token=([A-Za-z0-9_-]+).*/\1/p' | tail -n 1)"
+          if [[ -z "$token" ]]; then
+            echo "::error::No Web login token was emitted"
+            exit 1
+          fi
+          cookie_file="$(mktemp)"
+          response_file="$(mktemp)"
+          curl -sS --max-time 8 -c "$cookie_file" -o /dev/null \
+            "http://127.0.0.1:${mapped_port}/?token=${token}"
+          status="$(curl -sS --max-time 8 -b "$cookie_file" \
+            -o "$response_file" -w '%{http_code}' \
+            "http://127.0.0.1:${mapped_port}/api/dsh-docker-session-manager")"
+          if [[ "$status" != 200 ]] || ! grep -Fq '"items":[]' "$response_file"; then
+            echo "::error::Authenticated Web session trash endpoint returned HTTP $status (expected 200 / empty trash)"
+            rm -f "$cookie_file" "$response_file"
+            exit 1
+          fi
+          rm -f "$cookie_file" "$response_file"
+          echo "DSH Web session-manager authenticated trash route is mounted"
+
 
 
       - name: Report image footprint

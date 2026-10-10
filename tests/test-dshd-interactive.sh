@@ -47,7 +47,7 @@ grep -q '本次操作未完成' "$TMP/menu.err" || { echo "应提示操作未完
 for section in 容器运行 配置与连接 开发与数据 诊断与维护; do
   grep -Fq "▌ $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
 done
-for number in $(seq 1 28); do
+for number in $(seq 1 27); do
   item="$(printf '[%02d]' "$number")"
   grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
 done
@@ -75,7 +75,7 @@ grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状�
   COLUMNS=60
   menu <<<"0"
 ) >"$TMP/menu-narrow.out" 2>&1
-grep -Fq '[28] 会话管理' "$TMP/menu-narrow.out" || { echo "窄屏缺少会话管理"; exit 1; }
+grep -Fq '[14] 进入容器 Shell' "$TMP/menu-narrow.out" || { echo "窄屏缺少容器 Shell"; exit 1; }
 if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
   echo "窄屏应切换为单列菜单"; exit 1
 fi
