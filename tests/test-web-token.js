@@ -71,6 +71,7 @@ try {
   assert.match(readFileSync('Dockerfile', 'utf8'), /patch-web-launch-token\.js/)
   assert.match(readFileSync('docker/entrypoint.sh', 'utf8'), /DSH_WEB_LOGIN_TOKEN/)
   assert.match(readFileSync('dshd', 'utf8'), /dshd token status/)
+  assert.match(readFileSync('dshd', 'utf8'), /token\\|url\\) shift; cmd_token "\\$@"/)
   console.log('Persisted Web login token lifecycle and patch tests passed')
 } finally {
   rmSync(home, { recursive: true, force: true })
