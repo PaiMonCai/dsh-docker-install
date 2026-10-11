@@ -44,6 +44,15 @@ grep -Fxq 'DSH_SEARCH_ENABLED=false' "$DSHD_CONFIG_FILE" || { echo "failed setup
 load_config
 [[ "$DSH_SEARCH_ENABLED" == false ]] || { echo "failed setup changed loaded flag" >&2; exit 1; }
 
+
+# The actual menu uses run_action, which deliberately swallows failed commands.
+# Verify that the command itself returns on failure rather than saving the
+# false-positive opt-in flag after a failed create_container().
+rm -f "$TMP/create-calls"
+run_action cmd_search enable >"$TMP/menu-fail.stdout" 2>"$TMP/menu-fail.stderr"
+grep -Fq '本次操作未完成' "$TMP/menu-fail.stderr" || { echo "menu must report failed create" >&2; exit 1; }
+grep -Fxq 'DSH_SEARCH_ENABLED=false' "$DSHD_CONFIG_FILE" || { echo "menu failure saved enabled" >&2; exit 1; }
+
 # Simulate a repaired retry, then verify settings are written only once setup
 # has reported success and that the existing secure secret is preserved.
 create_container() {

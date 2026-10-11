@@ -3495,7 +3495,9 @@ cmd_search() {
       # Stage the opt-in flag in memory first: the image/provisioning check
       # must not leave a persisted 'enabled' state when sidecar startup fails.
       DSH_SEARCH_ENABLED=true
-      create_container
+      # run_action deliberately isolates failures in a subshell, where errexit
+      # is suppressed by its OR-list. Explicitly propagate a failed recreate.
+      create_container || return $?
       save_config
       ok "Web Search 已启用；请执行 dshd search test 验证"
       ;;
