@@ -3548,6 +3548,136 @@ cmd_search() {
   esac
 }
 
+
+# 主菜单 [28]：所有写操作复用 cmd_search，避免交互入口和 CLI 两套状态。
+# 只在完成确认后执行可能重建容器、触发付费调用或中断搜索的命令。
+cmd_search_menu() {
+  menu_signal_guard
+  load_config_guarded || return 1
+
+  while true; do
+    # run_action executes in a subshell; reload persisted state on every redraw.
+    load_config_guarded || return 1
+    local choice="" menu_rc=0 cyan="" red="" muted="" reset=""
+    local sidecar="未运行" search_state="已关闭" brave_state="已关闭" cache_state="已关闭"
+    if menu_colors_enabled; then
+      cyan="$C_CYAN"
+      red="$C_RED"
+      muted=$'\033[2m'
+      reset="$C_RESET"
+    fi
+    [[ "$DSH_SEARCH_ENABLED" == true ]] && search_state="已启用"
+    [[ "$DSH_SEARCH_BRAVE_ENABLED" == true ]] && brave_state="已启用"
+    [[ "$DSH_SEARCH_CACHE_ENABLED" == true ]] && cache_state="已启用"
+    if search_container_running 2>/dev/null; then sidecar="运行中"; fi
+
+    printf '\n  %sWeb Search / SearXNG 管理%s\n' "$cyan" "$reset"
+    printf '  搜索：%s  |  SearXNG：%s\n' "$search_state" "$sidecar"
+    printf '  Brave 备用：%s（每天最多 %s 次，UTC）  |  缓存：%s\n' \
+      "$brave_state" "$DSH_SEARCH_BRAVE_DAILY_LIMIT" "$cache_state"
+    printf '  %sBrave API Key 请在 DSH Web → 插件 → DSH Web Search 中配置。%s\n' "$muted" "$reset"
+    printf '  %sBrave 可能产生费用；仅在 SearXNG 失败且手动启用时回退。%s\n' "$muted" "$reset"
+    printf '\n  %s── 搜索服务 ──%s\n' "$cyan" "$reset"
+    printf '  1) 启用 Web Search（部署 SearXNG 并重建 DSH）\n'
+    printf '  %s2) 关闭 Web Search（恢复原生搜索配置）%s\n' "$red" "$reset"
+    printf '  3) 测试 SearXNG 搜索    4) 检查连接/诊断\n'
+    printf '  5) 查看 SearXNG 日志   6) 重启搜索 Sidecar\n'
+    printf '  7) 更新 SearXNG 镜像及 Sidecar\n'
+    printf '\n  %s── Brave 备用（可选）──%s\n' "$cyan" "$reset"
+    printf '  8) 启用 Brave 回退      9) 关闭 Brave 回退\n'
+    printf ' 10) 设置 Brave 每日调用上限（0–10000）\n'
+    printf '\n  %s── 缓存 ──%s\n' "$cyan" "$reset"
+    printf ' 11) 开启缓存           12) 关闭缓存\n'
+    printf ' 13) 清空内存缓存（重启 DSH）\n'
+    printf '\n  %s0) 返回主菜单%s\n' "$muted" "$reset"
+
+    menu_read choice $'\n请选择: ' || menu_rc=$?
+    if (( menu_rc == 2 )); then continue; fi
+    (( menu_rc == 0 )) || return 0
+
+    case "$choice" in
+      1)
+        if [[ "$DSH_SEARCH_ENABLED" == true ]]; then
+          info "Web Search 已启用，无需重复重建。"
+        else
+          run_action cmd_search enable
+        fi
+        ;;
+      2)
+        if [[ "$DSH_SEARCH_ENABLED" != true ]]; then
+          info "Web Search 已关闭。"
+        elif confirm "关闭搜索并重建 DSH？会停止 SearXNG，但不会删除聊天数据。" N; then
+          run_action cmd_search disable
+        fi
+        ;;
+      3) run_action cmd_search test ;;
+      4) run_action cmd_search doctor ;;
+      5) run_action cmd_search logs ;;
+      6) run_action cmd_search restart ;;
+      7)
+        if confirm "更新 SearXNG 镜像并重启 Sidecar？搜索将短暂中断。" N; then
+          run_action cmd_search update
+        fi
+        ;;
+      8)
+        if [[ "$DSH_SEARCH_BRAVE_ENABLED" == true ]]; then
+          info "Brave 备用已启用。"
+        elif confirm "Brave 属于可计费服务。确认允许在 SearXNG 故障时使用 Brave API？" N; then
+          run_action cmd_search brave enable
+        fi
+        ;;
+      9)
+        if [[ "$DSH_SEARCH_BRAVE_ENABLED" != true ]]; then
+          info "Brave 备用已关闭。"
+        else
+          run_action cmd_search brave disable
+        fi
+        ;;
+      10)
+        local limit="" limit_rc=0
+        while true; do
+          menu_read limit $'Brave 每日回退上限（0–10000，留空取消）: ' || limit_rc=$?
+          if (( limit_rc == 2 )); then break; fi
+          (( limit_rc == 0 )) || return 0
+          [[ -n "$limit" ]] || break
+          if [[ "$limit" =~ ^[0-9]+$ ]]; then
+            # Normalize leading zeros; Bash otherwise parses 08 as invalid octal.
+            limit="${limit#"${limit%%[!0]*}"}"
+            limit="${limit:-0}"
+            if (( ${#limit} <= 5 )) && (( limit <= 10000 )); then
+              run_action cmd_search brave limit "$limit"
+              break
+            fi
+          fi
+          warn "请输入 0–10000 之间的整数（0 表示不允许付费回退）。"
+        done
+        ;;
+      11)
+        if [[ "$DSH_SEARCH_CACHE_ENABLED" == true ]]; then
+          info "搜索缓存已开启。"
+        else
+          run_action cmd_search cache on
+        fi
+        ;;
+      12)
+        if [[ "$DSH_SEARCH_CACHE_ENABLED" != true ]]; then
+          info "搜索缓存已关闭。"
+        else
+          run_action cmd_search cache off
+        fi
+        ;;
+      13)
+        if confirm "清空搜索内存缓存？已运行的 DSH 将重新启动。" N; then
+          run_action cmd_search cache clear
+        fi
+        ;;
+      0) return 0 ;;
+      *) warn "无效选项"; continue ;;
+    esac
+    read -r -p $'\n按 Enter 返回 Web Search 菜单...' _ || return 0
+  done
+}
+
 cmd_status() {
   load_config
   heading "dsh 状态"
@@ -5256,11 +5386,11 @@ menu() {
       25) run_action cmd_admin_hosts ;;
       26) run_action cmd_mounts_menu ;;
       27) run_action cmd_proxy ;;
-      28) run_action cmd_search status ;;
+      28) run_action cmd_search_menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" ]]; then
+    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" && "$choice" != "28" ]]; then
       read -r -p $'\n按 Enter 返回菜单...' _ || true
     fi
     load_config_guarded || warn "当前配置存在问题，部分操作可能不可用。"
