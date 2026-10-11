@@ -1,15 +1,17 @@
-# Own only the search provider: do not modify web_fetch or third-party bundles.
-# Keep this patch final after plugin-manager composition, verify with --dump-config.
+# Bundle overlay: search stays custom, fetch stays on official HTTP.
+# DSH non-insert patches are direct rows: "- id: ...".
+# The overlay replaces each row's WHOLE config, so restate required defaults.
 - insert:
     - id: dsh-docker-web-search
       name: dsh-docker-web-search
-- patch:
-    - id: web
-      config:
-        searchProvider: dsh-docker-search
-        fetchProvider: http
-    - id: tool-web
-      config:
-        fetch: true
-        search: true
-        searchTimeoutMs: 12000
+
+- id: web
+  config:
+    searchProvider: dsh-docker-search
+    fetchProvider: http
+
+- id: tool-web
+  config:
+    fetch: true
+    search: true
+    searchTimeoutMs: 12000
