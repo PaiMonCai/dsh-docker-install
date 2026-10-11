@@ -4,6 +4,12 @@
 set -Eeuo pipefail
 
 DSHD_VERSION="0.9.1"
+# Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
+DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
+DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
+DSH_SEARCH_CACHE_ENABLED="${DSH_SEARCH_CACHE_ENABLED:-true}"
+DSH_SEARCH_IMAGE="${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+DSH_SEARCH_BRAVE_DAILY_LIMIT="${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -421,6 +427,11 @@ load_config() {
   DSH_DOCKER_ACCESS="${DSH_DOCKER_ACCESS:-false}"
   DSH_DOCKER_SOCKET="${DSH_DOCKER_SOCKET:-}"
   DSH_PROXY_ENABLED="${DSH_PROXY_ENABLED:-false}"
+  DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
+  DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
+  DSH_SEARCH_CACHE_ENABLED="${DSH_SEARCH_CACHE_ENABLED:-true}"
+  DSH_SEARCH_IMAGE="${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+  DSH_SEARCH_BRAVE_DAILY_LIMIT="${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
   DSH_PROXY_NODE="${DSH_PROXY_NODE:-}"
   DSH_PROXY_IMAGE="${DSH_PROXY_IMAGE:-$DEFAULT_PROXY_IMAGE}"
   DSH_PROXY_PORT="${DSH_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
@@ -480,6 +491,10 @@ load_config() {
   validate_port "$DSH_RESEARCH_DASHBOARD_PORT" \
     || die "无效 DSH_RESEARCH_DASHBOARD_PORT=$DSH_RESEARCH_DASHBOARD_PORT"
   validate_port "$DSH_PROXY_PORT" || die "无效 DSH_PROXY_PORT=$DSH_PROXY_PORT"
+  [[ "$DSH_SEARCH_BRAVE_DAILY_LIMIT" =~ ^[0-9]+$ ]] || die "无效 Brave 每日请求上限"
+  [[ "$DSH_SEARCH_ENABLED" == "true" || "$DSH_SEARCH_ENABLED" == "false" ]] || die "DSH_SEARCH_ENABLED 必须 true/false"
+  [[ "$DSH_SEARCH_BRAVE_ENABLED" == "true" || "$DSH_SEARCH_BRAVE_ENABLED" == "false" ]] || die "DSH_SEARCH_BRAVE_ENABLED 必须 true/false"
+  [[ "$DSH_SEARCH_CACHE_ENABLED" == "true" || "$DSH_SEARCH_CACHE_ENABLED" == "false" ]] || die "DSH_SEARCH_CACHE_ENABLED 必须 true/false"
   [[ "$DSH_PROXY_ENABLED" == "true" || "$DSH_PROXY_ENABLED" == "false" ]] \
     || die "无效 DSH_PROXY_ENABLED=$DSH_PROXY_ENABLED（仅支持 true/false）。"
   [[ "$DSH_PROXY_FAILOVER_ENABLED" == "true" || "$DSH_PROXY_FAILOVER_ENABLED" == "false" ]] \
@@ -559,6 +574,11 @@ save_config() {
     printf 'DSH_DOCKER_ACCESS=%q\n' "$DSH_DOCKER_ACCESS"
     printf 'DSH_DOCKER_SOCKET=%q\n' "$DSH_DOCKER_SOCKET"
     printf 'DSH_PROXY_ENABLED=%q\n' "${DSH_PROXY_ENABLED:-false}"
+    printf 'DSH_SEARCH_ENABLED=%q\n' "${DSH_SEARCH_ENABLED:-false}"
+    printf 'DSH_SEARCH_BRAVE_ENABLED=%q\n' "${DSH_SEARCH_BRAVE_ENABLED:-false}"
+    printf 'DSH_SEARCH_CACHE_ENABLED=%q\n' "${DSH_SEARCH_CACHE_ENABLED:-true}"
+    printf 'DSH_SEARCH_IMAGE=%q\n' "${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+    printf 'DSH_SEARCH_BRAVE_DAILY_LIMIT=%q\n' "${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
     printf 'DSH_PROXY_NODE=%q\n' "${DSH_PROXY_NODE:-}"
     printf 'DSH_PROXY_IMAGE=%q\n' "${DSH_PROXY_IMAGE:-$DEFAULT_PROXY_IMAGE}"
     printf 'DSH_PROXY_PORT=%q\n' "${DSH_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
@@ -615,6 +635,90 @@ docker_cmd() {
 
 docker_ready() {
   command -v docker >/dev/null 2>&1 && docker_cmd info >/dev/null 2>&1
+}
+
+# Search network is independent of optional sing-box egress lifecycle.
+search_network_name() { printf '%s-search' "$DSH_NAME"; }
+search_container_name() { printf '%s-searxng' "$DSH_NAME"; }
+search_container_running() { docker_cmd ps --format '{{.Names}}' | grep -Fxq "$(search_container_name)"; }
+search_dir() { printf '%s/search' "$STATE_DIR"; }
+search_owned_container() {
+  [[ "$(docker_cmd inspect -f '{{index .Config.Labels "io.caicailo.dsh.component"}}' "$(search_container_name)" 2>/dev/null || true)" == "web-search" ]]
+}
+search_owned_network() {
+  [[ "$(docker_cmd network inspect -f '{{index .Labels "io.caicailo.dsh.component"}}' "$(search_network_name)" 2>/dev/null || true)" == "web-search" ]]
+}
+search_ensure_network() {
+  if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
+    search_owned_network || die "同名搜索 Docker network 已存在但不属于 dshd，拒绝接管"
+  else
+    docker_cmd network create --label io.caicailo.dsh.component=web-search "$(search_network_name)" >/dev/null
+  fi
+}
+search_ensure_config() {
+  local dir secret
+  dir="$(search_dir)/searxng"
+  mkdir -p "$dir"
+  mkdir -p "$(search_dir)/cache"
+  chmod 700 "$dir"
+  if [[ ! -e "$dir/settings.yml" ]]; then
+    secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')"
+    [[ "${#secret}" -eq 64 ]] || die "SearXNG secret generation failed"
+    cat >"$dir/settings.yml" <<EOF
+use_default_settings: true
+general:
+  debug: false
+search:
+  formats:
+    - html
+    - json
+server:
+  secret_key: "$secret"
+  public_instance: false
+EOF
+    chmod 600 "$dir/settings.yml"
+  fi
+}
+search_remove_sidecar() {
+  if docker_cmd inspect "$(search_container_name)" >/dev/null 2>&1; then
+    if search_owned_container; then
+      docker_cmd rm -f "$(search_container_name)" >/dev/null 2>&1 || true
+    else
+      warn "同名 SearXNG 容器非本工具创建，已保留"
+    fi
+  fi
+}
+search_remove_network() {
+  if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
+    if search_owned_network; then
+      docker_cmd network rm "$(search_network_name)" >/dev/null 2>&1 || true
+    else
+      warn "同名搜索网络非本工具创建，已保留"
+    fi
+  fi
+}
+search_start_sidecar() {
+  [[ "$DSH_SEARCH_ENABLED" == "true" ]] || return 0
+  search_ensure_config
+  search_ensure_network
+  if ! docker_cmd image inspect "$DSH_SEARCH_IMAGE" >/dev/null 2>&1; then
+    docker_cmd pull "$DSH_SEARCH_IMAGE" || die "无法获取 SearXNG 镜像 $DSH_SEARCH_IMAGE"
+  fi
+  if search_container_running; then
+    search_owned_container || die "同名 SearXNG 容器并非 dshd 所有，拒绝复用"
+    return 0
+  fi
+  search_remove_sidecar
+  docker_cmd run -d --name "$(search_container_name)" --restart unless-stopped \
+    --label io.caicailo.dsh.component=web-search \
+    --network "$(search_network_name)" --network-alias dsh-searxng \
+    --cap-drop NET_ADMIN --cap-drop SYS_ADMIN --security-opt no-new-privileges --pids-limit 150 \
+    --memory 512m \
+    -e FORCE_OWNERSHIP=true \
+    -v "$(search_dir)/searxng:/etc/searxng" \
+    -v "$(search_dir)/cache:/var/cache/searxng" \
+    "$DSH_SEARCH_IMAGE" >/dev/null
+  search_container_running || die "SearXNG sidecar 启动失败"
 }
 
 proxy_container_name() {
@@ -1546,7 +1650,7 @@ proxy_test_runtime() {
   result="$(docker_cmd exec \
     -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
     -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}" \
-    -e "NO_PROXY=${DSH_PROXY_NO_PROXY}" \
+    -e "NO_PROXY=${DSH_PROXY_NO_PROXY},dsh-searxng" \
     "$DSH_NAME" \
     curl -sS -o /dev/null -w '%{time_total} %{http_code}' --connect-timeout 6 --max-time 12 "$url" 2>/dev/null || true)"
   time_total="${result%% *}"
@@ -2596,6 +2700,11 @@ create_container() {
   local data_source
   data_source="$(storage_source)"
 
+  # Keep search provisioning ahead of the destructive DSH container replacement.
+  if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
+    search_start_sidecar
+  fi
+
   # 开启代理时先完成镜像拉取、配置校验和 sidecar 启动。
   # 只有代理层确认可运行后才替换现有 DSH，避免坏节点让服务无谓下线。
   if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
@@ -2605,6 +2714,13 @@ create_container() {
   if container_exists; then
     info "移除旧容器 $DSH_NAME（持久化数据保留: $(storage_label)）..."
     docker_cmd rm -f "$DSH_NAME" >/dev/null
+  fi
+
+  # Cleanup must occur BEFORE the final docker run/create, preserving legacy
+  # dshd scripts and not leaving search networks behind on opt-out.
+  if [[ "$DSH_SEARCH_ENABLED" != "true" ]]; then
+    search_remove_sidecar
+    search_remove_network
   fi
 
   if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
@@ -2628,15 +2744,28 @@ create_container() {
     -w "/workspace"
   )
 
-  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+  if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
     args+=(
-      --network "$(proxy_network_name)"
+      --network "$(search_network_name)"
+      -e "DSH_SEARCH_ENABLED=true"
+      -e "DSH_SEARCH_SEARXNG_URL=http://dsh-searxng:8080"
+      -e "DSH_SEARCH_BRAVE_ENABLED=$DSH_SEARCH_BRAVE_ENABLED"
+      -e "DSH_SEARCH_CACHE_ENABLED=$DSH_SEARCH_CACHE_ENABLED"
+      -e "DSH_SEARCH_BRAVE_DAILY_LIMIT=$DSH_SEARCH_BRAVE_DAILY_LIMIT"
+    )
+  else
+    args+=(-e "DSH_SEARCH_ENABLED=false")
+  fi
+
+  if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
+    [[ "$DSH_SEARCH_ENABLED" == "true" ]] || args+=(--network "$(proxy_network_name)")
+    args+=(
       -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "http_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "https_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
-      -e "NO_PROXY=${DSH_PROXY_NO_PROXY}"
-      -e "no_proxy=${DSH_PROXY_NO_PROXY}"
+      -e "NO_PROXY=${DSH_PROXY_NO_PROXY},dsh-searxng"
+      -e "no_proxy=${DSH_PROXY_NO_PROXY},dsh-searxng"
       -e "NODE_USE_ENV_PROXY=1"
     )
   fi
@@ -2687,7 +2816,17 @@ create_container() {
   fi
 
   info "启动容器 $DSH_NAME ..."
-  docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
+  if [[ "$DSH_SEARCH_ENABLED" == "true" && "$DSH_PROXY_ENABLED" == "true" ]]; then
+    # docker run supports only one network; connect both before first process start.
+    docker_cmd create "${args[@]:2}" "$DSH_IMAGE" >/dev/null
+    if ! docker_cmd network connect "$(proxy_network_name)" "$DSH_NAME"; then
+      docker_cmd rm -f "$DSH_NAME" >/dev/null 2>&1 || true
+      die "搜索/代理双网络连接失败"
+    fi
+    docker_cmd start "$DSH_NAME" >/dev/null
+  else
+    docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
+  fi
   wait_ready
 }
 
@@ -3340,6 +3479,75 @@ cmd_install() {
   ok "安装完成。输入 dshd 即可进入运维菜单。"
 }
 
+cmd_search() {
+  local action="${1:-status}" option="${2:-}" value="${3:-}"
+  load_config
+  case "$action" in
+    status)
+      printf 'Web Search:     %s\n' "$DSH_SEARCH_ENABLED"
+      printf 'SearXNG:        %s\n' "$(search_container_running && echo running || echo stopped)"
+      printf 'SearXNG image:  %s\n' "$DSH_SEARCH_IMAGE"
+      printf 'Brave fallback: %s (max %s/day UTC)\n' "$DSH_SEARCH_BRAVE_ENABLED" "$DSH_SEARCH_BRAVE_DAILY_LIMIT"
+      printf 'Memory cache:   %s\n' "$DSH_SEARCH_CACHE_ENABLED"
+      printf 'Search network: %s\n' "$(search_network_name)"
+      ;;
+    enable|setup)
+      DSH_SEARCH_ENABLED=true; save_config; create_container
+      ok "Web Search 已启用；请执行 dshd search test 验证"
+      ;;
+    disable|uninstall)
+      DSH_SEARCH_ENABLED=false; save_config
+      if container_exists; then create_container; fi
+      search_remove_sidecar; search_remove_network
+      ok "Web Search 已关闭；DSH 原生搜索配置已恢复"
+      ;;
+    brave)
+      case "$option" in
+        enable|on) DSH_SEARCH_BRAVE_ENABLED=true ;;
+        disable|off) DSH_SEARCH_BRAVE_ENABLED=false ;;
+        limit)
+          [[ "$value" =~ ^[0-9]+$ ]] && (( value <= 10000 )) || die "用法: dshd search brave limit 0..10000"
+          DSH_SEARCH_BRAVE_DAILY_LIMIT="$value"
+          ;;
+        *) die "用法: dshd search brave enable|disable|limit N（密钥通过 DSH Credentials 提供）" ;;
+      esac
+      save_config
+      [[ "$DSH_SEARCH_ENABLED" == "true" && $(container_exists && echo yes) == yes ]] && create_container
+      ok "Brave fallback: $DSH_SEARCH_BRAVE_ENABLED"
+      ;;
+    cache)
+      case "$option" in
+        on|enable) DSH_SEARCH_CACHE_ENABLED=true; save_config; [[ "$DSH_SEARCH_ENABLED" == "true" ]] && create_container ;;
+        off|disable) DSH_SEARCH_CACHE_ENABLED=false; save_config; [[ "$DSH_SEARCH_ENABLED" == "true" ]] && create_container ;;
+        clear) [[ "$DSH_SEARCH_ENABLED" == "true" ]] && container_running && docker_cmd restart "$DSH_NAME" >/dev/null; ok "Search 内存缓存已清空（重新启动 DSH 进程）"; return ;;
+        *) die "用法: dshd search cache on|off|clear" ;;
+      esac
+      ;;
+    test|doctor)
+      if ! search_container_running; then err "SearXNG 容器未运行"; return 1; fi
+      if ! container_running; then err "DSH 容器未运行"; return 1; fi
+      docker_cmd exec "$DSH_NAME" node -e '
+        const u = "http://dsh-searxng:8080/search?q=deepseek&format=json";
+        fetch(u,{signal:AbortSignal.timeout(11000)})
+          .then(async r=>{if(!r.ok)throw Error("HTTP "+r.status);
+             const x=await r.json();if(!Array.isArray(x.results))throw Error("JSON results missing");
+             console.log("SearXNG JSON OK: "+x.results.length+" results")})
+          .catch(e=>{console.error("SearXNG test failed: "+e.message);process.exitCode=1})'
+      ;;
+    logs) docker_cmd logs --tail 200 -f "$(search_container_name)" ;;
+    restart)
+      search_remove_sidecar; search_start_sidecar
+      ;;
+    update)
+      docker_cmd pull "$DSH_SEARCH_IMAGE"
+      search_remove_sidecar; search_start_sidecar
+      ;;
+    *)
+      die "用法: dshd search status|setup|enable|disable|test|doctor|logs|restart|update|brave enable|disable|cache on|off|clear"
+      ;;
+  esac
+}
+
 cmd_status() {
   load_config
   heading "dsh 状态"
@@ -3370,6 +3578,8 @@ cmd_status() {
   printf 'API Key:        %s\n' "$(api_key_state)"
   printf 'Docker 管理:    %s\n' "$DSH_DOCKER_ACCESS"
   [[ "$DSH_DOCKER_ACCESS" == "true" ]] && printf 'Docker Socket:  %s\n' "$DSH_DOCKER_SOCKET"
+  printf 'Web Search:      %s (Brave: %s, cache: %s)\n' "$DSH_SEARCH_ENABLED" "$DSH_SEARCH_BRAVE_ENABLED" "$DSH_SEARCH_CACHE_ENABLED"
+  [[ "$DSH_SEARCH_ENABLED" == "true" ]] && printf 'SearXNG Sidecar:  %s\n' "$(search_container_running && echo running || echo stopped)"
   printf '代理出口:       %s\n' "$DSH_PROXY_ENABLED"
   printf '代理节点:       %s\n' "${DSH_PROXY_NODE:-（未选择）}"
   if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
@@ -4556,6 +4766,9 @@ cmd_doctor() {
     else
       ok "代理出口未启用（直连模式）"
     fi
+    if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
+      search_container_running && ok "SearXNG sidecar 正在运行" || warn "SearXNG sidecar 未运行"
+    fi
 
     if [[ -s "$MOUNTS_FILE" ]]; then
       local mount_source mount_target mount_mode invalid_mounts=0 runtime_mount_targets=""
@@ -4753,6 +4966,8 @@ cmd_uninstall() {
   fi
   if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
   if ! container_exists; then
+    search_remove_sidecar
+    search_remove_network
     proxy_remove_sidecar
     proxy_remove_network
     ok "sing-box sidecar / 代理网络已清理"
@@ -4808,6 +5023,12 @@ dshd - DeepSeek Harness Docker 管理器
   dshd docker              管理 DSH 的宿主机 Docker 权限
   dshd docker on|off       开启/关闭 Docker 管理
   dshd docker status       检查 Docker Socket
+  dshd search              管理 SearXNG / Brave 网页搜索
+  dshd search enable|disable  启用或关闭可选 Web Search 插件
+  dshd search test         测试 SearXNG JSON 搜索
+  dshd search brave enable|disable  开关有凭据的 Brave 回退
+  dshd search brave limit N 每日最多回退 N 次（UTC，默认 50）
+  dshd search cache clear  清理搜索缓存（重启 DSH）
   dshd proxy               管理 DSH 国际网络 / sing-box 出口
   dshd proxy setup         首次配置/添加节点向导（推荐）
   dshd proxy add [NAME] URL  导入节点；NAME 省略时从 #备注自动命名
@@ -4968,6 +5189,7 @@ menu_render_main() {
   [08] 修改完整配置                     [09] DeepSeek API / Base URL
   [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
   [11] Docker 项目管理权限              [27] 国际网络 / sing-box
+  [28] Web Search / SearXNG
   [21] Standard / Research 版本切换     [22] Research Pack 切换
 @开发与数据
   [12] 查看容器开发环境                 [13] Web 登录 Token 管理
@@ -5034,6 +5256,7 @@ menu() {
       25) run_action cmd_admin_hosts ;;
       26) run_action cmd_mounts_menu ;;
       27) run_action cmd_proxy ;;
+      28) run_action cmd_search status ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -5071,6 +5294,7 @@ main() {
     admin-hosts|whale-admin-hosts) shift; cmd_admin_hosts "$@" ;;
     docker|docker-access) shift; cmd_docker_access "$@" ;;
     proxy|egress|sing-box|singbox) shift; cmd_proxy "$@" ;;
+    search|web-search) shift; cmd_search "$@" ;;
     storage|data-storage) shift; cmd_storage "$@" ;;
     mounts|mount|persistent-mounts) shift; cmd_mounts "$@" ;;
     dashboard|research-dashboard) shift; cmd_dashboard "$@" ;;

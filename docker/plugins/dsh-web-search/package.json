@@ -1,0 +1,25 @@
+{
+  "name": "dsh-docker-web-search",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Docker native web search provider with SearXNG/Brave routing",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT"
+}

@@ -197,6 +197,10 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 
 构建、GHCR、镜像 tag 通道对齐与自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
 
+## 自部署网页搜索（可选）
+
+内置 Search Router 使用 SearXNG 作为免费主搜索源，并提供用户授权的 Brave API 备用；保留官方 `web_search` / `web_fetch` 工具与现有插件系统，默认关闭，不改变已有安装。通过 `dshd search enable`、`dshd search test` 开启和测试。详见 [Web Search 使用与架构](docs/web-search.md)。
+
 ## 文档
 
 详细说明已经从根 README 拆出：

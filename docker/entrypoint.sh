@@ -80,6 +80,14 @@ ensure_reasoning_editor() {
     log "警告：内置自定义模型推理等级编辑器未能完成 profile 对账；DSH 将继续启动"
 }
 
+ensure_web_search() {
+    local reconciler="/usr/local/bin/ensure-dsh-web-search"
+    [[ -x "$reconciler" ]] || return 0
+    if ! "$reconciler"; then
+        log "警告：Web Search 插件对账失败，DSH 继续启动。检查 dshd search doctor。"
+    fi
+}
+
 ensure_session_manager_web() {
     local reconciler="/usr/local/bin/ensure-dsh-session-manager-web"
     [[ -x "$reconciler" ]] || return 0
@@ -114,6 +122,7 @@ run_web() {
 
     ensure_reasoning_editor
     ensure_session_manager_web
+    ensure_web_search
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then

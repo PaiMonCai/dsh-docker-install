@@ -183,6 +183,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Check bundled Search Router
+        run: bash tests/test-web-search-plugin.sh
+
       - name: Verify runtime development capabilities
         shell: bash
         run: |
@@ -212,6 +215,14 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
+            test -f /opt/dsh/plugins/dsh-web-search/package.json
+            test -x /usr/local/bin/ensure-dsh-web-search
+            search_home="$(mktemp -d)"
+            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=true /usr/local/bin/ensure-dsh-web-search
+            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "searchProvider: dsh-docker-search"
+            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "fetchProvider: http"
+            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=false /usr/local/bin/ensure-dsh-web-search
+            rm -rf "$search_home"
             test -f /opt/dsh/plugins/dsh-reasoning-editor/package.json
             test -x /usr/local/bin/ensure-dsh-reasoning-editor
             reasoning_home="$(mktemp -d)"

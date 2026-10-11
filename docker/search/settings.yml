@@ -1,0 +1,10 @@
+use_default_settings: true
+general:
+  debug: false
+search:
+  formats:
+    - html
+    - json
+server:
+  public_instance: false
+  secret_key: "REPLACED_BY_DSHD_AT_INSTALL"
