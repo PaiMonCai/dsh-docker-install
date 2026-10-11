@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { SearchRouter } from '../docker/plugins/dsh-web-search/router.js'
 import { SearchCache } from '../docker/plugins/dsh-web-search/cache.js'
+import { BraveBudget } from '../docker/plugins/dsh-web-search/budget.js'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 function reply(body, status=200, ct='application/json') {
   return { ok: status >= 200 && status < 300, status,
@@ -77,4 +81,24 @@ test('LRU expires and evicts entries',()=> {
   cache.set('a',{x:1},1000);cache.set('b',{x:2},1000)
   assert.equal(cache.get('a'),undefined)
   assert.deepEqual(cache.get('b'),{x:2})
+})
+
+test('Brave fallback is stopped before network call when daily budget is exhausted', async () => {
+  let calls=0
+  const router=new SearchRouter({searxngURL:'http://searxng:8080',braveEnabled:true,
+    resolveBraveKey:async()=> 'secret',braveBudget:{reserve:async()=>false},
+    http:async()=>{calls++;return reply({},503)}})
+  await assert.rejects(router.search({query:'paid-budget'}),{code:'DSH_SEARCH_BRAVE_BUDGET_EXHAUSTED'})
+  assert.equal(calls,1)
+})
+test('Brave budget persists across instances and resets only on a new UTC day', async () => {
+  const dir=await mkdtemp(join(tmpdir(),'dsh-search-budget-'))
+  try {
+    const path=join(dir,'budget.json')
+    const a=new BraveBudget({path,dailyLimit:2})
+    assert.equal(await a.reserve(),true)
+    const b=new BraveBudget({path,dailyLimit:2})
+    assert.equal(await b.reserve(),true)
+    assert.equal(await a.reserve(),false)
+  } finally { await rm(dir,{recursive:true,force:true}) }
 })

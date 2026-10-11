@@ -51,6 +51,7 @@ export class SearchRouter {
       braveTimeoutMs: options.braveTimeoutMs ?? 4000,
       cacheEnabled: options.cacheEnabled !== false,
       http: options.http || fetch,
+      braveBudget: options.braveBudget || { reserve: async () => true },
     }
     this.cache = new SearchCache({ maxEntries: 500, maxBytes: 32 * 1024 * 1024 })
   }
@@ -82,6 +83,9 @@ export class SearchRouter {
           const key = await opts.resolveBraveKey()
           if (!key) throw new SearchFailure('Brave fallback enabled but BRAVE_SEARCH_API_KEY is missing',
             'DSH_SEARCH_BRAVE_CREDENTIAL_MISSING')
+          if (!(await opts.braveBudget.reserve())) {
+            throw new SearchFailure('Daily Brave fallback budget exhausted', 'DSH_SEARCH_BRAVE_BUDGET_EXHAUSTED')
+          }
           const remaining = deadline - Date.now() - 200
           const secondary = timeBound(outer.signal, Math.min(opts.braveTimeoutMs, remaining))
           try {

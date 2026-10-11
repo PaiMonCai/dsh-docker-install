@@ -41,6 +41,7 @@ services:
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
       DSH_SEARCH_SEARXNG_URL: "http://dsh-searxng:8080"
       DSH_SEARCH_BRAVE_ENABLED: "${DSH_SEARCH_BRAVE_ENABLED:-false}"
+      DSH_SEARCH_BRAVE_DAILY_LIMIT: "${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
       DSH_SEARCH_CACHE_ENABLED: "${DSH_SEARCH_CACHE_ENABLED:-true}"
       # 默认使用中国标准时间；可在 .env 覆盖。
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"

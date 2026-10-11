@@ -21,6 +21,7 @@ dshd search doctor
 - 每个 `web_search` 最长 12 秒：Provider 内部 11.5 秒，主 SearXNG 预算 7 秒、备用 Brave 最多 4 秒。
 - 搜索默认只用 SearXNG。仅当用户明确启用 Brave 且已配置有效 `BRAVE_SEARCH_API_KEY`，并发生连接失败、HTTP 429/5xx、JSON 格式错误等情况时使用备用。
 - 合法 0 条结果不触发付费回退；用户取消操作不触发备用。
+- Brave 回退需用户显式启用，并使用 `DSH_SEARCH_BRAVE_DAILY_LIMIT` 限制每天的最大次数（默认 50）。计数持久化到 `$DSH_HOME/web-search/brave-budget.json`，仅包含 UTC 日期和次数，不含查询或密钥。
 - 缓存只保存在 DSH 进程内，容量最多 32MiB / 500 条，SearXNG 结果 TTL 15 分钟，Brave 结果 TTL 2 分钟，重启后清空。不得把缓存理解成实时搜索。
 - SearXNG 搜索可能受到底层搜索引擎的反自动化限制；服务自部署不代表结果永久可用。
 

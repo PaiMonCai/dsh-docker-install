@@ -9,6 +9,7 @@ DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
 DSH_SEARCH_CACHE_ENABLED="${DSH_SEARCH_CACHE_ENABLED:-true}"
 DSH_SEARCH_IMAGE="${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+DSH_SEARCH_BRAVE_DAILY_LIMIT="${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -430,6 +431,7 @@ load_config() {
   DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
   DSH_SEARCH_CACHE_ENABLED="${DSH_SEARCH_CACHE_ENABLED:-true}"
   DSH_SEARCH_IMAGE="${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+  DSH_SEARCH_BRAVE_DAILY_LIMIT="${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
   DSH_PROXY_NODE="${DSH_PROXY_NODE:-}"
   DSH_PROXY_IMAGE="${DSH_PROXY_IMAGE:-$DEFAULT_PROXY_IMAGE}"
   DSH_PROXY_PORT="${DSH_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
@@ -489,6 +491,7 @@ load_config() {
   validate_port "$DSH_RESEARCH_DASHBOARD_PORT" \
     || die "无效 DSH_RESEARCH_DASHBOARD_PORT=$DSH_RESEARCH_DASHBOARD_PORT"
   validate_port "$DSH_PROXY_PORT" || die "无效 DSH_PROXY_PORT=$DSH_PROXY_PORT"
+  [[ "$DSH_SEARCH_BRAVE_DAILY_LIMIT" =~ ^[0-9]+$ ]] || die "无效 Brave 每日请求上限"
   [[ "$DSH_SEARCH_ENABLED" == "true" || "$DSH_SEARCH_ENABLED" == "false" ]] || die "DSH_SEARCH_ENABLED 必须 true/false"
   [[ "$DSH_SEARCH_BRAVE_ENABLED" == "true" || "$DSH_SEARCH_BRAVE_ENABLED" == "false" ]] || die "DSH_SEARCH_BRAVE_ENABLED 必须 true/false"
   [[ "$DSH_SEARCH_CACHE_ENABLED" == "true" || "$DSH_SEARCH_CACHE_ENABLED" == "false" ]] || die "DSH_SEARCH_CACHE_ENABLED 必须 true/false"
@@ -575,6 +578,7 @@ save_config() {
     printf 'DSH_SEARCH_BRAVE_ENABLED=%q\n' "${DSH_SEARCH_BRAVE_ENABLED:-false}"
     printf 'DSH_SEARCH_CACHE_ENABLED=%q\n' "${DSH_SEARCH_CACHE_ENABLED:-true}"
     printf 'DSH_SEARCH_IMAGE=%q\n' "${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
+    printf 'DSH_SEARCH_BRAVE_DAILY_LIMIT=%q\n' "${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
     printf 'DSH_PROXY_NODE=%q\n' "${DSH_PROXY_NODE:-}"
     printf 'DSH_PROXY_IMAGE=%q\n' "${DSH_PROXY_IMAGE:-$DEFAULT_PROXY_IMAGE}"
     printf 'DSH_PROXY_PORT=%q\n' "${DSH_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
@@ -2718,6 +2722,7 @@ create_container() {
       -e "DSH_SEARCH_SEARXNG_URL=http://dsh-searxng:8080"
       -e "DSH_SEARCH_BRAVE_ENABLED=$DSH_SEARCH_BRAVE_ENABLED"
       -e "DSH_SEARCH_CACHE_ENABLED=$DSH_SEARCH_CACHE_ENABLED"
+      -e "DSH_SEARCH_BRAVE_DAILY_LIMIT=$DSH_SEARCH_BRAVE_DAILY_LIMIT"
     )
   else
     args+=(-e "DSH_SEARCH_ENABLED=false")
@@ -3453,7 +3458,7 @@ cmd_search() {
       printf 'Web Search:     %s\n' "$DSH_SEARCH_ENABLED"
       printf 'SearXNG:        %s\n' "$(search_container_running && echo running || echo stopped)"
       printf 'SearXNG image:  %s\n' "$DSH_SEARCH_IMAGE"
-      printf 'Brave fallback: %s\n' "$DSH_SEARCH_BRAVE_ENABLED"
+      printf 'Brave fallback: %s (max %s/day UTC)\n' "$DSH_SEARCH_BRAVE_ENABLED" "$DSH_SEARCH_BRAVE_DAILY_LIMIT"
       printf 'Memory cache:   %s\n' "$DSH_SEARCH_CACHE_ENABLED"
       printf 'Search network: %s\n' "$(search_network_name)"
       ;;
