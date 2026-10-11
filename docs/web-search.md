@@ -71,3 +71,5 @@ dshd search disable
 ### SearXNG 配置与权限
 
 `dshd` 将首次生成的 `settings.yml` 保存到宿主机 `$STATE_DIR/search/searxng/settings.yml`，并生成独立随机密钥。整个配置目录挂载到 Sidecar 的 `/etc/searxng`；缓存目录单独挂载到 `/var/cache/searxng`。SearXNG 官方镜像首次启动会在 `FORCE_OWNERSHIP=true` 时修正挂载目录属主，因此不使用 `:ro` 单文件挂载避免非 root 进程无法读取 mode 0600 的密钥文件。配置文件不得对公网提供。
+
+Search Sidecar 与网络带有 `io.caicailo.dsh.component=web-search` 所属标记。`disable`、`uninstall` 不删除没有此标记的同名用户资源；`enable` 遇到同名异主资源时拒绝接管，避免破坏用户已有 Docker 网络/容器。

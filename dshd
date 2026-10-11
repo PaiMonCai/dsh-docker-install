@@ -642,8 +642,18 @@ search_network_name() { printf '%s-search' "$DSH_NAME"; }
 search_container_name() { printf '%s-searxng' "$DSH_NAME"; }
 search_container_running() { docker_cmd ps --format '{{.Names}}' | grep -Fxq "$(search_container_name)"; }
 search_dir() { printf '%s/search' "$STATE_DIR"; }
+search_owned_container() {
+  [[ "$(docker_cmd inspect -f '{{index .Config.Labels "io.caicailo.dsh.component"}}' "$(search_container_name)" 2>/dev/null || true)" == "web-search" ]]
+}
+search_owned_network() {
+  [[ "$(docker_cmd network inspect -f '{{index .Labels "io.caicailo.dsh.component"}}' "$(search_network_name)" 2>/dev/null || true)" == "web-search" ]]
+}
 search_ensure_network() {
-  docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1 || docker_cmd network create "$(search_network_name)" >/dev/null
+  if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
+    search_owned_network || die "同名搜索 Docker network 已存在但不属于 dshd，拒绝接管"
+  else
+    docker_cmd network create --label io.caicailo.dsh.component=web-search "$(search_network_name)" >/dev/null
+  fi
 }
 search_ensure_config() {
   local dir secret
@@ -670,10 +680,22 @@ EOF
   fi
 }
 search_remove_sidecar() {
-  docker_cmd rm -f "$(search_container_name)" >/dev/null 2>&1 || true
+  if docker_cmd inspect "$(search_container_name)" >/dev/null 2>&1; then
+    if search_owned_container; then
+      docker_cmd rm -f "$(search_container_name)" >/dev/null 2>&1 || true
+    else
+      warn "同名 SearXNG 容器非本工具创建，已保留"
+    fi
+  fi
 }
 search_remove_network() {
-  docker_cmd network rm "$(search_network_name)" >/dev/null 2>&1 || true
+  if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
+    if search_owned_network; then
+      docker_cmd network rm "$(search_network_name)" >/dev/null 2>&1 || true
+    else
+      warn "同名搜索网络非本工具创建，已保留"
+    fi
+  fi
 }
 search_start_sidecar() {
   [[ "$DSH_SEARCH_ENABLED" == "true" ]] || return 0
@@ -682,9 +704,13 @@ search_start_sidecar() {
   if ! docker_cmd image inspect "$DSH_SEARCH_IMAGE" >/dev/null 2>&1; then
     docker_cmd pull "$DSH_SEARCH_IMAGE" || die "无法获取 SearXNG 镜像 $DSH_SEARCH_IMAGE"
   fi
-  if search_container_running; then return 0; fi
+  if search_container_running; then
+    search_owned_container || die "同名 SearXNG 容器并非 dshd 所有，拒绝复用"
+    return 0
+  fi
   search_remove_sidecar
   docker_cmd run -d --name "$(search_container_name)" --restart unless-stopped \
+    --label io.caicailo.dsh.component=web-search \
     --network "$(search_network_name)" --network-alias dsh-searxng \
     --cap-drop NET_ADMIN --cap-drop SYS_ADMIN --security-opt no-new-privileges --pids-limit 150 \
     --memory 512m \
