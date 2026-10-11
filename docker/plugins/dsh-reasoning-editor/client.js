@@ -558,7 +558,7 @@ window.__ModuleLoader__.load({
             },
             h('option', { value: 'inherit' }, copy.inherited),
             h('option', { value: 'disabled' }, copy.disabled),
-            h('option', { value: 'custom' }, copy.custom)))),
+            h('option', { value: 'custom' }, copy.custom))),
         ),
         bulk.mode !== 'custom' ? null : h('div', null,
           h('div', { style: { ...palette.hint, marginTop: '8px' } }, copy.levelHint),
@@ -600,7 +600,8 @@ window.__ModuleLoader__.load({
                   onChange: event => setBulk(current => ({
                     ...current, values: { ...current.values, [level]: event.target.value },
                   })),
-                })))),
+                }))),
+          ),
         ),
         h('div', { style: { ...palette.row, marginTop: '12px' } },
           h('button', {
