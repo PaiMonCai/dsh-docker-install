@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.9.1"
+DSHD_VERSION="0.9.2"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -662,7 +662,7 @@ search_ensure_config() {
   mkdir -p "$(search_dir)/cache"
   chmod 700 "$dir"
   if [[ ! -e "$dir/settings.yml" ]]; then
-    secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')"
+    secret="$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')"
     [[ "${#secret}" -eq 64 ]] || die "SearXNG secret generation failed"
     cat >"$dir/settings.yml" <<EOF
 use_default_settings: true
@@ -3492,7 +3492,13 @@ cmd_search() {
       printf 'Search network: %s\n' "$(search_network_name)"
       ;;
     enable|setup)
-      DSH_SEARCH_ENABLED=true; save_config; create_container
+      # Stage the opt-in flag in memory first: the image/provisioning check
+      # must not leave a persisted 'enabled' state when sidecar startup fails.
+      DSH_SEARCH_ENABLED=true
+      # run_action deliberately isolates failures in a subshell, where errexit
+      # is suppressed by its OR-list. Explicitly propagate a failed recreate.
+      create_container || return $?
+      save_config
       ok "Web Search 已启用；请执行 dshd search test 验证"
       ;;
     disable|uninstall)
@@ -3569,7 +3575,11 @@ cmd_search_menu() {
     [[ "$DSH_SEARCH_ENABLED" == true ]] && search_state="已启用"
     [[ "$DSH_SEARCH_BRAVE_ENABLED" == true ]] && brave_state="已启用"
     [[ "$DSH_SEARCH_CACHE_ENABLED" == true ]] && cache_state="已启用"
-    if search_container_running 2>/dev/null; then sidecar="运行中"; fi
+    if search_container_running 2>/dev/null; then
+      sidecar="运行中"
+    elif [[ "$DSH_SEARCH_ENABLED" == true ]]; then
+      search_state="待修复"
+    fi
 
     printf '\n  %sWeb Search / SearXNG 管理%s\n' "$cyan" "$reset"
     printf '  搜索：%s  |  SearXNG：%s\n' "$search_state" "$sidecar"
@@ -3597,9 +3607,12 @@ cmd_search_menu() {
 
     case "$choice" in
       1)
-        if [[ "$DSH_SEARCH_ENABLED" == true ]]; then
-          info "Web Search 已启用，无需重复重建。"
+        if [[ "$DSH_SEARCH_ENABLED" == true ]] && search_container_running 2>/dev/null; then
+          info "Web Search 已启用，SearXNG 正在运行。"
         else
+          if [[ "$DSH_SEARCH_ENABLED" == true ]]; then
+            warn "检测到 Web Search 已标记启用，但 SearXNG 未运行；正在重试安装。"
+          fi
           run_action cmd_search enable
         fi
         ;;

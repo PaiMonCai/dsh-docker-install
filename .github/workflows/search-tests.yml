@@ -10,6 +10,8 @@ on:
       - 'docker/entrypoint.sh'
       - 'docker-compose.yml'
       - 'tests/test-web-search.mjs'
+      - 'tests/test-dshd-search-menu.sh'
+      - 'tests/test-dshd-search-recovery.sh'
       - 'tests/test-web-search-plugin.sh'
       - '.github/workflows/search-tests.yml'
   workflow_dispatch:
@@ -27,6 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           bash -n dshd
+          bash tests/test-dshd-search-menu.sh
+          bash tests/test-dshd-search-recovery.sh
           bash -n docker/ensure-web-search.sh
           bash -n docker/entrypoint.sh
           node --check docker/plugins/dsh-web-search/index.js

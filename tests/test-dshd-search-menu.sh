@@ -94,4 +94,19 @@ timeout 5 bash -c '
   cmd_search_menu </dev/null
 ' bash "$ROOT" >"$TMP/eof.out" 2>&1 || { echo 'search submenu EOF should not hang' >&2; exit 1; }
 printf '10\n' | cmd_search_menu >"$TMP/quota-eof.out" 2>&1 || { echo 'quota input EOF should not hang' >&2; exit 1; }
+
+# Regression: older broken installations may have enabled=true saved while the
+# SearXNG sidecar is stopped. The menu must retry rather than saying no-op.
+: > "$SEARCH_TEST_LOG"
+DSH_SEARCH_ENABLED=true
+save_config
+printf '1\n\n0\n' | cmd_search_menu > "$TMP/recover-menu.out" 2>"$TMP/recover-menu.err"
+grep -Fxq 'enable' "$SEARCH_TEST_LOG" || {
+  echo 'enabled flag with dead sidecar should trigger retry' >&2; exit 1;
+}
+grep -Fq '待修复' "$TMP/recover-menu.out" || { echo 'degraded state must be visible' >&2; exit 1; }
+: > "$SEARCH_TEST_LOG"
+search_container_running() { return 0; }
+printf '1\n\n0\n' | cmd_search_menu > "$TMP/running-menu.out" 2>&1
+[[ ! -s "$SEARCH_TEST_LOG" ]] || { echo 'healthy sidecar should not reinstall' >&2; exit 1; }
 echo 'test-dshd-search-menu: ok'

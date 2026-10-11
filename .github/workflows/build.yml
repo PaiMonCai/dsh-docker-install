@@ -90,6 +90,8 @@ jobs:
           bash tests/test-dshd-interactive.sh
           bash -n tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-menu.sh
+          bash -n tests/test-dshd-search-recovery.sh
+          bash tests/test-dshd-search-recovery.sh
           bash -n tests/test-dshd-proxy.sh
           bash tests/test-dshd-proxy.sh
           bash -n tests/test-reasoning-editor.sh
