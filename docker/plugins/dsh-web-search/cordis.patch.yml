@@ -1,0 +1,15 @@
+# Own only the search provider: do not modify web_fetch or third-party bundles.
+# Keep this patch final after plugin-manager composition, verify with --dump-config.
+- insert:
+    - id: dsh-docker-web-search
+      name: dsh-docker-web-search
+- patch:
+    - id: web
+      config:
+        searchProvider: dsh-docker-search
+        fetchProvider: http
+    - id: tool-web
+      config:
+        fetch: true
+        search: true
+        searchTimeoutMs: 12000
