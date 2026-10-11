@@ -184,10 +184,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Check bundled Search Router
-        run: |
-          bash -n docker/ensure-web-search.sh
-          node --check docker/plugins/dsh-web-search/index.js
-          node --test tests/test-web-search.mjs
+        run: bash tests/test-web-search-plugin.sh
 
       - name: Verify runtime development capabilities
         shell: bash
