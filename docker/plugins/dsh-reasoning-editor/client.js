@@ -41,6 +41,13 @@ window.__ModuleLoader__.load({
         cursor: 'pointer',
         fontSize: '12px',
       },
+      batch: {
+        marginTop: '12px',
+        padding: '12px',
+        border: '1px solid var(--dsw-alias-separator-primary, rgba(128,128,128,.28))',
+        borderRadius: '9px',
+        background: 'var(--dsw-alias-bg-tertiary, rgba(128,128,128,.035))',
+      },
       model: {
         marginTop: '10px',
         paddingTop: '10px',
@@ -155,6 +162,30 @@ window.__ModuleLoader__.load({
       return { mode: 'inherit', values: {} }
     }
 
+    function sameDraft(a, b) {
+      if (!a || !b || a.mode !== b.mode) return false
+      if (a.mode !== 'custom') return true
+      return LEVELS.every(level => {
+        const av = a.values || {}
+        const bv = b.values || {}
+        const ah = Object.prototype.hasOwnProperty.call(av, level)
+        const bh = Object.prototype.hasOwnProperty.call(bv, level)
+        return ah === bh && (!ah || av[level] === bv[level])
+      })
+    }
+
+    function sameReasoning(a, b) {
+      // Only the model's reasoningEfforts is conflict-protected. Other model
+      // metadata can change concurrently and must be preserved.
+      if (isRecord(a) && isRecord(b)) {
+        const ak = Object.keys(a).sort()
+        const bk = Object.keys(b).sort()
+        return ak.length === bk.length && ak.every((key, i) =>
+          key === bk[i] && sameReasoning(a[key], b[key]))
+      }
+      return Object.is(a, b)
+    }
+
     function encodedDraft(draft) {
       if (!draft || draft.mode === 'inherit') return { kind: 'unset' }
       if (draft.mode === 'disabled') return { kind: 'set', value: false }
@@ -212,6 +243,21 @@ window.__ModuleLoader__.load({
         levelHint: '点击滑轨节点启用或关闭 DSH 中要显示的档位。',
         advanced: '高级映射',
         mappingHint: '仅当网关使用不同拼写时修改；留空使用标准档位名。',
+        bulkTitle: '批量设置',
+        bulkHint: '选择要修改的模型，配置一次推理等级，再点击“应用到已选模型”。应用只改变当前草稿；确认后统一保存。',
+        selectAll: '全选全部',
+        selectShown: '选择筛选结果',
+        clearSelection: '清空选择',
+        filter: '搜索模型名称或 ID',
+        selection: '已选 {selected} / {total} 个模型，待保存 {dirty} 个',
+        applyBulk: '应用到已选模型',
+        batchApplied: '已将设置应用到 {count} 个模型草稿。保存后才会写入配置。',
+        noSelection: '请先勾选至少一个模型。',
+        discard: '撤销未保存修改',
+        noChanges: '没有需要保存的更改。',
+        saveCount: '保存 {count} 个模型的修改',
+        concurrentModel: '目标模型的推理设置已在其他页面更改。为避免覆盖他人的修改，请重新读取后再操作。',
+        duplicateId: '模型 ID 重复，无法安全批量修改。',
         genericError: '读取或保存失败',
       } : {
         title: 'Reasoning effort',
@@ -236,8 +282,28 @@ window.__ModuleLoader__.load({
         levelHint: 'Click slider stops to enable or disable the levels DSH should offer.',
         advanced: 'Advanced mapping',
         mappingHint: 'Override only when the gateway uses different spelling; blank uses the standard level name.',
+        bulkTitle: 'Bulk edit',
+        bulkHint: 'Select the models, choose one reasoning profile, and apply it to their drafts. Changes are only saved when you confirm.',
+        selectAll: 'Select all',
+        selectShown: 'Select filtered',
+        clearSelection: 'Clear selection',
+        filter: 'Filter models by name or ID',
+        selection: '{selected} / {total} selected · {dirty} unsaved',
+        applyBulk: 'Apply to selected models',
+        batchApplied: 'Applied to {count} model drafts. Save to persist.',
+        noSelection: 'Select at least one model.',
+        discard: 'Discard unsaved changes',
+        noChanges: 'No changes to save.',
+        saveCount: 'Save changes to {count} models',
+        concurrentModel: 'Another page changed reasoning settings on a targeted model. Reload first to avoid overwriting them.',
+        duplicateId: 'Duplicate model IDs prevent safe batch editing.',
         genericError: 'Unable to read or save settings',
       }
+    }
+
+    function formatCount(template, numbers) {
+      return Object.entries(numbers).reduce((value, [key, number]) =>
+        value.replace('{' + key + '}', String(number)), template)
     }
 
     function findNamespace(describe) {
@@ -274,6 +340,17 @@ window.__ModuleLoader__.load({
       const [rawAvailable, setRawAvailable] = useState(false)
       const [drafts, setDrafts] = useState({})
       const [mappingOpen, setMappingOpen] = useState({})
+      const [selected, setSelected] = useState({})
+      const [filter, setFilter] = useState('')
+      const [bulk, setBulk] = useState({ mode: 'inherit', values: {} })
+      const [bulkMappingOpen, setBulkMappingOpen] = useState(false)
+
+      const visibleModels = models.filter(model =>
+        (model.id + ' ' + (model.name || '')).toLowerCase().includes(filter.trim().toLowerCase()))
+      const selectedModels = models.filter(model => selected[model.id] === true)
+      const dirtyModels = models.filter(model => drafts[model.id] &&
+        !sameDraft(draftOf(model), drafts[model.id]))
+      const editable = !saving && !loading && writable && rawAvailable
 
       const read = useCallback(async () => {
         setLoading(true)
@@ -288,6 +365,8 @@ window.__ModuleLoader__.load({
           const raw = rawModels(namespace, provider.settingsPath)
           const display = raw === undefined ? resolvedModels(namespace, provider.settingsPath) : raw
           const normalized = display.filter(model => isRecord(model) && typeof model.id === 'string').map(cloneJson)
+          const ids = normalized.map(model => model.id)
+          if (new Set(ids).size !== ids.length) throw new Error(copy.duplicateId)
           const nextDrafts = {}
           for (const model of normalized) nextDrafts[model.id] = draftOf(model)
 
@@ -295,6 +374,10 @@ window.__ModuleLoader__.load({
           setRawAvailable(raw !== undefined)
           setModels(normalized)
           setDrafts(nextDrafts)
+          setSelected({})
+          setBulk({ mode: 'inherit', values: {} })
+          setBulkMappingOpen(false)
+          setFilter('')
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason))
         } finally {
@@ -341,15 +424,52 @@ window.__ModuleLoader__.load({
         setNotice('')
       }
 
+      const applyBulk = () => {
+        if (!selectedModels.length) {
+          setError(copy.noSelection)
+          return
+        }
+        if (encodedDraft(bulk).kind === 'error') {
+          setError(copy.customError)
+          return
+        }
+        const copied = { mode: bulk.mode, values: { ...bulk.values } }
+        setDrafts(current => {
+          const next = { ...current }
+          for (const model of selectedModels) {
+            next[model.id] = { mode: copied.mode, values: { ...copied.values } }
+          }
+          return next
+        })
+        setError('')
+        setNotice(formatCount(copy.batchApplied, { count: selectedModels.length }))
+      }
+
+      const resetDrafts = () => {
+        const original = {}
+        for (const model of models) original[model.id] = draftOf(model)
+        setDrafts(original)
+        setNotice('')
+        setError('')
+      }
+
       const save = async () => {
+        // Save ONLY modified reasoning profiles. A concurrent edit of any
+        // targeted model's reasoningEfforts is a refusal, not last-write-wins.
         const desiredById = {}
-        for (const model of models) {
+        const originalById = {}
+        for (const model of dirtyModels) {
           const desired = encodedDraft(drafts[model.id])
           if (desired.kind === 'error') {
             setError(copy.customError)
             return
           }
           desiredById[model.id] = desired
+          originalById[model.id] = cloneJson(model.reasoningEfforts)
+        }
+        if (!Object.keys(desiredById).length) {
+          setNotice(copy.noChanges)
+          return
         }
 
         setSaving(true)
@@ -366,9 +486,18 @@ window.__ModuleLoader__.load({
             const current = rawModels(namespace, provider.settingsPath)
             if (current === undefined) throw new Error(copy.rawMissing)
 
-            const currentIds = new Set(current.filter(isRecord).map(model => model.id))
-            const missing = Object.keys(desiredById).find(id => !currentIds.has(id))
+            const currentById = new Map()
+            for (const model of current) {
+              if (!isRecord(model) || typeof model.id !== 'string') continue
+              if (currentById.has(model.id)) throw new Error(copy.duplicateId)
+              currentById.set(model.id, model)
+            }
+            const missing = Object.keys(desiredById).find(id => !currentById.has(id))
             if (missing !== undefined) throw new Error(copy.missingModel)
+            if (Object.keys(desiredById).some(id =>
+              !sameReasoning(currentById.get(id).reasoningEfforts, originalById[id]))) {
+              throw new Error(copy.concurrentModel)
+            }
 
             const nextModels = applyDesired(current, desiredById)
             const response = await props.settings.mutate(
@@ -377,8 +506,8 @@ window.__ModuleLoader__.load({
               namespace.revision,
             )
             if (response.ok) {
-              setNotice(copy.saved)
               await read()
+              setNotice(copy.saved)
               return
             }
             if (response.error && response.error.code === 'settings/conflict' && attempt === 0) continue
@@ -392,6 +521,101 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const bulkEditor = () => h('div', { style: palette.batch },
+        h('div', { style: palette.modelTitle }, copy.bulkTitle),
+        h('p', { style: palette.hint }, copy.bulkHint),
+        h('input', {
+          type: 'search', style: { ...palette.input, width: '100%', boxSizing: 'border-box' },
+          value: filter, placeholder: copy.filter, 'aria-label': copy.filter,
+          onChange: event => setFilter(event.target.value),
+        }),
+        h('div', { style: { ...palette.row, marginBottom: '8px' } },
+          h('button', { type: 'button', style: palette.button, disabled: !editable,
+            onClick: () => setSelected(Object.fromEntries(models.map(model => [model.id, true]))) },
+          copy.selectAll),
+          h('button', { type: 'button', style: palette.button,
+            disabled: !editable || !visibleModels.length,
+            onClick: () => setSelected(current => ({
+              ...current, ...Object.fromEntries(visibleModels.map(model => [model.id, true])),
+            })) },
+          copy.selectShown),
+          h('button', { type: 'button', style: palette.button, disabled: !editable,
+            onClick: () => setSelected({}) }, copy.clearSelection),
+        ),
+        h('div', { style: palette.hint },
+          formatCount(copy.selection, {
+            selected: selectedModels.length, total: models.length, dirty: dirtyModels.length,
+          })),
+        h('div', { style: palette.row },
+          h('label', null, copy.mode, ' ',
+            h('select', {
+              style: palette.select, value: bulk.mode, disabled: !editable,
+              onChange: event => setBulk(current => ({
+                mode: event.target.value,
+                values: event.target.value === 'custom' && current.mode === 'custom'
+                  ? current.values : {},
+              })),
+            },
+            h('option', { value: 'inherit' }, copy.inherited),
+            h('option', { value: 'disabled' }, copy.disabled),
+            h('option', { value: 'custom' }, copy.custom)))),
+        ),
+        bulk.mode !== 'custom' ? null : h('div', null,
+          h('div', { style: { ...palette.hint, marginTop: '8px' } }, copy.levelHint),
+          h('div', { style: { ...palette.row, gap: '5px' } },
+            ...LEVELS.map(level => {
+              const active = Object.prototype.hasOwnProperty.call(bulk.values, level)
+              return h('button', {
+                key: level, type: 'button',
+                disabled: !editable, 'aria-pressed': active,
+                'aria-label': copy.bulkTitle + ' ' + level,
+                style: {
+                  ...palette.button,
+                  background: active ? 'var(--dsw-alias-brand-primary, #4d6bfe)' : 'transparent',
+                  color: active ? '#fff' : 'inherit',
+                },
+                onClick: () => setBulk(current => {
+                  const values = { ...current.values }
+                  if (Object.prototype.hasOwnProperty.call(values, level)) delete values[level]
+                  else values[level] = ''
+                  return { mode: 'custom', values }
+                }),
+              }, level)
+            })),
+          h('button', {
+            type: 'button', style: { ...palette.button, marginTop: '8px' },
+            disabled: !editable,
+            onClick: () => setBulkMappingOpen(current => !current),
+          }, copy.advanced),
+          !bulkMappingOpen ? null : h('div', null,
+            h('div', { style: palette.hint }, copy.mappingHint),
+            ...LEVELS.filter(level => Object.prototype.hasOwnProperty.call(bulk.values, level))
+              .map(level => h('div', { key: level, style: palette.mapping },
+                h('label', null, level),
+                h('input', {
+                  type: 'text', style: palette.input,
+                  value: bulk.values[level], disabled: !editable,
+                  placeholder: level === 'off' ? copy.wire : level,
+                  'aria-label': copy.bulkTitle + ' ' + level + ' ' + copy.wire,
+                  onChange: event => setBulk(current => ({
+                    ...current, values: { ...current.values, [level]: event.target.value },
+                  })),
+                })))),
+        ),
+        h('div', { style: { ...palette.row, marginTop: '12px' } },
+          h('button', {
+            type: 'button', style: palette.primary,
+            disabled: !editable || !selectedModels.length,
+            onClick: applyBulk,
+          }, copy.applyBulk),
+          h('button', {
+            type: 'button', style: palette.button,
+            disabled: !editable || !dirtyModels.length,
+            onClick: resetDrafts,
+          }, copy.discard),
+        ),
+      )
+
       const levelEditor = (model) => {
         const draft = drafts[model.id] || { mode: 'inherit', values: {} }
         const selectedLevels = LEVELS.filter(level =>
@@ -399,7 +623,20 @@ window.__ModuleLoader__.load({
         const showMapping = Boolean(mappingOpen[model.id])
 
         return h('div', { key: model.id, style: palette.model },
-          h('div', { style: palette.modelTitle }, model.name ? model.name + ' · ' + model.id : model.id),
+          h('div', { style: { ...palette.row, justifyContent: 'space-between' } },
+            h('label', { style: { ...palette.row, marginTop: 0, cursor: editable ? 'pointer' : 'default' } },
+              h('input', {
+                type: 'checkbox',
+                checked: Boolean(selected[model.id]),
+                disabled: !editable,
+                'aria-label': copy.bulkTitle + ': ' + model.id,
+                onChange: event => setSelected(current => ({
+                  ...current, [model.id]: event.target.checked,
+                })),
+              }),
+              h('span', { style: palette.modelTitle },
+                model.name ? model.name + ' · ' + model.id : model.id)),
+            !sameDraft(draftOf(model), draft) ? h('span', { style: palette.ok }, '●') : null),
           h('div', { style: palette.row },
             h('span', { style: palette.hint }, copy.mode),
             h('select', {
@@ -497,7 +734,8 @@ window.__ModuleLoader__.load({
           !loading && rawAvailable && models.length === 0 && !error
             ? h('div', { style: { ...palette.hint, marginTop: '8px' } }, copy.empty)
             : null,
-          ...(!loading ? models.map(levelEditor) : []),
+          !loading && rawAvailable && models.length > 0 ? bulkEditor() : null,
+          ...(!loading ? visibleModels.map(levelEditor) : []),
           error ? h('div', { role: 'alert', style: palette.error }, error) : null,
           notice ? h('div', { role: 'status', style: palette.ok }, notice) : null,
           !loading && models.length > 0
@@ -505,9 +743,9 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button',
                   style: { ...palette.primary, opacity: saving || !writable || !rawAvailable ? .5 : 1 },
-                  disabled: saving || !writable || !rawAvailable,
+                  disabled: !editable || !dirtyModels.length,
                   onClick: () => { void save() },
-                }, saving ? copy.saving : copy.save),
+                }, saving ? copy.saving : formatCount(copy.saveCount, { count: dirtyModels.length })),
                 !writable ? h('span', { style: palette.hint }, copy.readOnly) : null,
               )
             : null,

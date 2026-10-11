@@ -1,6 +1,6 @@
 {
   "name": "dsh-docker-reasoning-editor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "DSH Docker built-in UI adapter for custom-model reasoningEfforts",
