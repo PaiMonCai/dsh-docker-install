@@ -182,6 +182,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
  && node --check /usr/local/bin/dsh-web-token.js \
  && node --check /opt/dsh/plugins/dsh-web-search/index.js \
+ && node --check /opt/dsh/plugins/dsh-web-search/client.js \
  && node --check /opt/dsh/plugins/dsh-web-search/router.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \

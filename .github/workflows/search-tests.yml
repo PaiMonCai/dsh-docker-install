@@ -29,6 +29,7 @@ jobs:
           bash -n docker/ensure-web-search.sh
           bash -n docker/entrypoint.sh
           node --check docker/plugins/dsh-web-search/index.js
+          node --check docker/plugins/dsh-web-search/client.js
           node --check docker/plugins/dsh-web-search/router.js
           node --check docker/plugins/dsh-web-search/providers/searxng.js
           node --check docker/plugins/dsh-web-search/providers/brave.js

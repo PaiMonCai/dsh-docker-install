@@ -65,7 +65,7 @@ dshd search disable
 - 推荐使用 `dshd search test`、`dshd doctor` 和 CI 中的搜索插件测试验证更新版本。
 - 更改上游 `ctx.web` 类型、Provider 注册接口、Profile bundle 合并语义时，必须在 Release CI 中阻断发布并修正本插件。
 - Search Router 是 Web Profile 插件；其他 Profile（如纯 headless 或 sdk）的自动安装尚未启用，未来需要逐 Profile 做兼容验证。
-- 本版只提供 CLI 运维管理；独立 Web UI 配置面板需要通过官方 Plugins 页面扩展接口另行添加，不能直接修改上游前端。
+- Web UI 插件卡片提供 Brave API Key 的安全只写录入与配置状态。通过官方 `plugins.item` 插槽和 `remote.credentials`，不自行保存密钥；Sidecar 启停、备用回退开关与上限仍由 `dshd` CLI 管理。
 
 
 ### SearXNG 配置与权限
