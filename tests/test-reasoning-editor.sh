@@ -8,6 +8,7 @@ RECONCILER="docker/ensure-reasoning-editor.sh"
 
 node --check "$PLUGIN_DIR/index.js"
 node --check "$CLIENT"
+node tests/test-reasoning-editor-bulk.cjs
 bash -n "$RECONCILER"
 
 node - "$PACKAGE" <<'NODE'
