@@ -1,0 +1,51 @@
+name: Web Search Checks
+on:
+  pull_request:
+    paths:
+      - 'docker/plugins/dsh-web-search/**'
+      - 'docker/ensure-web-search.sh'
+      - 'docker/search/**'
+      - 'dshd'
+      - 'Dockerfile'
+      - 'docker/entrypoint.sh'
+      - 'docker-compose.yml'
+      - 'tests/test-web-search.mjs'
+      - '.github/workflows/search-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  search-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax and unit tests
+        run: |
+          set -euo pipefail
+          bash -n dshd
+          bash -n docker/ensure-web-search.sh
+          bash -n docker/entrypoint.sh
+          node --check docker/plugins/dsh-web-search/index.js
+          node --check docker/plugins/dsh-web-search/router.js
+          node --check docker/plugins/dsh-web-search/providers/searxng.js
+          node --check docker/plugins/dsh-web-search/providers/brave.js
+          node --test tests/test-web-search.mjs
+      - name: Profile package architecture
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const p = JSON.parse(fs.readFileSync('docker/plugins/dsh-web-search/package.json'))
+          if (p.name !== 'dsh-docker-web-search') throw Error('wrong package')
+          if (p.dsh.bundle.patch !== './cordis.patch.yml') throw Error('missing composition bundle')
+          const patch = fs.readFileSync('docker/plugins/dsh-web-search/cordis.patch.yml','utf8')
+          for(const value of ['searchProvider: dsh-docker-search','fetchProvider: http','searchTimeoutMs: 12000']) {
+            if (!patch.includes(value)) throw Error('missing '+value)
+          }
+          const sh = fs.readFileSync('docker/ensure-web-search.sh','utf8')
+          if (!sh.includes('dsh plugin --profile web add') || !sh.includes('dsh plugin --profile web remove')) throw Error('must use DSH Plugin Manager')
+          NODE
+      - name: Compose syntax validation
+        run: docker compose config --quiet

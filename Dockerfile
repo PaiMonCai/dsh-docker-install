@@ -187,6 +187,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
  && bash -n /usr/local/bin/dsh-session-manager \
  && bash -n /usr/local/bin/ensure-dsh-web-search \
+ && node --check /opt/dsh/plugins/dsh-web-search/providers/searxng.js \
+ && node --check /opt/dsh/plugins/dsh-web-search/providers/brave.js \
  && bash -n /usr/local/bin/ensure-dsh-session-manager-web \
  && bash -n /usr/local/bin/apply-dsh-session-deletions \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \

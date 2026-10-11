@@ -2718,7 +2718,7 @@ create_container() {
       -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "http_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "https_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
-      -e "NO_PROXY=${DSH_PROXY_NO_PROXY}"
+      -e "NO_PROXY=${DSH_PROXY_NO_PROXY},dsh-searxng"
       -e "no_proxy=${DSH_PROXY_NO_PROXY},dsh-searxng"
       -e "NODE_USE_ENV_PROXY=1"
     )
