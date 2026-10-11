@@ -4,6 +4,11 @@
 set -Eeuo pipefail
 
 DSHD_VERSION="0.9.1"
+# Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
+DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
+DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
+DSH_SEARCH_CACHE_ENABLED="${DSH_SEARCH_CACHE_ENABLED:-true}"
+DSH_SEARCH_IMAGE="${DSH_SEARCH_IMAGE:-searxng/searxng:latest}"
 REPO="PaiMonCai/dsh-docker-install"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 CDN_BASE="https://cdn.jsdelivr.net/gh/${REPO}@main"
@@ -2678,6 +2683,13 @@ create_container() {
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
+  # Cleanup must occur BEFORE the final docker run/create, preserving legacy
+  # dshd scripts and not leaving search networks behind on opt-out.
+  if [[ "$DSH_SEARCH_ENABLED" != "true" ]]; then
+    search_remove_sidecar
+    search_remove_network
+  fi
+
   if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
     proxy_remove_sidecar
     proxy_remove_network
@@ -2782,10 +2794,6 @@ create_container() {
     docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
   fi
   wait_ready
-  if [[ "$DSH_SEARCH_ENABLED" != "true" ]]; then
-    search_remove_sidecar
-    search_remove_network
-  fi
 }
 
 first_trusted_host() {
