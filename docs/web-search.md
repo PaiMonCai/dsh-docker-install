@@ -66,3 +66,8 @@ dshd search disable
 - 更改上游 `ctx.web` 类型、Provider 注册接口、Profile bundle 合并语义时，必须在 Release CI 中阻断发布并修正本插件。
 - Search Router 是 Web Profile 插件；其他 Profile（如纯 headless 或 sdk）的自动安装尚未启用，未来需要逐 Profile 做兼容验证。
 - 本版只提供 CLI 运维管理；独立 Web UI 配置面板需要通过官方 Plugins 页面扩展接口另行添加，不能直接修改上游前端。
+
+
+### SearXNG 配置与权限
+
+`dshd` 将首次生成的 `settings.yml` 保存到宿主机 `$STATE_DIR/search/searxng/settings.yml`，并生成独立随机密钥。整个配置目录挂载到 Sidecar 的 `/etc/searxng`；缓存目录单独挂载到 `/var/cache/searxng`。SearXNG 官方镜像首次启动会在 `FORCE_OWNERSHIP=true` 时修正挂载目录属主，因此不使用 `:ro` 单文件挂载避免非 root 进程无法读取 mode 0600 的密钥文件。配置文件不得对公网提供。

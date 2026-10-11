@@ -647,8 +647,9 @@ search_ensure_network() {
 }
 search_ensure_config() {
   local dir secret
-  dir="$(search_dir)"
+  dir="$(search_dir)/searxng"
   mkdir -p "$dir"
+  mkdir -p "$(search_dir)/cache"
   chmod 700 "$dir"
   if [[ ! -e "$dir/settings.yml" ]]; then
     secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')"
@@ -685,9 +686,11 @@ search_start_sidecar() {
   search_remove_sidecar
   docker_cmd run -d --name "$(search_container_name)" --restart unless-stopped \
     --network "$(search_network_name)" --network-alias dsh-searxng \
-    --cap-drop ALL --security-opt no-new-privileges --pids-limit 150 \
+    --cap-drop NET_ADMIN --cap-drop SYS_ADMIN --security-opt no-new-privileges --pids-limit 150 \
     --memory 512m \
-    -v "$(search_dir)/settings.yml:/etc/searxng/settings.yml:ro" \
+    -e FORCE_OWNERSHIP=true \
+    -v "$(search_dir)/searxng:/etc/searxng" \
+    -v "$(search_dir)/cache:/var/cache/searxng" \
     "$DSH_SEARCH_IMAGE" >/dev/null
   search_container_running || die "SearXNG sidecar 启动失败"
 }
