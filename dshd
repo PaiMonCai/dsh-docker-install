@@ -3642,9 +3642,9 @@ cmd_search_menu() {
           [[ -n "$limit" ]] || break
           if [[ "$limit" =~ ^[0-9]+$ ]]; then
             # Normalize leading zeros; Bash otherwise parses 08 as invalid octal.
-            limit="\${limit#"\${limit%%[!0]*}"}"
-            limit="\${limit:-0}"
-            if (( \${#limit} <= 5 )) && (( limit <= 10000 )); then
+            limit="${limit#"${limit%%[!0]*}"}"
+            limit="${limit:-0}"
+            if (( ${#limit} <= 5 )) && (( limit <= 10000 )); then
               run_action cmd_search brave limit "$limit"
               break
             fi
@@ -5386,11 +5386,11 @@ menu() {
       25) run_action cmd_admin_hosts ;;
       26) run_action cmd_mounts_menu ;;
       27) run_action cmd_proxy ;;
-      28) run_action cmd_search status ;;
+      28) run_action cmd_search_menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" ]]; then
+    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" && "$choice" != "28" ]]; then
       read -r -p $'\n按 Enter 返回菜单...' _ || true
     fi
     load_config_guarded || warn "当前配置存在问题，部分操作可能不可用。"
