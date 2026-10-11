@@ -3451,7 +3451,7 @@ cmd_install() {
 }
 
 cmd_search() {
-  local action="${1:-status}" option="${2:-}"
+  local action="${1:-status}" option="${2:-}" value="${3:-}"
   load_config
   case "$action" in
     status)
@@ -3476,7 +3476,11 @@ cmd_search() {
       case "$option" in
         enable|on) DSH_SEARCH_BRAVE_ENABLED=true ;;
         disable|off) DSH_SEARCH_BRAVE_ENABLED=false ;;
-        *) die "用法: dshd search brave enable|disable（密钥通过 DSH Credentials 提供）" ;;
+        limit)
+          [[ "$value" =~ ^[0-9]+$ ]] && (( value <= 10000 )) || die "用法: dshd search brave limit 0..10000"
+          DSH_SEARCH_BRAVE_DAILY_LIMIT="$value"
+          ;;
+        *) die "用法: dshd search brave enable|disable|limit N（密钥通过 DSH Credentials 提供）" ;;
       esac
       save_config
       [[ "$DSH_SEARCH_ENABLED" == "true" && $(container_exists && echo yes) == yes ]] && create_container
@@ -4994,6 +4998,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd search enable|disable  启用或关闭可选 Web Search 插件
   dshd search test         测试 SearXNG JSON 搜索
   dshd search brave enable|disable  开关有凭据的 Brave 回退
+  dshd search brave limit N 每日最多回退 N 次（UTC，默认 50）
   dshd search cache clear  清理搜索缓存（重启 DSH）
   dshd proxy               管理 DSH 国际网络 / sing-box 出口
   dshd proxy setup         首次配置/添加节点向导（推荐）

@@ -33,7 +33,8 @@ function normalizeResult(result, maxResults) {
       seen.add(key)
       sources.push({ url: key, ...(source.title ? { title: String(source.title).slice(0, 400) } : {}),
         ...(source.snippet ? { snippet: String(source.snippet).slice(0, 1200) } : {}),
-        ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}) })
+        ...(source.publishedAt && Number.isFinite(Date.parse(source.publishedAt))
+          ? { publishedAt: new Date(source.publishedAt).toISOString() } : {}) })
     } catch { /* Skip malformed third-party URLs. */ }
   }
   const cap = Number.isInteger(maxResults) && maxResults > 0 ? maxResults : 8

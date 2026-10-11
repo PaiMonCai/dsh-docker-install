@@ -102,3 +102,10 @@ test('Brave budget persists across instances and resets only on a new UTC day', 
     assert.equal(await a.reserve(),false)
   } finally { await rm(dir,{recursive:true,force:true}) }
 })
+
+test('Malformed publication dates never escape the normalizer', async () => {
+  const router = new SearchRouter({ searxngURL: 'http://searxng:8080', http: async()=>reply({
+    results:[{url:'https://example.com',title:'A',publishedDate:'not a date'}] }) })
+  const result=await router.search({query:'date'})
+  assert.equal(Object.hasOwn(result.sources[0],'publishedAt'),false)
+})

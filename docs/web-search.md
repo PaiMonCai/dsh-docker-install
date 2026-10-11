@@ -29,6 +29,7 @@ dshd search doctor
 
 ```bash
 dshd search brave enable
+dshd search brave limit 50
 dshd search brave disable
 ```
 
