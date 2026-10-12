@@ -22,6 +22,26 @@ window.__ModuleLoader__.load({
       done: '操作已完成', failed: '操作失败',
       firstTrash: '请先删除会话，将其移入回收站，再执行永久删除。',
       unavailable: '会话管理暂不可用，请检查服务器日志。',
+      subtitle: '管理已删除的会话，可恢复或彻底清除。',
+      search: '搜索会话名称或 ID', range: '删除时间',
+      all: '全部时间', week: '近 7 天', month: '近 30 天',
+      newest: '最近删除', oldest: '最早删除', byName: '名称排序',
+      sort: '排序方式', refresh: '刷新', refreshHint: '刷新回收站列表',
+      total: '全部会话', recent: '近 7 天', selected: '已选择',
+      selectVisible: '选择当前结果', deselectVisible: '取消选择当前结果',
+      clearSelection: '清空选择', restoreSelected: '恢复选中',
+      deleteSelected: '永久删除选中', searchEmpty: '没有匹配的会话',
+      searchEmptyHint: '可尝试其他关键词，或重置筛选条件。',
+      emptyHint: '删除的会话会暂存在这里，确认后可恢复或永久删除。',
+      resetFilters: '清除筛选', sessionId: '会话 ID',
+      deletedAt: '删除于', retry: '重试', processing: '正在处理',
+      doneCount: '已成功处理', failCount: '项失败',
+      selectSession: '选择会话', closeHint: '关闭回收站',
+      dangerousBatch: '批量永久删除会话？',
+      batchWarning: '选中的 {count} 个会话及历史记录将被永久清除。操作不可撤销，运行中的相关任务也会被终止。',
+      typeToConfirm: '批量删除前请输入“永久删除”以确认',
+      requirePhrase: '永久删除', confirmBatch: '确认删除 {count} 个会话',
+      pendingClose: '操作进行中，暂时无法关闭。',
     }
 
     async function api(action, sessionId, title) {
@@ -79,83 +99,384 @@ window.__ModuleLoader__.load({
       }, h('span', { 'aria-hidden': 'true', style: { fontSize: '17px' } }, '♻'),
       wide ? h('span', null, t.recycle) : null)
     }
-    const button = (text, onClick, disabled, danger = false) => h('button', {
-      type: 'button', onClick, disabled,
-      style: { border: '1px solid rgba(128,128,128,.35)', borderRadius: '8px',
-        padding: '7px 12px', background: 'transparent', color: danger ? '#dc2626' : 'inherit',
-        cursor: disabled ? 'wait' : 'pointer', fontSize: '13px' },
-    }, text)
+    const ui = {
+      edge: 'var(--dsw-alias-separator-primary, rgba(125,135,155,.24))',
+      surface: 'var(--dsw-alias-bg-primary, var(--surface-primary, #fff))',
+      muted: 'var(--dsw-alias-label-secondary, #737c8d)',
+      accent: 'var(--dsw-alias-brand-primary, #4d6bfe)',
+      secondary: 'var(--dsw-alias-bg-secondary, rgba(128,128,128,.045))',
+    }
+    const panelCss = [
+      '.dsh-trash-overlay,.dsh-trash-overlay *{box-sizing:border-box}',
+      '.dsh-trash-panel{width:min(980px,96vw);height:min(790px,calc(100dvh - 48px));min-height:0;border-radius:16px}',
+      '.dsh-trash-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}',
+      '.dsh-trash-search{flex:1 1 290px}',
+      '.dsh-trash-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:16px}',
+      '.dsh-trash-actions{display:flex;gap:8px;align-items:center}',
+      '.dsh-trash-button:hover:not(:disabled):not(.dsh-trash-primary){background:var(--dsw-alias-bg-tertiary,rgba(110,130,160,.1))!important}',
+      '.dsh-trash-primary:hover:not(:disabled){filter:brightness(.92)}',
+      '.dsh-trash-button:focus-visible,.dsh-trash-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}',
+      '.dsh-trash-row:hover{background:var(--dsw-alias-bg-secondary,rgba(130,135,150,.055))}',
+      '@media(max-width:640px){.dsh-trash-overlay{padding:0!important}.dsh-trash-panel{width:100%;height:100dvh;max-height:100dvh;border-radius:0}.dsh-trash-row{grid-template-columns:22px minmax(0,1fr);gap:9px}.dsh-trash-actions{grid-column:2;justify-content:flex-start}.dsh-trash-search{flex-basis:100%}.dsh-trash-toolbar{gap:8px}.dsh-trash-hide-mobile{display:none!important}}',
+    ].join('\n')
+    const button = (text, onClick, disabled = false, danger = false, primary = false, extra = {}) =>
+      h('button', {
+        type: 'button', onClick, disabled, className: 'dsh-trash-button' + (primary ? ' dsh-trash-primary' : ''),
+        style: {
+          display: 'inline-flex', justifyContent: 'center', alignItems: 'center',
+          gap: '6px', whiteSpace: 'nowrap', minHeight: '34px',
+          border: '1px solid ' + (primary ? 'transparent' : ui.edge),
+          borderRadius: '8px', padding: '6px 12px', fontSize: '12px',
+          background: primary ? ui.accent : 'transparent',
+          color: primary ? '#fff' : danger ? '#dc5555' : 'inherit',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? .48 : 1,
+          ...extra.style,
+        },
+        ...Object.fromEntries(Object.entries(extra).filter(([key]) => key !== 'style')),
+      }, text)
+    const inputStyle = {
+      border: '1px solid ' + ui.edge, borderRadius: '9px', padding: '9px 11px',
+      minHeight: '38px', minWidth: 0, background: ui.surface,
+      color: 'inherit', fontSize: '13px',
+    }
+    const formatDate = value => {
+      const date = new Date(value)
+      return Number.isNaN(date.getTime()) ? String(value || '—')
+        : date.toLocaleString('zh-CN', { hour12: false })
+    }
+    const fillCount = (template, count) => template.replace('{count}', String(count))
 
     function Dialog() {
       const selected = React.useSyncExternalStore(subscribe, snapshot, snapshot)
+      const kind = selected?.type
       const [items, setItems] = React.useState([])
       const [loading, setLoading] = React.useState(false)
       const [pending, setPending] = React.useState(false)
+      const [progress, setProgress] = React.useState('')
       const [error, setError] = React.useState('')
-      React.useEffect(() => {
-        if (selected?.type !== 'recycle') return
-        let cancelled = false
-        setLoading(true); setError('')
-        loadTrash().then(value => { if (!cancelled) setItems(value) })
-          .catch(e => { if (!cancelled) setError(e.message) })
-          .finally(() => { if (!cancelled) setLoading(false) })
-        return () => { cancelled = true }
-      }, [selected?.type])
-      if (!selected) return null
-      if (selected.type === 'toast') {
-        return h('div', { role: 'status', style: { position: 'fixed', bottom: 24, right: 24,
-          background: 'var(--surface-primary, #222)', color: 'inherit',
-          padding: '10px 16px', border: '1px solid rgba(128,128,128,.35)',
-          borderRadius: 10, zIndex: 9999 } }, selected.message)
+      const [status, setStatus] = React.useState('')
+      const [query, setQuery] = React.useState('')
+      const [range, setRange] = React.useState('all')
+      const [sort, setSort] = React.useState('newest')
+      const [selectedIds, setSelectedIds] = React.useState([])
+      const [confirmPhrase, setConfirmPhrase] = React.useState('')
+      const panelRef = React.useRef(null)
+      const pendingRef = React.useRef(false)
+      const refreshId = React.useRef(0)
+      pendingRef.current = pending
+
+      const close = () => {
+        if (!pendingRef.current) {
+          setError('')
+          show(kind === 'confirm' ? { type: 'recycle' } : null)
+        }
       }
-      const close = () => { if (!pending) { setError(''); show(null) } }
-      const act = async (action, id) => {
-        setPending(true); setError('')
+      const refresh = async (preserveError = false) => {
+        const seq = ++refreshId.current
+        setLoading(true)
+        if (!preserveError) setError('')
         try {
-          await api(action, id)
-          if (selected.type === 'recycle') {
-            setItems(await loadTrash())
-          } else {
-            setPending(false)
-            if (selected.returnToTrash) show({ type: 'recycle' })
-            else notice(t.done)
-            return
-          }
-        } catch (e) { setError(e.message || t.failed) }
-        finally { setPending(false) }
+          const result = await loadTrash()
+          if (seq !== refreshId.current) return
+          setItems(result)
+          const valid = new Set(result.map(item => item.sessionId))
+          setSelectedIds(ids => ids.filter(id => valid.has(id)))
+        } catch (reason) {
+          if (seq === refreshId.current) setError(reason.message || t.unavailable)
+        } finally {
+          if (seq === refreshId.current) setLoading(false)
+        }
       }
-      if (selected.type === 'error') return h(Modal, {
+      React.useEffect(() => {
+        if (kind === 'recycle') void refresh(selected?.preserveError === true)
+        else refreshId.current++
+      }, [kind])
+      React.useEffect(() => {
+        if (kind !== 'recycle') return undefined
+        const prior = document.activeElement
+        const oldOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        panelRef.current?.focus()
+        const keydown = event => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            if (!pendingRef.current) show(null)
+          }
+          if (event.key !== 'Tab' || !panelRef.current) return
+          const focusable = [...panelRef.current.querySelectorAll(
+            'button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex]:not([tabindex="-1"])',
+          )].filter(element => element.getClientRects().length > 0)
+          if (!focusable.length) { event.preventDefault(); panelRef.current.focus(); return }
+          const first = focusable[0]
+          const last = focusable[focusable.length - 1]
+          if (event.shiftKey && (document.activeElement === first
+            || document.activeElement === panelRef.current)) {
+            event.preventDefault(); last.focus()
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault(); first.focus()
+          }
+        }
+        document.addEventListener('keydown', keydown)
+        return () => {
+          document.removeEventListener('keydown', keydown)
+          document.body.style.overflow = oldOverflow
+          if (prior && typeof prior.focus === 'function') prior.focus()
+        }
+      }, [kind])
+
+      // Every mutation still calls the original single-session API; no new
+      // server-side mass-delete endpoint or filesystem bypass is introduced.
+      // A partial failure leaves unsuccessful IDs selected for retry.
+      const act = async (action, ids) => {
+        const targets = [...new Set(ids)]
+        if (!targets.length || pendingRef.current) return
+        pendingRef.current = true
+        setPending(true); setError(''); setStatus('')
+        const failed = []
+        let done = 0
+        for (const id of targets) {
+          setProgress(t.processing + ' ' + (done + failed.length + 1) + ' / ' + targets.length)
+          try { await api(action, id); done++ }
+          catch (reason) { failed.push({ id, message: reason.message || t.failed }) }
+        }
+        setSelectedIds(failed.map(item => item.id))
+        setProgress('')
+        setPending(false)
+        pendingRef.current = false
+        if (done) setStatus(t.doneCount + ' ' + done + ' / ' + targets.length)
+        if (kind === 'confirm') show({ type: 'recycle', preserveError: failed.length > 0 })
+        else await refresh()
+        if (failed.length) {
+          setError(t.failCount + ' ' + failed.length + '：' +
+            failed.slice(0, 3).map(item => item.id + ' (' + item.message + ')').join('，'))
+        }
+      }
+
+      const now = Date.now()
+      const needle = query.trim().toLocaleLowerCase()
+      const recentCount = items.filter(item => now - Date.parse(item.deletedAt) <= 7 * 86400000).length
+      const filtered = items.filter(item => {
+        if (needle && !(String(item.title || '') + ' ' + item.sessionId)
+          .toLocaleLowerCase().includes(needle)) return false
+        if (range !== 'all') {
+          const age = now - Date.parse(item.deletedAt)
+          if (!Number.isFinite(age) || age < 0 || age > (range === '7' ? 7 : 30) * 86400000) return false
+        }
+        return true
+      }).sort((a, b) => sort === 'title'
+        ? String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN')
+        : sort === 'oldest'
+          ? String(a.deletedAt).localeCompare(String(b.deletedAt))
+          : String(b.deletedAt).localeCompare(String(a.deletedAt)))
+      const chosen = new Set(selectedIds)
+      const checkedShown = filtered.length > 0 && filtered.every(item => chosen.has(item.sessionId))
+      const toggleOne = (id, checked) => setSelectedIds(current =>
+        checked ? [...new Set([...current, id])] : current.filter(value => value !== id))
+      const toggleShown = () => {
+        const ids = new Set(filtered.map(item => item.sessionId))
+        setSelectedIds(current => checkedShown
+          ? current.filter(id => !ids.has(id))
+          : [...new Set([...current, ...ids])])
+      }
+      const confirmPurge = targets => {
+        if (!targets.length || pendingRef.current) return
+        setConfirmPhrase('')
+        show({
+          type: 'confirm', title: targets.length === 1
+            ? items.find(item => item.sessionId === targets[0])?.title || targets[0]
+            : targets.length + ' 个会话',
+          sessionIds: targets, action: 'purge', returnToTrash: true,
+        })
+      }
+
+      if (!selected) return null
+      if (kind === 'toast') {
+        return h('div', { role: 'status', style: { position: 'fixed', bottom: 24, right: 24,
+          background: ui.surface, color: 'inherit',
+          padding: '10px 16px', border: '1px solid ' + ui.edge,
+          borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.14)', zIndex: 9999 } }, selected.message)
+      }
+      if (kind === 'error') return h(Modal, {
         open: true, onClose: close, closeLabel: t.close, title: t.failed,
-        footer: button(t.close, close, false),
+        footer: button(t.close, close),
       }, h('p', { role: 'alert' }, selected.message))
-      if (selected.type === 'confirm') return h(Modal, {
-        open: true, onClose: close, closeLabel: t.cancel,
-        title: t.dangerTitle, description: selected.title,
-        footer: h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
-          button(t.cancel, close, pending), button(t.confirm,
-            () => act(selected.action, selected.sessionId), pending, true)),
-      }, h('p', { style: { lineHeight: 1.6, fontSize: '13px' } }, t.dangerHint),
-      error && h('p', { role: 'alert', style: { color: '#dc2626' } }, error))
-      return h(Modal, {
-        open: true, onClose: close, closeLabel: t.close, title: t.recycle,
-        footer: button(t.close, close, pending),
+      if (kind === 'confirm') {
+        const ids = selected.sessionIds || [selected.sessionId]
+        const isBatch = ids.length > 1
+        const canConfirm = !pending && (!isBatch || confirmPhrase === t.requirePhrase)
+        return h(Modal, {
+          open: true, onClose: close, closeLabel: t.cancel,
+          title: isBatch ? t.dangerousBatch : t.dangerTitle, description: selected.title,
+          footer: h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8,
+            justifyContent: 'flex-end' } },
+            button(t.cancel, () => { if (!pendingRef.current) show({ type: 'recycle' }) }, pending),
+            button(isBatch ? fillCount(t.confirmBatch, ids.length) : t.confirm,
+              () => { void act('purge', ids) }, !canConfirm, true)),
+        },
+        h('p', { style: { lineHeight: 1.65, fontSize: '13px' } },
+          isBatch ? fillCount(t.batchWarning, ids.length) : t.dangerHint),
+        isBatch ? h('label', { style: { display: 'grid', gap: 8, fontSize: '12px',
+          marginTop: '12px' } }, t.typeToConfirm,
+          h('input', {
+            'aria-label': t.typeToConfirm, type: 'text',
+            value: confirmPhrase, disabled: pending,
+            onChange: event => setConfirmPhrase(event.target.value),
+            style: { ...inputStyle, width: '100%' },
+          })) : null,
+        progress ? h('p', { role: 'status' }, progress) : null,
+        error ? h('p', { role: 'alert', style: { color: '#dc5555' } }, error) : null)
+      }
+
+      return h('div', {
+        className: 'dsh-trash-overlay', role: 'presentation',
+        onMouseDown: event => {
+          if (event.target === event.currentTarget && !pendingRef.current) close()
+        },
+        style: {
+          position: 'fixed', inset: 0, zIndex: 10000,
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          background: 'rgba(7,13,24,.55)', backdropFilter: 'blur(5px)',
+          padding: '24px',
+        },
       },
-      loading ? h('p', { role: 'status' }, t.loading)
-        : items.length === 0 ? h('p', null, t.empty)
-          : h('div', { style: { maxHeight: '55vh', overflowY: 'auto' } },
-            ...items.map(item => h('div', {
-              key: item.sessionId,
-              style: { display: 'flex', alignItems: 'center', gap: 8,
-                borderBottom: '1px solid rgba(128,128,128,.2)', padding: '10px 0' },
+      h('style', null, panelCss),
+      h('section', {
+        ref: panelRef, className: 'dsh-trash-panel',
+        role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dsh-trash-title',
+        tabIndex: -1,
+        style: {
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          border: '1px solid ' + ui.edge, background: ui.surface,
+          color: 'inherit', boxShadow: '0 24px 80px rgba(0,0,0,.23)',
+        },
+      },
+      h('header', { style: { padding: '22px 26px 18px', borderBottom: '1px solid ' + ui.edge,
+        display: 'flex', alignItems: 'flex-start', gap: 14 } },
+        h('div', { style: { flex: 1, minWidth: 0 } },
+          h('h2', { id: 'dsh-trash-title', style: { margin: 0, fontSize: '21px',
+            fontWeight: 650, letterSpacing: '-.025em' } }, t.recycle),
+          h('p', { style: { margin: '7px 0 0', fontSize: '12px', lineHeight: 1.5,
+            color: ui.muted } }, t.subtitle)),
+        button('×', close, pending, false, false,
+          { 'aria-label': t.closeHint, style: { fontSize: '21px', minWidth: '36px',
+            minHeight: '36px', padding: 0, border: 'none' } })),
+      h('div', { style: { display: 'flex', flexDirection: 'column',
+        gap: 15, padding: '18px 26px 15px', borderBottom: '1px solid ' + ui.edge } },
+        h('div', { style: { display: 'flex', gap: 9, flexWrap: 'wrap' } },
+          ...[
+            [t.total, items.length],
+            [t.recent, recentCount],
+            [t.selected, selectedIds.length],
+          ].map(([label, value]) => h('div', { key: label,
+            style: { display: 'inline-flex', gap: 8, alignItems: 'center',
+              borderRadius: '8px', padding: '6px 11px', background: ui.secondary,
+              border: '1px solid ' + ui.edge, fontSize: '12px' } },
+            h('span', { style: { color: ui.muted } }, label),
+            h('strong', { style: { fontSize: '14px', fontWeight: 650 } }, value)))),
+        h('div', { className: 'dsh-trash-toolbar' },
+          h('input', {
+            className: 'dsh-trash-input dsh-trash-search',
+            'aria-label': t.search, placeholder: t.search,
+            type: 'search', value: query, disabled: pending,
+            onChange: event => setQuery(event.target.value),
+            style: inputStyle,
+          }),
+          h('select', {
+            className: 'dsh-trash-input', 'aria-label': t.range,
+            value: range, disabled: pending,
+            onChange: event => setRange(event.target.value),
+            style: inputStyle,
+          },
+          h('option', { value: 'all' }, t.all),
+          h('option', { value: '7' }, t.week),
+          h('option', { value: '30' }, t.month)),
+          h('select', {
+            className: 'dsh-trash-input', 'aria-label': t.sort,
+            value: sort, disabled: pending,
+            onChange: event => setSort(event.target.value),
+            style: inputStyle,
+          },
+          h('option', { value: 'newest' }, t.newest),
+          h('option', { value: 'oldest' }, t.oldest),
+          h('option', { value: 'title' }, t.byName)),
+          button('↻ ' + t.refresh, () => { void refresh() }, pending || loading,
+            false, false, { 'aria-label': t.refreshHint })),
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, flexWrap: 'wrap', fontSize: '12px' } },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+            h('label', { style: { display: 'inline-flex', gap: 8, alignItems: 'center',
+              cursor: pending || filtered.length === 0 ? 'default' : 'pointer' } },
+              h('input', { type: 'checkbox', checked: checkedShown,
+                disabled: pending || filtered.length === 0,
+                'aria-label': t.selectVisible,
+                onChange: toggleShown }),
+              checkedShown ? t.deselectVisible : t.selectVisible),
+            h('span', { style: { color: ui.muted } },
+              filtered.length + ' / ' + items.length)),
+          selectedIds.length ? button(t.clearSelection, () => setSelectedIds([]), pending)
+            : null)),
+      h('main', { style: { flex: 1, minHeight: 0, overflowY: 'auto',
+        padding: filtered.length ? '3px 16px 12px' : '38px 24px' },
+        'aria-busy': loading || pending },
+        loading && items.length === 0
+          ? h('div', { role: 'status', style: { textAlign: 'center',
+            color: ui.muted, padding: 28 } }, t.loading)
+          : filtered.length === 0
+            ? h('div', { style: { display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+              gap: 12, paddingTop: 22 } },
+              h('span', { 'aria-hidden': 'true', style: { fontSize: '32px',
+                color: ui.muted } }, '▤'),
+              h('strong', { style: { fontSize: 14 } }, items.length ? t.searchEmpty : t.empty),
+              h('p', { style: { fontSize: 12, color: ui.muted, margin: 0 } },
+                items.length ? t.searchEmptyHint : t.emptyHint),
+              items.length ? button(t.resetFilters, () => { setQuery(''); setRange('all') })
+                : null)
+            : filtered.map(item => h('div', {
+              className: 'dsh-trash-row', key: item.sessionId,
+              style: { padding: '13px 12px', borderBottom: '1px solid ' + ui.edge,
+                borderRadius: '6px', transition: 'background .15s' },
             },
-            h('div', { style: { flex: 1, minWidth: 0 } },
-              h('div', { style: { wordBreak: 'break-word', fontSize: 13 } }, item.title),
-              h('div', { style: { color: 'gray', fontSize: 11 } },
-                new Date(item.deletedAt).toLocaleString('zh-CN', { hour12: false }))),
-            button(t.restore, () => act('restore', item.sessionId), pending),
-            button(t.permanent, () => show({ type: 'confirm', title: item.title,
-              sessionId: item.sessionId, action: 'purge', returnToTrash: true }), pending, true)))),
-      error && h('p', { role: 'alert', style: { color: '#dc2626' } }, error))
+            h('input', {
+              type: 'checkbox', checked: chosen.has(item.sessionId), disabled: pending,
+              'aria-label': t.selectSession + ' ' + item.sessionId,
+              onChange: event => toggleOne(item.sessionId, event.target.checked),
+            }),
+            h('div', { style: { minWidth: 0, overflow: 'hidden' } },
+              h('div', { title: item.title,
+                style: { fontSize: '13px', lineHeight: 1.5, fontWeight: 600,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                item.title || item.sessionId),
+              h('div', { style: { color: ui.muted, fontSize: '11px',
+                display: 'flex', flexWrap: 'wrap', gap: '6px 13px', marginTop: 5 } },
+                h('span', { title: t.sessionId + ': ' + item.sessionId },
+                  t.sessionId + ': ' + item.sessionId),
+                h('span', null, t.deletedAt + ' ' + formatDate(item.deletedAt)))),
+            h('div', { className: 'dsh-trash-actions' },
+              button('↶ ' + t.restore, () => { void act('restore', [item.sessionId]) },
+                pending, false, true),
+              button(t.permanent, () => confirmPurge([item.sessionId]), pending, true)),
+          )),
+      ),
+      (error || status || progress) ? h('div', {
+        style: { borderTop: '1px solid ' + ui.edge, padding: '9px 26px',
+          color: error ? '#dc5555' : ui.muted, fontSize: '12px' },
+        role: error ? 'alert' : 'status',
+      }, error || progress || status) : null,
+      h('footer', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 12, flexWrap: 'wrap', padding: '14px 26px',
+        borderTop: '1px solid ' + ui.edge } },
+        h('span', { style: { fontSize: '12px', color: ui.muted } },
+          selectedIds.length ? t.selected + ' ' + selectedIds.length : t.subtitle),
+        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap',
+          justifyContent: 'flex-end' } },
+          button(t.deleteSelected, () => confirmPurge(selectedIds),
+            pending || selectedIds.length === 0, true),
+          button(t.restoreSelected, () => { void act('restore', selectedIds) },
+            pending || selectedIds.length === 0, false, true)),
+      ),
+      ))
     }
 
     return {

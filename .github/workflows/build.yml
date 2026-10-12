@@ -101,6 +101,7 @@ jobs:
           node --check docker/plugins/dsh-session-manager-web/index.js
           node --check docker/plugins/dsh-session-manager-web/client.js
           node tests/test-session-manager-web.mjs
+          node tests/test-session-trash-ui.cjs
           node tests/test-connection-rpc-routes.js
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js

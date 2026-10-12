@@ -1,9 +1,9 @@
 {
   "name": "dsh-docker-session-manager",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
-  "description": "DSH Web Chinese-first trash and force purge from recycle bin without Docker restart",
+  "description": "DSH Web responsive recycle workspace, search, guarded batch restore and purge",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",

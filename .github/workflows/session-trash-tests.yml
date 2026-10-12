@@ -1,0 +1,38 @@
+name: Session Trash UI Checks
+
+on:
+  pull_request:
+    paths:
+      - docker/plugins/dsh-session-manager-web/**
+      - tests/test-session-manager-web.mjs
+      - tests/test-session-trash-ui.cjs
+      - .github/workflows/session-trash-tests.yml
+  push:
+    branches: [main]
+    paths:
+      - docker/plugins/dsh-session-manager-web/**
+      - tests/test-session-manager-web.mjs
+      - tests/test-session-trash-ui.cjs
+      - .github/workflows/session-trash-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate Web client and server
+        run: |
+          node --check docker/plugins/dsh-session-manager-web/client.js
+          node --check docker/plugins/dsh-session-manager-web/index.js
+          node --check tests/test-session-trash-ui.cjs
+      - name: Exercise recycle bin API
+        run: node tests/test-session-manager-web.mjs
+      - name: Exercise real UI event handlers
+        run: node --test tests/test-session-trash-ui.cjs
