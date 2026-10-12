@@ -5,6 +5,24 @@
 #
 ARG NODE_IMAGE=node:24-bookworm-slim
 
+# Pinned SearXNG build, separate from Node runtime and absent at execution when disabled.
+# Both build and runtime use Debian Bookworm's /usr/bin/python3 ABI.
+FROM ${NODE_IMAGE} AS searxng-builder
+ARG SEARXNG_REF=ad46ebd7d87666edb5f116c5b274b47f689ac6cd
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git python3 python3-dev python3-pip python3-venv build-essential \
+      libxml2-dev libxslt1-dev libffi-dev libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN git init /opt/dsh/searxng-src \
+ && git -C /opt/dsh/searxng-src remote add origin https://github.com/searxng/searxng.git \
+ && git -C /opt/dsh/searxng-src fetch --depth=1 origin "${SEARXNG_REF}" \
+ && git -C /opt/dsh/searxng-src checkout --detach FETCH_HEAD \
+ && python3 -m venv /opt/dsh/searxng-venv \
+ && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir -U pip setuptools wheel pyyaml msgspec typing-extensions pybind11 granian \
+ && cd /opt/dsh/searxng-src \
+ && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir --use-pep517 --no-build-isolation -e . \
+ && /opt/dsh/searxng-venv/bin/python -c 'import searx.webapp; import granian'
+
 FROM ${NODE_IMAGE}
 
 ARG DSH_VERSION=0.2.1-alpha.2
@@ -163,6 +181,10 @@ RUN . /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-web-launch-token.js \
       /usr/local/bin/patch-workspace-picker-home.js
 
+# Bundled SearXNG: never runs until the Web Search provider is enabled.
+# Source retains upstream AGPL-3.0-or-later license and attribution.
+COPY --from=searxng-builder /opt/dsh/searxng-src /opt/dsh/searxng-src
+COPY --from=searxng-builder /opt/dsh/searxng-venv /opt/dsh/searxng-venv
 COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
@@ -183,6 +205,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-web-token.js \
  && node --check /opt/dsh/plugins/dsh-web-search/index.js \
  && node --check /opt/dsh/plugins/dsh-web-search/client.js \
+ && node --check /opt/dsh/plugins/dsh-web-search/embedded.js \
  && node --check /opt/dsh/plugins/dsh-web-search/router.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
