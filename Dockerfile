@@ -43,7 +43,7 @@ ENV IN_CHINA=${IN_CHINA}
 LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
       org.opencontainers.image.description="DeepSeek Harness development container with Node.js, Python, Go, Docker CLI and Chromium" \
       org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="MIT AND AGPL-3.0-or-later"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/root/.dsh \
