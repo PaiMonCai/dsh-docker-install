@@ -114,7 +114,7 @@ function harness(input = seeds(), reject = new Set()) {
     return tree
   }
   async function settle() {
-    for (let i = 0; i < 20; i++) await Promise.resolve()
+    for (let i = 0; i < 80; i++) await Promise.resolve()
     return render()
   }
   function nodes(root, predicate, result = []) {
@@ -179,10 +179,16 @@ test('search, date range, sort and select-visible apply only to visible rows', a
   ui.label(tree, 'select', '删除时间').props.onChange({ target: { value: '7' } })
   tree = ui.render()
   assert.equal(ui.nodes(tree, n => n.props?.className === 'dsh-trash-row').length, 2)
+  ui.label(tree, 'select', '排序方式').props.onChange({ target: { value: 'oldest' } })
+  tree = ui.render()
+  assert.match(ui.textOf(ui.nodes(tree, n => n.props?.className === 'dsh-trash-row')[0]), /经济学/)
+  ui.label(tree, 'select', '排序方式').props.onChange({ target: { value: 'newest' } })
+  tree = ui.render()
   ui.label(tree, 'input', '选择当前结果').props.onChange({ target: { checked: true } })
   tree = ui.render()
   assert.match(ui.textOf(tree), /已选择\s*2/)
   ui.named(tree, 'button', '恢复选中').props.onClick()
+  tree = await ui.settle()
   tree = await ui.settle()
   assert.deepEqual(ui.mutations.filter(x => x.action === 'restore')
     .map(x => x.sessionId), ['session-alpha', 'session-gamma'])
@@ -224,6 +230,7 @@ test('failed batch restore leaves failures in trash and still restores remaining
   ui.label(tree, 'input', '选择当前结果').props.onChange({ target: { checked: true } })
   tree = ui.render()
   ui.named(tree, 'button', '恢复选中').props.onClick()
+  tree = await ui.settle()
   tree = await ui.settle()
   assert.equal(ui.items.length, 1)
   assert.equal(ui.items[0].sessionId, 'session-alpha')
