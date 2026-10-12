@@ -17,6 +17,8 @@ function harness(initial) {
   let models = structuredClone(initial)
   let revision = 1
   let mutations = 0
+  let describes = 0
+  let unstableSettings = false
   const values = [], deps = []
   let cursor = 0
   const effects = []
@@ -40,6 +42,11 @@ function harness(initial) {
       return values[index]
     },
     useCallback(callback, depList) { return React.useMemo(() => callback, depList) },
+    useRef(initial) {
+      const index = cursor++
+      if (!Object.hasOwn(values, index)) values[index] = { current: initial }
+      return values[index]
+    },
     useEffect(callback, depList) {
       const index = cursor++
       if (!deps[index] || !sameDeps(deps[index], depList)) {
@@ -64,11 +71,11 @@ function harness(initial) {
     throw new Error('unexpected import ' + name)
   })
   const settings = {
-    describe: async () => ({ ok: true, value: { writable: true, namespaces: [{
+    describe: async () => { describes++; return { ok: true, value: { writable: true, namespaces: [{
       ns: 'llm-pi-ai', revision,
       user: { providers: { route: { models: structuredClone(models) } } },
       value: { providers: { route: { models: structuredClone(models) } } },
-    }] } }),
+    }] } } },
     mutate: async (ns, operations, expectedRevision) => {
       assert.equal(ns, 'llm-pi-ai')
       if (expectedRevision !== revision) return { ok: false, error: { code: 'settings/conflict' } }
@@ -89,7 +96,7 @@ function harness(initial) {
       assert.equal(record.key, 'llm-pi-ai')
       slotRenderer = callback
     },
-  }, remote: { settings } })
+  }, remote: { get settings() { return unstableSettings ? { ...settings } : settings } } })
   const provider = { settingsNs: 'llm-pi-ai', declared: true, provider: 'route', settingsPath: ['providers', 'route'] }
   const owner = { provider, configured: true }
   function render() {
@@ -132,8 +139,11 @@ function harness(initial) {
     await settle()
     return settle()
   }
+  function remount() { values.length = 0; deps.length = 0; effects.length = 0; return render() }
   return {
-    render, settle, open, byText, byAttr, nodes,
+    render, settle, open, byText, byAttr, nodes, remount,
+    churnSettings(value = true) { unstableSettings = value },
+    get describes() { return describes },
     get models() { return models },
     set models(updated) { models = structuredClone(updated); revision++ },
     get mutations() { return mutations },
@@ -230,4 +240,57 @@ test('simultaneous changes to unrelated fields and unselected models are preserv
   assert.equal(ui.models[1].contextWindow,999)
   assert.equal(Object.hasOwn(ui.models[1],'reasoningEfforts'),false)
   assert.equal(ui.models[0].reasoningEfforts.high,'xhigh')
+})
+
+test('provider-card remount does not auto-collapse or discard unsaved model changes', async () => {
+  const ui = harness(models())
+  let tree = await ui.open()
+  // Use one model in the bulk editor to stage a change, without saving it.
+  ui.byAttr(tree, 'input', 'aria-label', '批量设置: gamma')
+    .props.onChange({ target: { checked: true } })
+  tree = ui.render()
+  ui.nodes(tree, n => n.type === 'select')[0].props.onChange({ target: { value: 'disabled' } })
+  tree = ui.render()
+  ui.byText(tree, 'button', '应用到已选模型').props.onClick()
+  tree = ui.render()
+  assert.equal(ui.byText(tree, 'button', '保存 1 个模型的修改').props.disabled, false)
+  assert.equal(ui.mutations, 0)
+
+  // Simulate DSH unmounting the entire provider-card during a Settings refresh.
+  tree = ui.remount()
+  assert.equal(ui.byText(tree, 'button', '收起').type, 'button')
+  assert.equal(ui.byText(tree, 'button', '保存 1 个模型的修改').props.disabled, false)
+  assert.equal(ui.mutations, 0)
+  ui.byText(tree, 'button', '保存 1 个模型的修改').props.onClick()
+  await ui.settle()
+  assert.equal(ui.models[2].reasoningEfforts, false)
+  assert.equal(ui.mutations, 1)
+})
+
+test('settings proxy identity churn cannot reload or reset an expanded draft', async () => {
+  const ui = harness(models())
+  let tree = await ui.open()
+  const readCount = ui.describes
+  ui.churnSettings()
+  ui.byAttr(tree, 'input', 'type', 'search').props.onChange({ target: { value: 'beta' } })
+  for (let i = 0; i < 8; i++) {
+    tree = ui.render()
+    await ui.settle()
+  }
+  assert.equal(ui.describes, readCount, 'a newly wrapped settings object must not cause a reread')
+  assert.equal(ui.byText(tree, 'button', '收起').type, 'button')
+  assert.equal(ui.byAttr(tree, 'input', 'type', 'search').props.value, 'beta')
+})
+
+test('explicit collapse clears cached editor state; immediate remount after click still opens', async () => {
+  const ui = harness(models())
+  ui.byText(ui.render(), 'button', '配置').props.onClick()
+  let tree = ui.remount()
+  tree = await ui.settle()
+  assert.equal(ui.byText(tree, 'button', '收起').type, 'button')
+  ui.byText(tree, 'button', '收起').props.onClick()
+  tree = ui.remount()
+  assert.equal(ui.byText(tree, 'button', '配置').type, 'button')
+  tree = await ui.open()
+  assert.equal(ui.byText(tree, 'button', '收起').type, 'button')
 })
