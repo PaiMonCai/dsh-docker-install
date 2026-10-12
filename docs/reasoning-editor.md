@@ -62,6 +62,20 @@ models:
 
 遇到其他页面同时改变了目标模型推理设置，会明确拒绝覆盖并要求重新读取。仍遵循 DSH 官方 `remote.settings.mutate()` revision 检查；不引入新的持久化源。批量功能仅作用于当前自定义 Provider，不跨 Provider 自动更改。
 
+## Web 展开状态稳定性（v1.2）
+
+此前某些 DSH Web 的模型设置卡片在刷新 Settings 或重新挂载插槽时，会把插件组件本地的展开开关重置为关闭；若上游传入新的 `remote.settings` 包装对象，还可能触发额外读取，覆盖未保存的编辑内容。
+
+现在编辑器以 **Provider 身份与配置路径** 区分卡片，并在**当前 Web 页面内存中**暂存已展开卡片的 UI 状态与未保存草稿：
+
+- 父组件重新挂载同一 Provider 的卡片：继续保持展开，同时恢复待保存草稿、筛选条件和批量选择。
+- 同一个 Provider 的远端 Settings 客户端对象更换：不再无条件重新请求并清空草稿。
+- 手动点击「收起」：立即关闭并清除对应内存草稿缓存；再次打开按官方 Settings 重新读取。
+- 切换到其他 Provider：以独立 Key 隔离草稿，禁止写入另一个 Provider。
+- 整页刷新、退出 Web 或更换浏览器：不会保留未保存草稿；已保存设置仍由 DSH 官方 `remote.settings.mutate()` 管理。
+
+内存缓存最多保留 16 个卡片快照，**不使用 localStorage、IndexedDB、额外服务端状态文件**，不持久化 API Key。写入时仍检查官方 revision 和当前目标模型的 `reasoningEfforts`；若有其他标签页同时修改相同模型，则拒绝覆盖。
+
 ## Composer
 
 Composer 不再由本仓库替换或注入自定义滑块，保持 DSH 官方交互：
