@@ -166,7 +166,10 @@ window.__ModuleLoader__.load({
       pendingRef.current = pending
 
       const close = () => {
-        if (!pendingRef.current) { setError(''); show(null) }
+        if (!pendingRef.current) {
+          setError('')
+          show(kind === 'confirm' ? { type: 'recycle' } : null)
+        }
       }
       const refresh = async () => {
         const seq = ++refreshId.current
@@ -397,7 +400,6 @@ window.__ModuleLoader__.load({
           h('option', { value: 'title' }, t.byName)),
           button('↻ ' + t.refresh, () => { void refresh() }, pending || loading,
             false, false, { 'aria-label': t.refreshHint })),
-        ),
         h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 12, flexWrap: 'wrap', fontSize: '12px' } },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
