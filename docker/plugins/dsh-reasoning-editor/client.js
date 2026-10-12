@@ -7,10 +7,23 @@ window.__ModuleLoader__.load({
   id: 'dsh-docker-reasoning-editor',
   factory(require) {
     const React = require('react')
-    const { useCallback, useEffect, useMemo, useState } = React
+    const { useCallback, useEffect, useMemo, useRef, useState } = React
     const h = React.createElement
 
     const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+    // DSH may unmount/remount a provider card during remote Settings refresh.
+    // Keep UI-only unsaved editing state in memory across those transient
+    // remounts. This is not persisted and never replaces official Settings.
+    const editorViewState = new Map()
+    const MAX_EDITOR_VIEWS = 16
+    function rememberView(key, state) {
+      editorViewState.delete(key)
+      editorViewState.set(key, state)
+      while (editorViewState.size > MAX_EDITOR_VIEWS) {
+        editorViewState.delete(editorViewState.keys().next().value)
+      }
+    }
 
     const palette = {
       panel: {
@@ -324,26 +337,46 @@ window.__ModuleLoader__.load({
 
     function ReasoningSlot(props) {
       const provider = props.provider
-      if (!provider || provider.settingsNs !== 'llm-pi-ai' || provider.declared !== true || !props.configured) {
-        return null
-      }
+      const providerKey = provider && provider.settingsNs === 'llm-pi-ai' && provider.declared === true
+        ? JSON.stringify([provider.settingsNs, provider.provider, provider.settingsPath || []])
+        : ''
+      const latest = useRef({ settings: props.settings, settingsPath: provider?.settingsPath })
+      latest.current = { settings: props.settings, settingsPath: provider?.settingsPath }
 
-      const pathKey = JSON.stringify(provider.settingsPath || [])
+      const previous = editorViewState.get(providerKey)
       const copy = useMemo(localeText, [])
-      const [open, setOpen] = useState(false)
+      const [open, setOpen] = useState(() => previous?.open === true)
+      const [loaded, setLoaded] = useState(() => previous?.loaded === true)
       const [loading, setLoading] = useState(false)
       const [saving, setSaving] = useState(false)
-      const [error, setError] = useState('')
-      const [notice, setNotice] = useState('')
-      const [writable, setWritable] = useState(false)
-      const [models, setModels] = useState([])
-      const [rawAvailable, setRawAvailable] = useState(false)
-      const [drafts, setDrafts] = useState({})
-      const [mappingOpen, setMappingOpen] = useState({})
-      const [selected, setSelected] = useState({})
-      const [filter, setFilter] = useState('')
-      const [bulk, setBulk] = useState({ mode: 'inherit', values: {} })
-      const [bulkMappingOpen, setBulkMappingOpen] = useState(false)
+      const [error, setError] = useState(() => previous?.error || '')
+      const [notice, setNotice] = useState(() => previous?.notice || '')
+      const [writable, setWritable] = useState(() => previous?.writable === true)
+      const [models, setModels] = useState(() => previous?.models || [])
+      const [rawAvailable, setRawAvailable] = useState(() => previous?.rawAvailable === true)
+      const [drafts, setDrafts] = useState(() => previous?.drafts || {})
+      const [mappingOpen, setMappingOpen] = useState(() => previous?.mappingOpen || {})
+      const [selected, setSelected] = useState(() => previous?.selected || {})
+      const [filter, setFilter] = useState(() => previous?.filter || '')
+      const [bulk, setBulk] = useState(() => previous?.bulk || { mode: 'inherit', values: {} })
+      const [bulkMappingOpen, setBulkMappingOpen] = useState(() => previous?.bulkMappingOpen === true)
+
+      // A provider change must not reuse another provider's drafts.
+      // The slot is keyed by providerKey below, so a changed provider remounts.
+      useEffect(() => {
+        if (!providerKey) return
+        if (!open) {
+          editorViewState.delete(providerKey)
+          return
+        }
+        rememberView(providerKey, {
+          open, loaded, error, notice, writable, models, rawAvailable, drafts,
+          mappingOpen, selected, filter, bulk, bulkMappingOpen,
+        })
+      }, [providerKey, open, loaded, error, notice, writable, models, rawAvailable,
+        drafts, mappingOpen, selected, filter, bulk, bulkMappingOpen])
+
+      if (!providerKey || !props.configured) return null
 
       const visibleModels = models.filter(model =>
         (model.id + ' ' + (model.name || '')).toLowerCase().includes(filter.trim().toLowerCase()))
@@ -357,13 +390,14 @@ window.__ModuleLoader__.load({
         setError('')
         setNotice('')
         try {
-          const response = await props.settings.describe()
+          const response = await latest.current.settings.describe()
           if (!response.ok) throw new Error(response.error && response.error.message || copy.genericError)
           const namespace = findNamespace(response.value)
           if (!namespace) throw new Error('llm-pi-ai settings namespace is unavailable')
 
-          const raw = rawModels(namespace, provider.settingsPath)
-          const display = raw === undefined ? resolvedModels(namespace, provider.settingsPath) : raw
+          const settingsPath = latest.current.settingsPath
+          const raw = rawModels(namespace, settingsPath)
+          const display = raw === undefined ? resolvedModels(namespace, settingsPath) : raw
           const normalized = display.filter(model => isRecord(model) && typeof model.id === 'string').map(cloneJson)
           const ids = normalized.map(model => model.id)
           if (new Set(ids).size !== ids.length) throw new Error(copy.duplicateId)
@@ -378,16 +412,17 @@ window.__ModuleLoader__.load({
           setBulk({ mode: 'inherit', values: {} })
           setBulkMappingOpen(false)
           setFilter('')
+          setLoaded(true)
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason))
         } finally {
           setLoading(false)
         }
-      }, [copy.genericError, props.settings, provider.provider, pathKey])
+      }, [copy.genericError, providerKey])
 
       useEffect(() => {
-        if (open) void read()
-      }, [open, read])
+        if (open && !loaded) void read()
+      }, [open, loaded, read])
 
       const setMode = (id, mode) => {
         setDrafts(current => ({
@@ -477,13 +512,13 @@ window.__ModuleLoader__.load({
         setNotice('')
         try {
           for (let attempt = 0; attempt < 2; attempt++) {
-            const described = await props.settings.describe()
+            const described = await latest.current.settings.describe()
             if (!described.ok) throw new Error(described.error && described.error.message || copy.genericError)
             const namespace = findNamespace(described.value)
             if (!namespace) throw new Error('llm-pi-ai settings namespace is unavailable')
             if (!described.value.writable) throw new Error(copy.readOnly)
 
-            const current = rawModels(namespace, provider.settingsPath)
+            const current = rawModels(namespace, latest.current.settingsPath)
             if (current === undefined) throw new Error(copy.rawMissing)
 
             const currentById = new Map()
@@ -500,9 +535,9 @@ window.__ModuleLoader__.load({
             }
 
             const nextModels = applyDesired(current, desiredById)
-            const response = await props.settings.mutate(
+            const response = await latest.current.settings.mutate(
               'llm-pi-ai',
-              [{ op: 'set', path: [...provider.settingsPath, 'models'], value: nextModels }],
+              [{ op: 'set', path: [...latest.current.settingsPath, 'models'], value: nextModels }],
               namespace.revision,
             )
             if (response.ok) {
@@ -724,7 +759,16 @@ window.__ModuleLoader__.load({
           h('button', {
             type: 'button',
             style: palette.button,
-            onClick: () => setOpen(value => !value),
+            onClick: () => {
+              if (open) {
+                editorViewState.delete(providerKey)
+                setLoaded(false)
+              } else {
+                // Store intent now: the parent might remount before React commits.
+                rememberView(providerKey, { open: true, loaded: false })
+              }
+              setOpen(value => !value)
+            },
           }, open ? copy.close : copy.edit),
         ),
         !open ? null : h('div', null,
@@ -759,7 +803,13 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register(
           { name: 'settings.models.provider-card', key: 'llm-pi-ai' },
-          (ownerProps) => h(ReasoningSlot, { ...ownerProps, settings: ctx.remote.settings }),
+          (ownerProps) => {
+            const provider = ownerProps.provider
+            const key = provider
+              ? JSON.stringify([provider.settingsNs, provider.provider, provider.settingsPath || []])
+              : 'unknown'
+            return h(ReasoningSlot, { ...ownerProps, key, settings: ctx.remote.settings })
+          },
         ))
       },
     }

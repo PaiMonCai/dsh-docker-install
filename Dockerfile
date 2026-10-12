@@ -1,39 +1,73 @@
 # syntax=docker/dockerfile:1
-#
-# DeepSeek Harness (dsh) 通用开发镜像：
-# Node.js / Python / Go / Docker CLI / Playwright Chromium / 常用构建工具。
-#
-ARG NODE_IMAGE=node:24-bookworm-slim
+# DeepSeek Harness (dsh) · Ubuntu 24.04 LTS (Noble)
+# Node.js 24 / Python 3.12 / Go / Docker CLI / Playwright / embedded SearXNG
 
-FROM ${NODE_IMAGE}
+ARG UBUNTU_IMAGE=ubuntu:24.04
+
+# All build stages use the same Ubuntu release and system Python ABI.
+FROM ${UBUNTU_IMAGE} AS ubuntu-base
+ARG IN_CHINA=auto
+ENV IN_CHINA=${IN_CHINA} DEBIAN_FRONTEND=noninteractive
+COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
+# Ubuntu minimal images do not contain curl; bootstrap the mirror detector first.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+RUN . /usr/local/bin/cn-mirror \
+ && if is_cn; then \
+      echo '==> China network detected, switching Ubuntu Noble apt sources'; \
+      sed -i \
+        -e 's|archive.ubuntu.com/ubuntu|mirrors.aliyun.com/ubuntu|g' \
+        -e 's|security.ubuntu.com/ubuntu|mirrors.aliyun.com/ubuntu|g' \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
+
+# SearXNG builder and runtime use the SAME Ubuntu Python and glibc ABI.
+FROM ubuntu-base AS searxng-builder
+ARG SEARXNG_REF=ad46ebd7d87666edb5f116c5b274b47f689ac6cd
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git python3 python3-dev python3-pip python3-venv build-essential \
+      libxml2-dev libxslt1-dev libffi-dev libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN git init /opt/dsh/searxng-src \
+ && git -C /opt/dsh/searxng-src remote add origin https://github.com/searxng/searxng.git \
+ && git -C /opt/dsh/searxng-src fetch --depth=1 origin "${SEARXNG_REF}" \
+ && git -C /opt/dsh/searxng-src checkout --detach FETCH_HEAD \
+ && python3 -m venv /opt/dsh/searxng-venv \
+ && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir -U pip setuptools wheel pyyaml msgspec typing-extensions pybind11 granian \
+ && cd /opt/dsh/searxng-src \
+ && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir --use-pep517 --no-build-isolation -e . \
+ && /opt/dsh/searxng-venv/bin/python -c 'import searx; import granian' \
+ && install -d /etc/searxng \
+ && if [ -f utils/templates/etc/searxng/limiter.toml ]; then \
+      cp utils/templates/etc/searxng/limiter.toml /etc/searxng/limiter.toml; \
+    else printf '# Limiter intentionally disabled for private instances\n' > /etc/searxng/limiter.toml; fi
+
+FROM ubuntu-base
 
 ARG DSH_VERSION=0.2.1-alpha.2
 ARG PNPM_VERSION=11.7.0
 ARG GO_VERSION=1.27.1
 ARG TARGETARCH
-ARG IN_CHINA=auto
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
-ARG DOCKER_APT_BASE=https://download.docker.com/linux/debian
-
-ENV IN_CHINA=${IN_CHINA}
+ARG DOCKER_APT_BASE=https://download.docker.com/linux/ubuntu
 
 LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
-      org.opencontainers.image.description="DeepSeek Harness development container with Node.js, Python, Go, Docker CLI and Chromium" \
+      org.opencontainers.image.description="Ubuntu 24.04 DSH development container with Node.js, Python, Go, Docker CLI and Chromium" \
       org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="MIT AND AGPL-3.0-or-later"
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    DSH_HOME=/root/.dsh \
+ENV DSH_HOME=/root/.dsh \
     DSH_WORKSPACE_ROOT=/workspace \
     TZ=Asia/Shanghai \
+    NPM_CONFIG_PREFIX=/usr/local \
     NPM_CONFIG_CACHE=/tmp/npm-cache \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PATH=/usr/local/go/bin:${PATH}
 
-COPY docker/cn-mirror.sh /usr/local/bin/cn-mirror
 COPY docker/patch-remote-settings.js /usr/local/bin/patch-remote-settings.js
 COPY docker/patch-connection-rpc-routes.js /usr/local/bin/patch-connection-rpc-routes.js
 COPY docker/patch-web-launch-token.js /usr/local/bin/patch-web-launch-token.js
@@ -41,36 +75,11 @@ COPY docker/patch-workspace-picker-home.js /usr/local/bin/patch-workspace-picker
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
 COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
 
-RUN chmod +x /usr/local/bin/cn-mirror \
- && . /usr/local/bin/cn-mirror \
- && if is_cn; then \
-      echo "==> China network detected, switching apt sources to mirrors.aliyun.com"; \
-      sed -i \
-        -e 's|deb\.debian\.org/debian-security|mirrors.aliyun.com/debian-security|g' \
-        -e 's|deb\.debian\.org/debian|mirrors.aliyun.com/debian|g' \
-        /etc/apt/sources.list.d/debian.sources; \
-    fi \
- && apt-get update \
+RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash \
-      bubblewrap \
-      build-essential \
-      ca-certificates \
-      curl \
-      git \
-      jq \
-      less \
-      openssh-client \
-      procps \
-      python3 \
-      python3-dev \
-      python3-pip \
-      python3-venv \
-      tini \
-      tzdata \
-      unzip \
-      wget \
-      zip \
+      bash bubblewrap build-essential ca-certificates curl git gnupg \
+      jq less openssh-client procps python3 python3-dev python3-pip \
+      python3-venv tini tzdata unzip wget zip \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system --add safe.directory '*'
 
@@ -121,6 +130,26 @@ RUN set -eux; \
     docker buildx version; \
     docker compose version
 
+# Ubuntu 24.04 does not ship Node.js 24 in its default archive.
+# Install the NodeSource 24.x package using its signed apt repository, without
+# executing an unaudited remote setup script. Keep npm's global prefix identical
+# to the old official Node container so DSH CLI locations remain stable.
+RUN set -eux; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL --retry 3 https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    chmod a+r /etc/apt/keyrings/nodesource.gpg; \
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main\n' \
+      "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/nodesource.list; \
+    printf 'Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n' \
+      > /etc/apt/preferences.d/nodejs; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*; \
+    node --version | grep -q '^v24'; \
+    npm --version; \
+    test "$(npm prefix --global)" = "/usr/local"
+
 # 与 dsh 0.1.5-rc.2 官方根项目的 packageManager 保持一致。pnpm 必须先于
 # dsh/插件单独安装：不能把它们放进同一条 npm install，因为 npm 不保证
 # 全局包的安装/生命周期顺序，可能用另一版 pnpm 生成 profile 的 node_modules。
@@ -163,6 +192,16 @@ RUN . /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-web-launch-token.js \
       /usr/local/bin/patch-workspace-picker-home.js
 
+# Bundled SearXNG: never runs until the Web Search provider is enabled.
+# Source retains upstream AGPL-3.0-or-later license and attribution.
+COPY --from=searxng-builder /opt/dsh/searxng-src /opt/dsh/searxng-src
+COPY --from=searxng-builder /opt/dsh/searxng-venv /opt/dsh/searxng-venv
+COPY --from=searxng-builder /etc/searxng/limiter.toml /etc/searxng/limiter.toml
+# SearXNG runs as an unprivileged user even when DSH's host is root.
+# Cache lives outside the persistent DSH_HOME credentials directory.
+RUN groupadd --gid 62000 searxng \
+ && useradd --no-create-home --uid 62000 --gid 62000 --home-dir /var/cache/searxng --shell /usr/sbin/nologin searxng \
+ && install -d -m 0700 -o searxng -g searxng /var/cache/searxng
 COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
@@ -183,6 +222,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-web-token.js \
  && node --check /opt/dsh/plugins/dsh-web-search/index.js \
  && node --check /opt/dsh/plugins/dsh-web-search/client.js \
+ && node --check /opt/dsh/plugins/dsh-web-search/embedded.js \
  && node --check /opt/dsh/plugins/dsh-web-search/router.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \

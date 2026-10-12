@@ -187,6 +187,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # A source-level test cannot catch missing Python shared libraries or
+      # a broken Granian/SearXNG install. Probe the actual built image offline.
+      - name: Smoke-test embedded SearXNG in audit image
+        run: |
+          docker run --rm --entrypoint node dsh-ci:pr --input-type=module -e '
+            import { EmbeddedSearxng, SEARCH_ENDPOINT } from "/opt/dsh/plugins/dsh-web-search/embedded.js"
+            const service = new EmbeddedSearxng({ home: "/tmp/dsh-search-ci" })
+            try {
+              await service.ensureStarted()
+              const response = await fetch(SEARCH_ENDPOINT + "/", { signal: AbortSignal.timeout(5000) })
+              if (!response.ok) throw Error("embedded SearXNG returned HTTP " + response.status)
+              console.log("Embedded SearXNG is listening on loopback only")
+            } finally { await service.stop() }
+          '
+
       - name: Check bundled Search Router
         run: bash tests/test-web-search-plugin.sh
 
@@ -195,9 +210,12 @@ jobs:
         run: |
           docker run --rm --entrypoint bash dsh-ci:pr -c '
             set -euo pipefail
-            node --version
+            grep -qx ID=ubuntu /etc/os-release
+            grep -Eq VERSION_ID.*24.04 /etc/os-release
+            node --version | grep -q ^v24
             npm --version
             pnpm --version
+            /opt/dsh/searxng-venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 12)"
             python3 --version
             python3 -m pip --version
             uv --version

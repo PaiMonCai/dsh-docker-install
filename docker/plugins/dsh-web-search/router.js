@@ -45,6 +45,8 @@ export class SearchRouter {
   constructor(options = {}) {
     this.options = {
       searxngURL: options.searxngURL,
+      enabled: options.enabled !== false,
+      prepare: options.prepare || (async () => {}),
       braveEnabled: bool(options.braveEnabled),
       resolveBraveKey: options.resolveBraveKey || (async () => undefined),
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
@@ -57,12 +59,13 @@ export class SearchRouter {
     this.cache = new SearchCache({ maxEntries: 500, maxBytes: 32 * 1024 * 1024 })
   }
   available() {
-    try { return ['http:', 'https:'].includes(new URL(this.options.searxngURL).protocol) } catch { return false }
+    try { return this.options.enabled && ['http:', 'https:'].includes(new URL(this.options.searxngURL).protocol) } catch { return false }
   }
   async search(request, signal) {
     requireBounded(request?.query, 2048, 'query')
     if (signal?.aborted) throw new SearchFailure('Search cancelled', 'WEB_ABORTED')
     const opts = this.options
+    if (!opts.enabled) throw new SearchFailure('Embedded web search is disabled', 'DSH_SEARCH_DISABLED')
     const cacheKey = JSON.stringify([request.query, request.maxResults || 8, opts.searxngURL,
       opts.braveEnabled, 'v1'])
     if (opts.cacheEnabled) {
@@ -76,6 +79,10 @@ export class SearchRouter {
       try {
         const primary = timeBound(outer.signal, Math.min(opts.searxngTimeoutMs, deadline - Date.now()))
         try {
+          try { await opts.prepare() } catch (error) {
+            throw new SearchFailure('Embedded SearXNG is unavailable: ' + error.message,
+              'DSH_SEARCH_SEARXNG_UNAVAILABLE', true)
+          }
           result = await searchSearxng(request, { baseURL: opts.searxngURL, signal: primary.signal, http: opts.http })
         } catch (error) {
           if (signal?.aborted) throw new SearchFailure('Search cancelled', 'WEB_ABORTED')

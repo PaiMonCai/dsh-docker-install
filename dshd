@@ -638,87 +638,41 @@ docker_ready() {
 }
 
 # Search network is independent of optional sing-box egress lifecycle.
+# Legacy sidecar cleanup is intentionally ownership-checked. New installs don't
+# create a separate search container or network.
 search_network_name() { printf '%s-search' "$DSH_NAME"; }
 search_container_name() { printf '%s-searxng' "$DSH_NAME"; }
-search_container_running() { docker_cmd ps --format '{{.Names}}' | grep -Fxq "$(search_container_name)"; }
-search_dir() { printf '%s/search' "$STATE_DIR"; }
 search_owned_container() {
   [[ "$(docker_cmd inspect -f '{{index .Config.Labels "io.caicailo.dsh.component"}}' "$(search_container_name)" 2>/dev/null || true)" == "web-search" ]]
 }
 search_owned_network() {
   [[ "$(docker_cmd network inspect -f '{{index .Labels "io.caicailo.dsh.component"}}' "$(search_network_name)" 2>/dev/null || true)" == "web-search" ]]
 }
-search_ensure_network() {
-  if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
-    search_owned_network || die "同名搜索 Docker network 已存在但不属于 dshd，拒绝接管"
-  else
-    docker_cmd network create --label io.caicailo.dsh.component=web-search "$(search_network_name)" >/dev/null
-  fi
-}
-search_ensure_config() {
-  local dir secret
-  dir="$(search_dir)/searxng"
-  mkdir -p "$dir"
-  mkdir -p "$(search_dir)/cache"
-  chmod 700 "$dir"
-  if [[ ! -e "$dir/settings.yml" ]]; then
-    secret="$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')"
-    [[ "${#secret}" -eq 64 ]] || die "SearXNG secret generation failed"
-    cat >"$dir/settings.yml" <<EOF
-use_default_settings: true
-general:
-  debug: false
-search:
-  formats:
-    - html
-    - json
-server:
-  secret_key: "$secret"
-  public_instance: false
-EOF
-    chmod 600 "$dir/settings.yml"
-  fi
-}
 search_remove_sidecar() {
   if docker_cmd inspect "$(search_container_name)" >/dev/null 2>&1; then
-    if search_owned_container; then
-      docker_cmd rm -f "$(search_container_name)" >/dev/null 2>&1 || true
-    else
-      warn "同名 SearXNG 容器非本工具创建，已保留"
-    fi
+    if search_owned_container; then docker_cmd rm -f "$(search_container_name)" >/dev/null 2>&1 || true
+    else warn "旧搜索容器不属于本工具，保留不动"; fi
   fi
 }
 search_remove_network() {
   if docker_cmd network inspect "$(search_network_name)" >/dev/null 2>&1; then
-    if search_owned_network; then
-      docker_cmd network rm "$(search_network_name)" >/dev/null 2>&1 || true
-    else
-      warn "同名搜索网络非本工具创建，已保留"
-    fi
+    if search_owned_network; then docker_cmd network rm "$(search_network_name)" >/dev/null 2>&1 || true
+    else warn "旧搜索网络不属于本工具，保留不动"; fi
   fi
 }
-search_start_sidecar() {
-  [[ "$DSH_SEARCH_ENABLED" == "true" ]] || return 0
-  search_ensure_config
-  search_ensure_network
-  if ! docker_cmd image inspect "$DSH_SEARCH_IMAGE" >/dev/null 2>&1; then
-    docker_cmd pull "$DSH_SEARCH_IMAGE" || die "无法获取 SearXNG 镜像 $DSH_SEARCH_IMAGE"
-  fi
-  if search_container_running; then
-    search_owned_container || die "同名 SearXNG 容器并非 dshd 所有，拒绝复用"
-    return 0
-  fi
-  search_remove_sidecar
-  docker_cmd run -d --name "$(search_container_name)" --restart unless-stopped \
-    --label io.caicailo.dsh.component=web-search \
-    --network "$(search_network_name)" --network-alias dsh-searxng \
-    --cap-drop NET_ADMIN --cap-drop SYS_ADMIN --security-opt no-new-privileges --pids-limit 150 \
-    --memory 512m \
-    -e FORCE_OWNERSHIP=true \
-    -v "$(search_dir)/searxng:/etc/searxng" \
-    -v "$(search_dir)/cache:/var/cache/searxng" \
-    "$DSH_SEARCH_IMAGE" >/dev/null
-  search_container_running || die "SearXNG sidecar 启动失败"
+search_container_running() {
+  container_running || return 1
+  docker_cmd exec "$DSH_NAME" node -e '
+    fetch("http://127.0.0.1:18788/",{signal:AbortSignal.timeout(1600)})
+      .then(r=>process.exit(r.status>=200&&r.status<500?0:1))
+      .catch(()=>process.exit(1))' >/dev/null 2>&1
+}
+search_ensure_image() {
+  # Validate before replacing the existing container: legacy images have no
+  # embedded SearXNG and must not silently enable a broken search provider.
+  docker_cmd run --rm --entrypoint /bin/sh "$DSH_IMAGE" -c \
+    'test -x /opt/dsh/searxng-venv/bin/granian && test -d /opt/dsh/searxng-src' >/dev/null \
+    || die "DSH 镜像没有内置 SearXNG；请先升级到包含搜索运行时的新镜像"
 }
 
 proxy_container_name() {
@@ -2700,9 +2654,9 @@ create_container() {
   local data_source
   data_source="$(storage_source)"
 
-  # Keep search provisioning ahead of the destructive DSH container replacement.
+  # Embedded search is packaged inside DSH, and runs only when its plugin starts.
   if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
-    search_start_sidecar
+    search_ensure_image
   fi
 
   # 开启代理时先完成镜像拉取、配置校验和 sidecar 启动。
@@ -2716,13 +2670,7 @@ create_container() {
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
-  # Cleanup must occur BEFORE the final docker run/create, preserving legacy
-  # dshd scripts and not leaving search networks behind on opt-out.
-  if [[ "$DSH_SEARCH_ENABLED" != "true" ]]; then
-    search_remove_sidecar
-    search_remove_network
-  fi
-
+  # The old sidecar is retired only AFTER replacement is healthy.
   if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
     proxy_remove_sidecar
     proxy_remove_network
@@ -2744,28 +2692,23 @@ create_container() {
     -w "/workspace"
   )
 
-  if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
-    args+=(
-      --network "$(search_network_name)"
-      -e "DSH_SEARCH_ENABLED=true"
-      -e "DSH_SEARCH_SEARXNG_URL=http://dsh-searxng:8080"
-      -e "DSH_SEARCH_BRAVE_ENABLED=$DSH_SEARCH_BRAVE_ENABLED"
-      -e "DSH_SEARCH_CACHE_ENABLED=$DSH_SEARCH_CACHE_ENABLED"
-      -e "DSH_SEARCH_BRAVE_DAILY_LIMIT=$DSH_SEARCH_BRAVE_DAILY_LIMIT"
-    )
-  else
-    args+=(-e "DSH_SEARCH_ENABLED=false")
-  fi
+  args+=(
+    -e "DSH_SEARCH_ENABLED=$DSH_SEARCH_ENABLED"
+    -e "DSH_SEARCH_SEARXNG_URL=http://127.0.0.1:18788"
+    -e "DSH_SEARCH_BRAVE_ENABLED=$DSH_SEARCH_BRAVE_ENABLED"
+    -e "DSH_SEARCH_CACHE_ENABLED=$DSH_SEARCH_CACHE_ENABLED"
+    -e "DSH_SEARCH_BRAVE_DAILY_LIMIT=$DSH_SEARCH_BRAVE_DAILY_LIMIT"
+  )
 
   if [[ "$DSH_PROXY_ENABLED" == "true" ]]; then
-    [[ "$DSH_SEARCH_ENABLED" == "true" ]] || args+=(--network "$(proxy_network_name)")
+    args+=(--network "$(proxy_network_name)")
     args+=(
       -e "HTTP_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "HTTPS_PROXY=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "http_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
       -e "https_proxy=http://dsh-proxy:${DSH_PROXY_PORT}"
-      -e "NO_PROXY=${DSH_PROXY_NO_PROXY},dsh-searxng"
-      -e "no_proxy=${DSH_PROXY_NO_PROXY},dsh-searxng"
+      -e "NO_PROXY=${DSH_PROXY_NO_PROXY},localhost,127.0.0.1"
+      -e "no_proxy=${DSH_PROXY_NO_PROXY},localhost,127.0.0.1"
       -e "NODE_USE_ENV_PROXY=1"
     )
   fi
@@ -2816,18 +2759,14 @@ create_container() {
   fi
 
   info "启动容器 $DSH_NAME ..."
-  if [[ "$DSH_SEARCH_ENABLED" == "true" && "$DSH_PROXY_ENABLED" == "true" ]]; then
-    # docker run supports only one network; connect both before first process start.
-    docker_cmd create "${args[@]:2}" "$DSH_IMAGE" >/dev/null
-    if ! docker_cmd network connect "$(proxy_network_name)" "$DSH_NAME"; then
-      docker_cmd rm -f "$DSH_NAME" >/dev/null 2>&1 || true
-      die "搜索/代理双网络连接失败"
-    fi
-    docker_cmd start "$DSH_NAME" >/dev/null
-  else
-    docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
-  fi
+  docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
   wait_ready
+  # Opt-in migrations only. The disabled path must not query or mutate old
+  # search resources during unrelated DSH container operations.
+  if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
+    search_remove_sidecar
+    search_remove_network
+  fi
 }
 
 first_trusted_host() {
@@ -3486,10 +3425,10 @@ cmd_search() {
     status)
       printf 'Web Search:     %s\n' "$DSH_SEARCH_ENABLED"
       printf 'SearXNG:        %s\n' "$(search_container_running && echo running || echo stopped)"
-      printf 'SearXNG image:  %s\n' "$DSH_SEARCH_IMAGE"
+      printf 'SearXNG runtime: %s\n' "bundled in DSH image"
       printf 'Brave fallback: %s (max %s/day UTC)\n' "$DSH_SEARCH_BRAVE_ENABLED" "$DSH_SEARCH_BRAVE_DAILY_LIMIT"
       printf 'Memory cache:   %s\n' "$DSH_SEARCH_CACHE_ENABLED"
-      printf 'Search network: %s\n' "$(search_network_name)"
+      printf 'Search network: %s\n' "shared with DSH (loopback:18788)"
       ;;
     enable|setup)
       # Stage the opt-in flag in memory first: the image/provisioning check
@@ -3533,20 +3472,23 @@ cmd_search() {
       if ! search_container_running; then err "SearXNG 容器未运行"; return 1; fi
       if ! container_running; then err "DSH 容器未运行"; return 1; fi
       docker_cmd exec "$DSH_NAME" node -e '
-        const u = "http://dsh-searxng:8080/search?q=deepseek&format=json";
+        const u = "http://127.0.0.1:18788/search?q=deepseek&format=json";
         fetch(u,{signal:AbortSignal.timeout(11000)})
           .then(async r=>{if(!r.ok)throw Error("HTTP "+r.status);
              const x=await r.json();if(!Array.isArray(x.results))throw Error("JSON results missing");
-             console.log("SearXNG JSON OK: "+x.results.length+" results")})
+             console.log("SearXNG JSON OK: "+x.results.length+" results");
+             if(x.results.length===0){console.error("搜索返回 0 条结果；请检查 DSH/sing-box 出口或引擎屏蔽");process.exitCode=2}})
           .catch(e=>{console.error("SearXNG test failed: "+e.message);process.exitCode=1})'
       ;;
-    logs) docker_cmd logs --tail 200 -f "$(search_container_name)" ;;
+    logs) docker_cmd logs --tail 200 -f "$DSH_NAME" ;;
     restart)
-      search_remove_sidecar; search_start_sidecar
+      docker_cmd restart "$DSH_NAME" >/dev/null
+      ok "已重启 DSH（内置 SearXNG 随 Web Search 插件启动）"
       ;;
     update)
-      docker_cmd pull "$DSH_SEARCH_IMAGE"
-      search_remove_sidecar; search_start_sidecar
+      docker_cmd pull "$DSH_IMAGE"
+      create_container
+      ok "已更新 DSH 镜像（包含内置 SearXNG）"
       ;;
     *)
       die "用法: dshd search status|setup|enable|disable|test|doctor|logs|restart|update|brave enable|disable|cache on|off|clear"
@@ -3592,7 +3534,7 @@ cmd_search_menu() {
     printf '  %s2) 关闭 Web Search（恢复原生搜索配置）%s\n' "$red" "$reset"
     printf '  3) 测试 SearXNG 搜索    4) 检查连接/诊断\n'
     printf '  5) 查看 SearXNG 日志   6) 重启搜索 Sidecar\n'
-    printf '  7) 更新 SearXNG 镜像及 Sidecar\n'
+    printf '  7) 更新 DSH 镜像（包含 SearXNG）\n'
     printf '\n  %s── Brave 备用（可选）──%s\n' "$cyan" "$reset"
     printf '  8) 启用 Brave 回退      9) 关闭 Brave 回退\n'
     printf ' 10) 设置 Brave 每日调用上限（0–10000）\n'
@@ -3628,7 +3570,7 @@ cmd_search_menu() {
       5) run_action cmd_search logs ;;
       6) run_action cmd_search restart ;;
       7)
-        if confirm "更新 SearXNG 镜像并重启 Sidecar？搜索将短暂中断。" N; then
+        if confirm "更新 DSH 镜像并重建容器？服务将短暂中断。" N; then
           run_action cmd_search update
         fi
         ;;

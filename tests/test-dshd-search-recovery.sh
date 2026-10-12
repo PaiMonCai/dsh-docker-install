@@ -16,17 +16,12 @@ load_config
 DSH_SEARCH_ENABLED=false
 save_config
 
-# Real entropy source (od): 32 bytes must produce exactly 64 lowercase hex
-# characters, even when od wraps output across multiple newline-separated rows.
-search_ensure_config
-settings="$(search_dir)/searxng/settings.yml"
-[[ -f "$settings" ]] || { echo "SearXNG settings missing" >&2; exit 1; }
-grep -Eq '^  secret_key: "[a-f0-9]{64}"$' "$settings" || { echo "invalid SearXNG secret" >&2; exit 1; }
-grep -Fq '    - json' "$settings" || { echo "JSON search not enabled" >&2; exit 1; }
-[[ "$(stat -c %a "$settings")" == 600 ]] || { echo "SearXNG settings must be mode 600" >&2; exit 1; }
-previous="$(grep -E '^  secret_key:' "$settings")"
-search_ensure_config
-[[ "$(grep -E '^  secret_key:' "$settings")" == "$previous" ]] || { echo "secret changed on retry" >&2; exit 1; }
+# Search configuration and secret are now created by the embedded DSH
+# plugin, not by a separate dshd-managed Docker sidecar.
+[[ "$(type -t search_ensure_image)" == "function" ]] || exit 1
+[[ "$(type -t search_remove_sidecar)" == "function" ]] || exit 1
+[[ "$(type -t search_remove_network)" == "function" ]] || exit 1
+! declare -F search_start_sidecar >/dev/null || { echo "old sidecar provisioner must be gone"; exit 1; }
 
 # Fail the setup before any Docker container is replaced; the saved opt-in flag
 # must remain false, so the next menu run can retry instead of falsely skipping.
@@ -53,8 +48,7 @@ run_action cmd_search enable >"$TMP/menu-fail.stdout" 2>"$TMP/menu-fail.stderr"
 grep -Fq '本次操作未完成' "$TMP/menu-fail.stderr" || { echo "menu must report failed create" >&2; exit 1; }
 grep -Fxq 'DSH_SEARCH_ENABLED=false' "$DSHD_CONFIG_FILE" || { echo "menu failure saved enabled" >&2; exit 1; }
 
-# Simulate a repaired retry, then verify settings are written only once setup
-# has reported success and that the existing secure secret is preserved.
+# Simulate a repaired retry, then verify opt-in is saved only after successful setup.
 create_container() {
   [[ "$DSH_SEARCH_ENABLED" == true ]] || { echo "missing staged flag" >&2; return 2; }
   grep -Fxq 'DSH_SEARCH_ENABLED=false' "$DSHD_CONFIG_FILE" || { echo "flag saved before create" >&2; return 2; }
@@ -62,6 +56,5 @@ create_container() {
 }
 cmd_search enable >"$TMP/retry.stdout"
 grep -Fxq 'DSH_SEARCH_ENABLED=true' "$DSHD_CONFIG_FILE" || { echo "successful retry not saved" >&2; exit 1; }
-[[ "$(grep -E '^  secret_key:' "$settings")" == "$previous" ]] || { echo "successful retry rotated secret" >&2; exit 1; }
 [[ "$(cat "$TMP/create-calls")" == $'fail\nok' ]] || { echo "retry did not call create" >&2; exit 1; }
 echo "test-dshd-search-recovery: ok"

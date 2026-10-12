@@ -29,7 +29,9 @@ grep -Fq "settings.mutate(" "$CLIENT"
 grep -Fq "reasoningEfforts" "$CLIENT"
 grep -Fq "sliderRail" "$CLIENT"
 grep -Fq "'aria-pressed': selected" "$CLIENT"
-grep -Fq "provider.declared !== true" "$CLIENT"
+grep -Fq "provider.declared === true" "$CLIENT"
+grep -Fq "editorViewState" "$CLIENT"
+grep -Fq "useRef" "$CLIENT"
 
 # llm-pi-ai model profiles do not accept a model-level defaultReasoningEffort;
 # provider/session defaults remain owned by upstream DSH.
