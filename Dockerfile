@@ -199,8 +199,8 @@ COPY --from=searxng-builder /opt/dsh/searxng-venv /opt/dsh/searxng-venv
 COPY --from=searxng-builder /etc/searxng/limiter.toml /etc/searxng/limiter.toml
 # SearXNG runs as an unprivileged user even when DSH's host is root.
 # Cache lives outside the persistent DSH_HOME credentials directory.
-RUN groupadd --system --gid 991 searxng \
- && useradd --system --uid 991 --gid 991 --home-dir /var/cache/searxng --shell /usr/sbin/nologin searxng \
+RUN groupadd --gid 62000 searxng \
+ && useradd --no-create-home --uid 62000 --gid 62000 --home-dir /var/cache/searxng --shell /usr/sbin/nologin searxng \
  && install -d -m 0700 -o searxng -g searxng /var/cache/searxng
 COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
