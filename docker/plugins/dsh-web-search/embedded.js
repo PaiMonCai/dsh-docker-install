@@ -44,7 +44,7 @@ export async function ensureSearxSettings(home) {
       '  limiter: false',
       '  secret_key: "' + randomBytes(32).toString('hex') + '"',
       '',
-    ].join('\\n')
+    ].join('\n')
     const fd = await open(file, 'wx', 0o600).catch(e => e.code === 'EEXIST' ? null : Promise.reject(e))
     if (fd) {
       try { await fd.writeFile(text); await fd.sync() }
