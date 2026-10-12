@@ -21,7 +21,11 @@ RUN git init /opt/dsh/searxng-src \
  && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir -U pip setuptools wheel pyyaml msgspec typing-extensions pybind11 granian \
  && cd /opt/dsh/searxng-src \
  && /opt/dsh/searxng-venv/bin/pip install --no-cache-dir --use-pep517 --no-build-isolation -e . \
- && /opt/dsh/searxng-venv/bin/python -c 'import searx.webapp; import granian'
+ && /opt/dsh/searxng-venv/bin/python -c 'import searx; import granian' \
+ && install -d /etc/searxng \
+ && if [ -f utils/templates/etc/searxng/limiter.toml ]; then \
+      cp utils/templates/etc/searxng/limiter.toml /etc/searxng/limiter.toml; \
+    else printf '# Limiter intentionally disabled for private instances\n' > /etc/searxng/limiter.toml; fi
 
 FROM ${NODE_IMAGE}
 
@@ -185,6 +189,7 @@ RUN . /usr/local/bin/cn-mirror \
 # Source retains upstream AGPL-3.0-or-later license and attribution.
 COPY --from=searxng-builder /opt/dsh/searxng-src /opt/dsh/searxng-src
 COPY --from=searxng-builder /opt/dsh/searxng-venv /opt/dsh/searxng-venv
+COPY --from=searxng-builder /etc/searxng/limiter.toml /etc/searxng/limiter.toml
 COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
