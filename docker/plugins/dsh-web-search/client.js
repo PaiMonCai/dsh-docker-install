@@ -38,7 +38,6 @@ window.__ModuleLoader__.load({
       const [secret, setSecret] = useState('')
       const [busy, setBusy] = useState(false)
       const [message, setMessage] = useState('')
-      if (view === 'summary') return '内置 SearXNG · 共享 DSH 网络与代理 · Brave 可选备用'
       useEffect(() => {
         let live = true
         api().then(value => {
@@ -49,6 +48,7 @@ window.__ModuleLoader__.load({
         }).catch(() => {})
         return () => { live = false }
       }, [remote])
+      if (view === 'summary') return '内置 SearXNG · 共享 DSH 网络与代理 · Brave 可选备用'
       const reloadKey = async () => {
         const result = await remote.describe(['BRAVE_SEARCH_API_KEY'])
         if (result.ok) setInfo(result.value.BRAVE_SEARCH_API_KEY)
