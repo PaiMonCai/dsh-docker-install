@@ -3,15 +3,34 @@
  */
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, lstat, open, readFile } from 'node:fs/promises'
+import { mkdir, lstat, open, copyFile, chown, chmod, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { request } from 'node:http'
+import { tmpdir } from 'node:os'
 
 export const SEARCH_PORT = 18788
 export const SEARCH_ENDPOINT = 'http://127.0.0.1:' + SEARCH_PORT
 const EXEC = '/opt/dsh/searxng-venv/bin/granian'
 const SOURCE = '/opt/dsh/searxng-src'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const SEARCH_UID = 991
+const SEARCH_GID = 991
+
+// Pass through only the network settings the search child needs. In particular,
+// never inherit DSH's model API keys, credentials or Docker host variables.
+export function childEnvironment(settings, source = process.env) {
+  const env = { PATH: source.PATH || '/usr/bin:/bin', HOME: '/var/cache/searxng',
+    XDG_CACHE_HOME: '/var/cache/searxng', LANG: 'C.UTF-8', PYTHONUNBUFFERED: '1',
+    SEARXNG_SETTINGS_PATH: settings }
+  for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+    'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'TZ',
+    'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE']) {
+    if (source[key]) env[key] = source[key]
+  }
+  env.NO_PROXY = ['127.0.0.1', 'localhost', env.NO_PROXY || ''].filter(Boolean).join(',')
+  env.no_proxy = ['127.0.0.1', 'localhost', env.no_proxy || ''].filter(Boolean).join(',')
+  return env
+}
 
 async function noSymlink(path, kind) {
   const st = await lstat(path).catch(e => e.code === 'ENOENT' ? null : Promise.reject(e))
@@ -78,6 +97,7 @@ export class EmbeddedSearxng {
     this.pending = null
     this.lastError = null
     this.stopping = false
+    this.runtimeDir = null
   }
   async running() { return this.health() }
   async ensureStarted() {
@@ -90,13 +110,22 @@ export class EmbeddedSearxng {
     const settings = await ensureSearxSettings(this.home)
     if (this.child?.exitCode === null && !this.child.killed) throw new Error('Search process is not ready')
     this.lastError = null
+    // Parent DSH_HOME stays 0700/root-owned. A private ephemeral config copy
+    // is given to the unprivileged search UID; no need to open DSH credentials.
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'dsh-searxng-'))
+    this.runtimeDir = runtimeDir
+    await chown(runtimeDir, SEARCH_UID, SEARCH_GID)
+    await chmod(runtimeDir, 0o700)
+    const runtimeSettings = join(runtimeDir, 'settings.yml')
+    await copyFile(settings, runtimeSettings)
+    await chown(runtimeSettings, SEARCH_UID, SEARCH_GID)
+    await chmod(runtimeSettings, 0o600)
     const child = this.spawnProcess(this.executable, [
       '--interface', 'wsgi', '--host', '127.0.0.1', '--port', String(SEARCH_PORT),
       '--workers', '1', 'searx.webapp:app',
     ], { cwd: this.source, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, SEARXNG_SETTINGS_PATH: settings,
-        NO_PROXY: ['127.0.0.1', 'localhost', process.env.NO_PROXY || ''].filter(Boolean).join(','),
-        no_proxy: ['127.0.0.1', 'localhost', process.env.no_proxy || ''].filter(Boolean).join(',') } })
+      uid: SEARCH_UID, gid: SEARCH_GID,
+      env: childEnvironment(runtimeSettings) })
     this.child = child
     child.once('error', error => { this.lastError = error })
     child.once('exit', (code, signal) => {
@@ -111,7 +140,9 @@ export class EmbeddedSearxng {
       if (this.lastError || child.exitCode !== null) break
       await sleep(200)
     }
-    throw new Error('Embedded SearXNG failed to start: ' + (this.lastError?.message || child.exitCode || 'timeout'))
+    const reason = this.lastError?.message || child.exitCode || 'timeout'
+    child.kill('SIGTERM')
+    throw new Error('Embedded SearXNG failed to start: ' + reason)
   }
   async stop() {
     this.stopping = true
@@ -122,6 +153,12 @@ export class EmbeddedSearxng {
       child.kill('SIGTERM')
       for (let i = 0; i < 15 && child.exitCode === null; i++) await sleep(100)
       if (child.exitCode === null) child.kill('SIGKILL')
-    } finally { this.stopping = false }
+    } finally {
+      if (this.runtimeDir) {
+        await rm(this.runtimeDir, { recursive: true, force: true }).catch(() => {})
+        this.runtimeDir = null
+      }
+      this.stopping = false
+    }
   }
 }
