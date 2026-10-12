@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EmbeddedSearxng, ensureSearxSettings, SEARCH_ENDPOINT } from '../docker/plugins/dsh-web-search/embedded.js'
+import { EmbeddedSearxng, ensureSearxSettings, SEARCH_ENDPOINT, childEnvironment } from '../docker/plugins/dsh-web-search/embedded.js'
 import { SearchSettings, validate, defaults } from '../docker/plugins/dsh-web-search/settings.js'
 import { SearchRouter } from '../docker/plugins/dsh-web-search/router.js'
 
@@ -74,4 +74,21 @@ test('manager never spawns when a healthy local service already exists', async (
     spawnProcess: () => { calls++; throw Error('unexpected launch') } })
   await manager.ensureStarted()
   assert.equal(calls, 0)
+})
+
+test('child inherits DSH network proxy but never receives provider keys or Docker credentials', () => {
+  const env = childEnvironment('/tmp/private/settings.yml', {
+    HTTP_PROXY: 'http://dsh-proxy:7890',
+    HTTPS_PROXY: 'http://dsh-proxy:7890',
+    NO_PROXY: 'dsh-proxy',
+    DEEPSEEK_API_KEY: 'secret-do-not-forward',
+    BRAVE_SEARCH_API_KEY: 'paid-secret',
+    DOCKER_HOST: 'unix:///var/run/docker.sock',
+  })
+  assert.equal(env.HTTP_PROXY, 'http://dsh-proxy:7890')
+  assert.match(env.NO_PROXY, /127.0.0.1/)
+  assert.equal(env.DEEPSEEK_API_KEY, undefined)
+  assert.equal(env.BRAVE_SEARCH_API_KEY, undefined)
+  assert.equal(env.DOCKER_HOST, undefined)
+  assert.equal(env.SEARXNG_SETTINGS_PATH, '/tmp/private/settings.yml')
 })
