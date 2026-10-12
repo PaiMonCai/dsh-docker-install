@@ -44,7 +44,7 @@ export function apply(ctx) {
   const router = new SearchRouter({
     searxngURL: SEARCH_ENDPOINT,
     enabled: true,
-    prepare: () => embedded.ensureStarted(),
+    prepare: async () => { await loaded; if (!preferences.enabled) throw new Error('search-disabled'); await embedded.ensureStarted() },
     braveEnabled: preferences.braveEnabled,
     resolveBraveKey: async () => {
       const credentials = ctx.get('credentials')
