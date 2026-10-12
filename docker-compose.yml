@@ -37,9 +37,9 @@ services:
       DSH_REASONING_EDITOR: "${DSH_REASONING_EDITOR:-true}"
       # 内置 Web 会话管理菜单，删除时重启并进入回收区；false 时移除该插件。
       DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
-      # Search is opt-in to preserve pre-upgrade provider selection.
+      # Search is opt-in; bundled SearXNG runs only when the plugin is enabled.
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
-      DSH_SEARCH_SEARXNG_URL: "http://dsh-searxng:8080"
+      DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"
       DSH_SEARCH_BRAVE_ENABLED: "${DSH_SEARCH_BRAVE_ENABLED:-false}"
       DSH_SEARCH_BRAVE_DAILY_LIMIT: "${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
       DSH_SEARCH_CACHE_ENABLED: "${DSH_SEARCH_CACHE_ENABLED:-true}"
@@ -54,9 +54,6 @@ services:
       # DSH_PORT: "3080"
       # 内核若无法提供 bubblewrap/Landlock，文件沙箱不可用，可临时关闭（见 README）。
       # DSH_PERMISSION_MODE: "danger-full-access"
-    networks:
-      - default
-      - search
     # 可选内存限制请按机器资源取消注释，例如：
     # mem_limit: "1536m"
     # memswap_limit: "2g"   # RAM + swap 总上限，不是额外 swap
@@ -64,19 +61,5 @@ services:
       - dsh-home:/root/.dsh
       # 宿主机项目目录 → 容器的 workspace（默认工作目录）
       - "${DSH_WORKSPACE:-./workspace}:/workspace"
-  searxng:
-    image: ${DSH_SEARCH_IMAGE:-searxng/searxng:latest}
-    restart: unless-stopped
-    profiles: ["search"]
-    networks:
-      search:
-        aliases:
-          - dsh-searxng
-    volumes:
-      - ./docker/search/settings.yml:/etc/searxng/settings.yml:ro
-    # A production deployment must replace the placeholder secret and pin the image digest.
-    # No host port is published.
-networks:
-  search:
 volumes:
   dsh-home:
