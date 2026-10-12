@@ -113,14 +113,15 @@ window.__ModuleLoader__.load({
       '.dsh-trash-search{flex:1 1 290px}',
       '.dsh-trash-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:16px}',
       '.dsh-trash-actions{display:flex;gap:8px;align-items:center}',
-      '.dsh-trash-button:hover:not(:disabled){background:var(--dsw-alias-bg-tertiary,rgba(110,130,160,.1))!important}',
+      '.dsh-trash-button:hover:not(:disabled):not(.dsh-trash-primary){background:var(--dsw-alias-bg-tertiary,rgba(110,130,160,.1))!important}',
+      '.dsh-trash-primary:hover:not(:disabled){filter:brightness(.92)}',
       '.dsh-trash-button:focus-visible,.dsh-trash-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}',
       '.dsh-trash-row:hover{background:var(--dsw-alias-bg-secondary,rgba(130,135,150,.055))}',
       '@media(max-width:640px){.dsh-trash-overlay{padding:0!important}.dsh-trash-panel{width:100%;height:100dvh;max-height:100dvh;border-radius:0}.dsh-trash-row{grid-template-columns:22px minmax(0,1fr);gap:9px}.dsh-trash-actions{grid-column:2;justify-content:flex-start}.dsh-trash-search{flex-basis:100%}.dsh-trash-toolbar{gap:8px}.dsh-trash-hide-mobile{display:none!important}}',
     ].join('\n')
     const button = (text, onClick, disabled = false, danger = false, primary = false, extra = {}) =>
       h('button', {
-        type: 'button', onClick, disabled, className: 'dsh-trash-button',
+        type: 'button', onClick, disabled, className: 'dsh-trash-button' + (primary ? ' dsh-trash-primary' : ''),
         style: {
           display: 'inline-flex', justifyContent: 'center', alignItems: 'center',
           gap: '6px', whiteSpace: 'nowrap', minHeight: '34px',
@@ -171,9 +172,10 @@ window.__ModuleLoader__.load({
           show(kind === 'confirm' ? { type: 'recycle' } : null)
         }
       }
-      const refresh = async () => {
+      const refresh = async (preserveError = false) => {
         const seq = ++refreshId.current
-        setLoading(true); setError('')
+        setLoading(true)
+        if (!preserveError) setError('')
         try {
           const result = await loadTrash()
           if (seq !== refreshId.current) return
@@ -187,7 +189,7 @@ window.__ModuleLoader__.load({
         }
       }
       React.useEffect(() => {
-        if (kind === 'recycle') void refresh()
+        if (kind === 'recycle') void refresh(selected?.preserveError === true)
         else refreshId.current++
       }, [kind])
       React.useEffect(() => {
@@ -243,12 +245,12 @@ window.__ModuleLoader__.load({
         setPending(false)
         pendingRef.current = false
         if (done) setStatus(t.doneCount + ' ' + done + ' / ' + targets.length)
+        if (kind === 'confirm') show({ type: 'recycle', preserveError: failed.length > 0 })
+        else await refresh()
         if (failed.length) {
           setError(t.failCount + ' ' + failed.length + '：' +
             failed.slice(0, 3).map(item => item.id + ' (' + item.message + ')').join('，'))
         }
-        if (kind === 'confirm') show({ type: 'recycle' })
-        else await refresh()
       }
 
       const now = Date.now()
