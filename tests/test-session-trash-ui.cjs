@@ -181,7 +181,7 @@ test('search, date range, sort and select-visible apply only to visible rows', a
   assert.equal(ui.nodes(tree, n => n.props?.className === 'dsh-trash-row').length, 2)
   ui.label(tree, 'input', '选择当前结果').props.onChange({ target: { checked: true } })
   tree = ui.render()
-  assert.match(ui.textOf(tree), /已选择2/)
+  assert.match(ui.textOf(tree), /已选择\s*2/)
   ui.named(tree, 'button', '恢复选中').props.onClick()
   tree = await ui.settle()
   assert.deepEqual(ui.mutations.filter(x => x.action === 'restore')
