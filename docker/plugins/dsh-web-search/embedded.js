@@ -120,6 +120,13 @@ export class EmbeddedSearxng {
     await copyFile(settings, runtimeSettings)
     await chown(runtimeSettings, SEARCH_UID, SEARCH_GID)
     await chmod(runtimeSettings, 0o600)
+    // get_yaml_cfg resolves limiter.toml relative to SEARXNG_SETTINGS_PATH,
+    // not /etc/searxng. Ship the disabled limiter template beside the private
+    // runtime config to avoid the otherwise misleading missing-file warning.
+    const limiter = join(runtimeDir, 'limiter.toml')
+    await copyFile('/etc/searxng/limiter.toml', limiter)
+    await chown(limiter, SEARCH_UID, SEARCH_GID)
+    await chmod(limiter, 0o600)
     const child = this.spawnProcess(this.executable, [
       '--interface', 'wsgi', '--host', '127.0.0.1', '--port', String(SEARCH_PORT),
       '--workers', '1', 'searx.webapp:app',
