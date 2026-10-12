@@ -2761,10 +2761,12 @@ create_container() {
   info "启动容器 $DSH_NAME ..."
   docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
   wait_ready
-  # Previous releases created an isolated SearXNG container. Remove it only
-  # after the new DSH instance starts, and never touch user-owned resources.
-  search_remove_sidecar
-  search_remove_network
+  # Opt-in migrations only. The disabled path must not query or mutate old
+  # search resources during unrelated DSH container operations.
+  if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
+    search_remove_sidecar
+    search_remove_network
+  fi
 }
 
 first_trusted_host() {
