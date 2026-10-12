@@ -13,8 +13,8 @@ export const SEARCH_ENDPOINT = 'http://127.0.0.1:' + SEARCH_PORT
 const EXEC = '/opt/dsh/searxng-venv/bin/granian'
 const SOURCE = '/opt/dsh/searxng-src'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-const SEARCH_UID = 991
-const SEARCH_GID = 991
+const SEARCH_UID = 62000
+const SEARCH_GID = 62000
 
 // Pass through only the network settings the search child needs. In particular,
 // never inherit DSH's model API keys, credentials or Docker host variables.
