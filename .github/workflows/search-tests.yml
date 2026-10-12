@@ -10,6 +10,7 @@ on:
       - 'docker/entrypoint.sh'
       - 'docker-compose.yml'
       - 'tests/test-web-search.mjs'
+      - 'tests/test-embedded-web-search.mjs'
       - 'tests/test-dshd-search-menu.sh'
       - 'tests/test-dshd-search-recovery.sh'
       - 'tests/test-web-search-plugin.sh'
@@ -36,9 +37,12 @@ jobs:
           node --check docker/plugins/dsh-web-search/index.js
           node --check docker/plugins/dsh-web-search/client.js
           node --check docker/plugins/dsh-web-search/router.js
+          node --check docker/plugins/dsh-web-search/embedded.js
+          node --check docker/plugins/dsh-web-search/settings.js
           node --check docker/plugins/dsh-web-search/providers/searxng.js
           node --check docker/plugins/dsh-web-search/providers/brave.js
           bash tests/test-web-search-plugin.sh
+          node --test tests/test-embedded-web-search.mjs
       - name: Profile package architecture
         run: |
           node - <<'NODE'
