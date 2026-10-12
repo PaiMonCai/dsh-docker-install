@@ -1,6 +1,6 @@
 # DSH Web Search · 内置 SearXNG + Brave 可选备用
 
-从此版本起，SearXNG **随 DSH 镜像打包，但默认不启动**，不再以额外的 Docker Sidecar 形式部署。
+从此版本起，SearXNG **随 Ubuntu 24.04 LTS 版 DSH 镜像打包，但默认不启动**，不再以额外的 Docker Sidecar 形式部署。
 
 ## 运行模型
 
