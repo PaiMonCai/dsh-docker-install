@@ -2,6 +2,8 @@
 
 **Deploy DSH. Do reproducible research.**
 
+**容器运行时：Ubuntu 24.04 LTS (Noble)**。Standard 镜像及继承它的 Research 镜像均采用 Ubuntu 24.04，保持 Node.js 24、Python 3.12、Go、Docker CLI、Chromium/Playwright 与内置 SearXNG。宿主机无需改装 Ubuntu，只需具备受支持的 Docker 运行环境。
+
 这是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。它不 fork DSH Core，而是把官方 npm 包稳定地封装成可安装、可更新、可持久化、可反代的容器，并在此基础上提供可选的 Research Edition。
 
 版本来源保持单一：基础 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 引擎自身版本见 [research/VERSION](research/VERSION)（写入镜像并记录到每次运行，不参与镜像 tag）。研究镜像的发布 tag 跟随它实际包住的 DSH 版本。
