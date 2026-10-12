@@ -146,7 +146,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends nodejs; \
     rm -rf /var/lib/apt/lists/*; \
-    node --version | grep -Eq '^v24\\.'; \
+    node --version | grep -q '^v24'; \
     npm --version; \
     test "$(npm prefix --global)" = "/usr/local"
 
