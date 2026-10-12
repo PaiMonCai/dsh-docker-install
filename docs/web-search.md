@@ -1,87 +1,87 @@
-# DSH Web Search · SearXNG 主搜索 + Brave 备用（实验性）
+# DSH Web Search · 内置 SearXNG + Brave 可选备用
 
-该功能遵循 DSH 官方 `ctx.web` 能力接口和 Plugin Manager 生命周期，不 fork 上游 DSH Core。初次安装/旧版升级都**默认禁用**，不改变用户现有的搜索 Provider。
+从此版本起，SearXNG **随 DSH 镜像打包，但默认不启动**，不再以额外的 Docker Sidecar 形式部署。
 
-## 交互式设置菜单（推荐）
+## 运行模型
 
-安装了最新的 `dshd` 管理脚本后，运行 `dshd` 并输入 **28：Web Search / SearXNG**，进入独立设置子菜单。主菜单及原有选项编号均不变。
+```text
+DSH Docker container (one network namespace)
+├── DSH Web Host (3080)
+│   └── dsh-docker-web-search plugin (only when opted in)
+│       └── SearXNG child process (127.0.0.1:18788)
+└── network / proxy: direct or the existing DSH sing-box HTTP(S)_PROXY
+```
 
-子菜单直接显示 Web Search / SearXNG、Brave 回退、每日调用上限、缓存的当前状态；支持启用/关闭主搜索、搜索测试、诊断、日志、重启或更新 SearXNG、启用/关闭 Brave、设置每日 0–10000 次调用上限、开启/关闭/清理缓存。
+- 默认 `DSH_SEARCH_ENABLED=false`：不安装 Search Provider、不启动 Python/Granian 搜索进程，保留 DSH 原有搜索配置。镜像体积会增加（包含上游 SearXNG）。
+- 显式启用后：安装插件至 Web Profile；插件在 Host 中启动 Granian/SearXNG，并在启动后按需重试。搜索请求也可按需拉起异常退出的子进程。
+- 本地搜索只监听 **127.0.0.1:18788**；不映射宿主机端口、不开 Docker Socket、也没有搜索专用网络。
+- 进程继承 DSH 的 HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量。若 `dshd proxy` 使用 sing-box，搜索自然使用同一个出口；如无代理，则走 DSH 的默认 Docker 网络直连。
+- SearXNG 版本在镜像构建时固定到 `Dockerfile` 的 `SEARXNG_REF`，与 DSH 镜像一起发布。构建前需要连接 PyPI 和 GitHub。
+- SearXNG 属于 AGPL-3.0-or-later 上游组件，源代码原样随镜像保存在 `/opt/dsh/searxng-src`，请按上游许可证要求履行分发义务。
 
-- 涉及停用服务、更新镜像、启用付费备用和清理缓存的操作必须确认才会执行；
-- 输入非法额度会重新提示；留空可取消。Ctrl-D 返回上级菜单，失败后留在搜索子菜单；
-- 所有菜单按钮只是调用相应的 `dshd search ...` 命令，不写第二份配置；
-- 如果启用过程失败（例如 SearXNG secret 生成失败），不会提前保存“已启用”状态；如果旧版曾保存了已启用但 Sidecar 未运行，菜单会显示“待修复”，选 1 可再次部署；
-- 在 Web UI → 插件 → DSH Web Search 填写 Brave API Key。仅勾选启用仍不会自动购买服务，没有凭据不能付费回退。
-
-## CLI 安装方式（dshd）
+## 快速启用
 
 ```bash
 dshd search status
 dshd search enable
 dshd search test
-dshd search doctor
 ```
 
-`dshd search enable` 创建 Docker 私有网络 `${DSH_NAME}-search`，启动 SearXNG Sidecar `${DSH_NAME}-searxng`，重建 DSH 主容器，并通过 DSH Plugin Manager 在 Web profile 安装内置 Search Router。主容器与 Sidecar 通过别名 `dsh-searxng:8080` 通信。不要求暴露 8080 端口或打开宿主机 Docker Socket。
+`dshd` 主菜单 **28：Web Search / SearXNG** 可以查看状态、测试、诊断、日志、重启和更新 DSH 镜像。
 
-当已有 sing-box 出口时，DSH 同时加入独立的 `${DSH_NAME}-egress` 代理网络；关闭代理不移除搜索网络。无代理时搜索 Sidecar 使用 Docker 默认容器网络出口。
+首次启用仍由 `dshd search enable` 完成，因为安装 Search Provider 的 profile patch 会改变 DSH Web 的路由配置并重建主容器；不能在未装插件时通过其 Web 页面直接操作。启用后，进入 **DSH Web → 插件 → DSH Web Search**，可在浏览器里修改运行开关、缓存、Brave 回退和每日额度，执行测试/重启搜索。Web 插件的“关闭内置搜索”停止子进程但保留 Provider；想恢复 DSH 原生搜索 Provider 请执行 `dshd search disable`。
 
-## 实际搜索语义
+Web 插件通过 DSH 受认证的 connection/request 接口保存设置，**不接触 Docker Socket**。Brave API Key 继续使用官方 `remote.credentials` 的只写存储。
 
-- 搜索模型工具保持官方 `web_search`，fetch 工具保持 `web_fetch`，不安装第二套工具。
-- 每个 `web_search` 最长 12 秒：Provider 内部 11.5 秒，主 SearXNG 预算 7 秒、备用 Brave 最多 4 秒。
-- 搜索默认只用 SearXNG。仅当用户明确启用 Brave 且已配置有效 `BRAVE_SEARCH_API_KEY`，并发生连接失败、HTTP 429/5xx、JSON 格式错误等情况时使用备用。
-- 合法 0 条结果不触发付费回退；用户取消操作不触发备用。
-- Brave 回退需用户显式启用，并使用 `DSH_SEARCH_BRAVE_DAILY_LIMIT` 限制每天的最大次数（默认 50）。计数持久化到 `$DSH_HOME/web-search/brave-budget.json`，仅包含 UTC 日期和次数，不含查询或密钥。
-- 缓存只保存在 DSH 进程内，容量最多 32MiB / 500 条，SearXNG 结果 TTL 15 分钟，Brave 结果 TTL 2 分钟，重启后清空。不得把缓存理解成实时搜索。
-- SearXNG 搜索可能受到底层搜索引擎的反自动化限制；服务自部署不代表结果永久可用。
+## 配置与持久化
 
-## Brave 备用
+```text
+$DSH_HOME/web-search/
+├── settings.json             # 运行开关、缓存、Brave 配置（0600，无密钥）
+├── brave-budget.json         # UTC 日调用计数
+└── searxng/
+    └── settings.yml          # 实例密钥（0600），首次启动自动生成
+```
+
+SearXNG 首次运行生成独立强随机 `secret_key`，后续启动/升级不覆盖已有 `settings.yml`。默认继承官方配置但移除 Ahmia、Torch (Tor-only) 引擎，并禁用内部私有实例不需要的 limiter，同时启用 HTML/JSON 格式。镜像提供默认 `limiter.toml` 以免出现缺失配置告警。
+
+修改复杂的搜索引擎策略可编辑持久化的 `settings.yml`，然后在 Web 插件里重启搜索进程。不要公开实例密钥、不要对公网转发搜索监听端口。
+
+## 默认搜索、备用、额度
+
+- 单次 Web Search 约 12 秒：SearXNG 预算 7 秒、Brave 回退最多 4 秒。
+- 默认使用本地 SearXNG。只有主动启用 Brave 回退、配置了有效 `BRAVE_SEARCH_API_KEY`，并且主搜索发生可回退的错误时，才会调用 Brave API。
+- 每日备用上限 0–10000，默认 50；0 表示禁止使用收费备用；计数按 UTC 日期保存。
+- 有效的零结果不触发 Brave 费用回退；`dshd search test` 发现零条结果会返回非零退出状态提醒检查实际网络/引擎。
+- 内存缓存只在 DSH 进程内：最大 500 条/32MiB，SearXNG 15 分钟、Brave 2 分钟，重启即清空。
+
+## Compose
+
+用当前 `Dockerfile` 构建后，设置 `.env` 内的 `DSH_SEARCH_ENABLED=true`，执行：
 
 ```bash
-dshd search brave enable
-dshd search brave limit 50
-dshd search brave disable
+docker compose up -d --build
 ```
 
-`enable` 只代表允许备用调用，不会自动申请或充值 Brave 服务。密钥通过 DSH 官方 Credentials 以 `BRAVE_SEARCH_API_KEY` 名称提供；不得放在公开配置文件或向 API 提交密钥。没有密钥时 Router 会返回 `DSH_SEARCH_BRAVE_CREDENTIAL_MISSING`，不会暗中回退到 DeepSeek 官方付费搜索。
+不再需要 `docker compose --profile search`；Compose 里也不再提供第二个搜索服务。直接通过 Compose 启用时，若需要国际网络，应按现有 DSH 网络方式将 HTTP(S)_PROXY 配入 DSH 容器，以便内置 SearXNG 继承。
 
-## Docker Compose
+## 从旧版 Sidecar 升级
 
-仓库保留直接 Compose 部署路径。仅在明确需要搜索时：
+1. 先更新 DSH 镜像到包含嵌入搜索的新版本，`dshd search enable` 会在替换容器前检查镜像是否包含 Granian 和 SearXNG。
+2. 新容器就绪后，管理器仅清理带 `io.caicailo.dsh.component=web-search` 标记的旧搜索 Sidecar/网络，不删除同名的用户自建资源。
+3. 旧 `$STATE_DIR/search/searxng/settings.yml` 不会被自动删除；嵌入式实例会在 DSH_HOME 内生成新配置。想迁移自定义搜索配置时，先备份并手动检查 `settings.yml` 的合并适配。
+4. 回退到旧镜像时需要恢复旧版 `dshd` 对应的 Sidecar 配置；请保留升级前备份。
 
-1. 复制 `.env.example` 为 `.env`，设置 `DSH_SEARCH_ENABLED=true`。
-2. **生成独立的 SearXNG 密钥**，把 `docker/search/settings.yml` 中 `REPLACED_BY_DSHD_AT_INSTALL` 替换为高强度随机值；建议复制到私有路径再调整挂载，不要提交密钥到 git。
-3. 正式部署锁定 `DSH_SEARCH_IMAGE` 到经测试的镜像 digest。
-4. 执行 `docker compose --profile search up -d`，检验搜索工具。
-
-Compose 方式的 SearXNG 不映射宿主机端口，不应通过反向代理公开暴露。切换模式前不要直接修改 DSH 持久化 Profile 中的插件文件。
-
-## 常用运维
+## 维护
 
 ```bash
 dshd search status
 dshd search test
+dshd search doctor
 dshd search logs
-dshd search restart
-dshd search cache clear
-dshd search disable
+dshd search restart        # 兼容 CLI：会重启整个 DSH
+dshd search update         # 拉取 DSH 镜像并重建（包含搜索）
+dshd search disable        # 移除 Provider、还原 DSH 默认搜索；保留持久数据
 ```
 
-`disable` 通过 Plugin Manager 删除自己拥有的插件、重建 DSH、关闭自身的 Sidecar 和私有搜索网络。不会删除聊天、Research 数据和其它插件。移除插件后由 DSH 既有组合层决定实际搜索 Provider。安装时修改了用户自己的 Profile 覆盖设置会影响优先级，应以 `dsh --profile web --dump-config` 检查最终组合。
-
-## 升级与兼容
-
-- 不直接修改 `@deepseek-ai/dsh-web`、`@deepseek-ai/dsh-tool-web` 等上游包。
-- 推荐使用 `dshd search test`、`dshd doctor` 和 CI 中的搜索插件测试验证更新版本。
-- 更改上游 `ctx.web` 类型、Provider 注册接口、Profile bundle 合并语义时，必须在 Release CI 中阻断发布并修正本插件。
-- Search Router 是 Web Profile 插件；其他 Profile（如纯 headless 或 sdk）的自动安装尚未启用，未来需要逐 Profile 做兼容验证。
-- Web UI 插件卡片提供 Brave API Key 的安全只写录入与配置状态。通过官方 `plugins.item` 插槽和 `remote.credentials`，不自行保存密钥；Sidecar 启停、备用回退开关与上限仍由 `dshd` CLI 管理。
-
-
-### SearXNG 配置与权限
-
-`dshd` 将首次生成的 `settings.yml` 保存到宿主机 `$STATE_DIR/search/searxng/settings.yml`，并生成独立随机密钥。整个配置目录挂载到 Sidecar 的 `/etc/searxng`；缓存目录单独挂载到 `/var/cache/searxng`。SearXNG 官方镜像首次启动会在 `FORCE_OWNERSHIP=true` 时修正挂载目录属主，因此不使用 `:ro` 单文件挂载避免非 root 进程无法读取 mode 0600 的密钥文件。配置文件不得对公网提供。
-
-Search Sidecar 与网络带有 `io.caicailo.dsh.component=web-search` 所属标记。`disable`、`uninstall` 不删除没有此标记的同名用户资源；`enable` 遇到同名异主资源时拒绝接管，避免破坏用户已有 Docker 网络/容器。
+Web 插件里的“重启搜索”只重启子进程，不需要重新启动整个 DSH；CLI 重启命令在没有直接 RPC 凭据的情况下仍采用完整 DSH 重启。系统自部署不保证上游搜索引擎永远可访问，搜索可能受到 DNS、代理线路和反机器人机制影响。
