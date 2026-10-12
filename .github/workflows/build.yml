@@ -211,7 +211,11 @@ jobs:
           docker run --rm --entrypoint bash dsh-ci:pr -c '
             set -euo pipefail
             grep -qx ID=ubuntu /etc/os-release
-            grep -Eq '^VERSION_ID="?24[.]04"?
+            grep -Eq VERSION_ID.*24.04 /etc/os-release
+            node --version | grep -Eq ^v24
+            npm --version
+            pnpm --version
+            /opt/dsh/searxng-venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 12)"
             python3 --version
             python3 -m pip --version
             uv --version
