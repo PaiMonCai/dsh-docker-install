@@ -5707,6 +5707,7 @@ instance_add() {
     "DSHD_INSTANCE_ID=$id" "DSHD_INSTANCE_EDITION=$edition" \
     "DSHD_REVERSE_MODE=$([[ "$edition" == reverse ]] && echo 1 || echo 0)" \
     "DSH_NAME=dsh-$id" "DSH_PORT=$port" \
+    "DSH_RESEARCH_DASHBOARD_PORT=$((port + 6000))" \
     "DSH_EDITION=$edition" "DSH_RESEARCH_PACK=$pack" "DSH_IMAGE=$image" \
     "DSH_DOCKER_ACCESS=false" bash "$self" install
 }
