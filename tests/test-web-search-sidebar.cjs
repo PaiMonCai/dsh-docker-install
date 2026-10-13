@@ -14,8 +14,8 @@ function harness() {
   const injections = []
   const requests = []
   const effects = []
-  const slots = []
-  const deps = []
+  const frames = new Map()
+  let frame
   let cursor = 0
   let moduleDefinition
   const React = {
@@ -25,26 +25,29 @@ function harness() {
     useSyncExternalStore(_subscribe, snapshot) { cursor++; return snapshot() },
     useRef(value) {
       const i = cursor++
-      if (!Object.hasOwn(slots, i)) slots[i] = { current: value }
-      return slots[i]
+      if (!Object.hasOwn(frame.slots, i)) frame.slots[i] = { current: value }
+      return frame.slots[i]
     },
     useState(value) {
       const i = cursor++
-      if (!Object.hasOwn(slots, i)) slots[i] = typeof value === 'function' ? value() : value
-      return [slots[i], next => {
-        slots[i] = typeof next === 'function' ? next(slots[i]) : next
+      const stateSlots = frame.slots
+      if (!Object.hasOwn(stateSlots, i)) stateSlots[i] = typeof value === 'function' ? value() : value
+      return [stateSlots[i], next => {
+        stateSlots[i] = typeof next === 'function' ? next(stateSlots[i]) : next
       }]
     },
     useEffect(callback, next) {
       const i = cursor++
-      if (!deps[i] || next.some((v, k) => !Object.is(v, deps[i][k]))) {
-        deps[i] = [...next]
+      if (!frame.deps[i] || next.some((v, k) => !Object.is(v, frame.deps[i][k]))) {
+        frame.deps[i] = [...next]
         effects.push(callback)
       }
     },
   }
-  function render(fn) {
+  function render(fn, key = 'card') {
     cursor = 0
+    if (!frames.has(key)) frames.set(key, { slots: [], deps: [] })
+    frame = frames.get(key)
     const tree = fn()
     for (const effect of effects.splice(0)) effect()
     return tree
@@ -112,7 +115,7 @@ function harness() {
   }
   function overlay() {
     const host = registered.get('shell.overlay').component()
-    return render(() => host.type(host.props))
+    return render(() => host.type(host.props), 'overlay')
   }
   function card(tree) {
     const found = nodes(tree, n => typeof n.type === 'function' && n.props?.spacious === true)
