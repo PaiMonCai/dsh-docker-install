@@ -31,8 +31,8 @@ docker compose -f docker-compose.reverse.yml logs -f dsh-reverse
 
 - dsh-purge：固定源代码提交 28c8eaf5b5de70d53795387d01faae9498a83d63。保留原有 Cordis 配置的全部声明（仅调整包解析路径）。原完整 Web 客户端也打包。
 - REA：固定 rea-agents@6.4.0，Agent 内通过本地 stdio 的 rea mcp 调用。
-- Ghidra 11.4.2：官方发行包 SHA-256 校验；JDK 21；目录 /opt/ghidra。
-- JADX 1.5.3：官方发行包 SHA-256 校验；另含 Ubuntu apktool。
+- Ghidra 12.1.4：官方发行包 SHA-256 校验；JDK 21；目录 /opt/ghidra。
+- JADX 1.5.3：官方发行包 SHA-256 校验；另含 Ubuntu apktool 与 REA 所需的 jadx-headless-mcp 0.7.1（SHA-256 校验）。
 - GDB / gdb-multiarch / binutils / file / patchelf / strace / ltrace。
 - Python 虚拟环境：pwntools 4.15.0、frida-tools 14.11.0。
 
