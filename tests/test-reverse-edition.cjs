@@ -58,6 +58,7 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
   '      name: dsh-purge/redteam/ui',
  ].join('\n')+'\n'
  write('purge/cordis.patch.yml',original)
+ write('purge/presets/reverse-engineering/preset.yml','name: 逆向工程\ndescription: Reverse analysis\norder: 20\n')
  write('purge/presets/reverse-engineering/agent.cordis.yml',
   'name: dsh-purge/reverse/tools\n')
  write('purge/presets/redteam/agent.cordis.yml',
@@ -93,6 +94,10 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
  assert.equal(new Set(hostModules.map(([id])=>id)).size,6)
  assert.match(made,/dsh-reverse-purge-ui/)
  assert.match(made,/dsh-reverse-skill-bootstrap/)
+ assert.match(made,/dsh-reverse-preset-declaration/)
+ assert.match(made,/@deepseek-ai\/dsh-agent-preset/)
+ assert.match(made,/id: reverse-engineering/)
+ assert.match(made,/name: file:\/\/\/opt\/dsh-reverse\/purge\/lib\/reverse\/tools\.js/)
  assert.equal(fs.readFileSync(path.join(tmp,'purge/cordis.patch.yml'),'utf8'),original)
  assert.match(fs.readFileSync(path.join(tmp,'purge/presets/reverse-engineering/agent.cordis.yml'),'utf8'),
    /name: \.\.\/\.\.\/lib\/reverse\/tools\.js/)
