@@ -13,10 +13,12 @@ const dockSource = readFileSync(join(__dirname,
 function createHarness(initial = new Map()) {
   const records = new Map(initial)
   const windows = []
-  function page(before = []) {
+  function page(before = [], panelInput = []) {
     let plugin
     const slots = new Map()
-    const cache = new Map()
+    const panels = [...panelInput]
+    const panelListeners = new Set()
+    const selectedPanels = []
     let cursor = 0
     let key = 'dock'
     const storage = {
@@ -37,10 +39,23 @@ function createHarness(initial = new Map()) {
       assert.equal(name, 'react')
       return React
     })
-    manager.apply({ slots: {
-      inject(slot, cb) { cb() },
-      register(meta, component) { slots.set(meta.name, { meta, component }) },
-    } })
+    manager.apply({
+      layout: { selectPanel(id) { selectedPanels.push(id) } },
+      locale: { subscribe() { return () => {} } },
+      slots: {
+        inject(slot, cb) { cb() },
+        register(meta, component) { slots.set(meta.name, { meta, component }) },
+        entriesOfSlot(name) {
+          assert.equal(name, 'sidebar.panellist')
+          return panels.map(options => ({ options }))
+        },
+        subscribe(name, cb) {
+          assert.equal(name, 'sidebar.panellist')
+          panelListeners.add(cb)
+          return () => panelListeners.delete(cb)
+        },
+      },
+    })
     function render(name, props) {
       cursor = 0
       key = name
@@ -63,7 +78,17 @@ function createHarness(initial = new Map()) {
     const buttons = () => walk(render('sidebar.footer.action', { wide: true }),
       item => item.type === 'button')
     const card = () => render('plugins.item', { view: 'settings' })
-    return { window, dock, buttons, card, walk, slots, render, records }
+    return {
+      window, dock, buttons, card, walk, slots, render, records, selectedPanels,
+      updatePanels(rows) {
+        panels.splice(0, panels.length, ...rows)
+        for (const callback of panelListeners) callback()
+      },
+      css() {
+        const tree = render('sidebar.footer.action', { wide: true })
+        return walk(tree, x => x.type === 'style').map(x => x.props.children[0]).join('')
+      },
+    }
   }
   return { page, records }
 }
@@ -152,4 +177,63 @@ test('corrupted localStorage does not block the UI', () => {
   const app = browser.page([recycle()])
   assert.equal(app.buttons().length, 1)
   assert.equal(app.dock.getSettings().size, 20)
+})
+
+test('official panel list is mirrored and clicking a dock icon uses native layout navigation', () => {
+  const panels = [
+    { id: 'plugins', order: 0, label: () => '插件' },
+    { id: 'schedules', order: 10, label: () => '自动化任务' },
+    { id: 'context-insights', order: 20, label: () => '上下文洞察' },
+  ]
+  const app = createHarness().page([recycle(), search()], panels)
+  assert.deepEqual(app.buttons().map(x => x.props['aria-label']),
+    ['插件', '自动化任务', '上下文洞察', '回收站', '网络搜索'])
+  assert.match(app.css(), /nav\[class\*="panelList"\]\{display:none!important\}/)
+  app.buttons()[0].props.onClick()
+  app.buttons()[1].props.onClick()
+  app.buttons()[2].props.onClick()
+  assert.deepEqual(app.selectedPanels, ['plugins', 'schedules', 'context-insights'])
+  assert.equal(app.dock.getNativeCount(), 3)
+})
+
+test('native panel discovery follows additions and removals without restarting dock', () => {
+  const app = createHarness().page([recycle()],
+    [{ id: 'plugins', order: 0, label: '插件' }])
+  app.updatePanels([
+    { id: 'plugins', order: 0, label: '插件' },
+    { id: 'schedules', order: 10, label: '自动化任务' },
+  ])
+  assert.deepEqual(app.buttons().map(x => x.props['aria-label']),
+    ['插件', '自动化任务', '回收站'])
+  app.updatePanels([{ id: 'schedules', order: 10, label: '自动化任务' }])
+  assert.deepEqual(app.buttons().map(x => x.props['aria-label']),
+    ['自动化任务', '回收站'])
+})
+
+test('capture toggle restores original official sidebar; preference persists across reloads', () => {
+  const browser = createHarness()
+  const native = [{ id: 'plugins', order: 0, label: '插件' }]
+  const app = browser.page([recycle()], native)
+  assert.match(app.css(), /nav\[class\*="panelList"\]/)
+  const toggle = app.walk(app.card(), x => x.type === 'input' &&
+    x.props?.['aria-label'] === '接管官方导航')[0]
+  assert.ok(toggle && toggle.props.checked)
+  toggle.props.onChange({ target: { checked: false } })
+  assert.deepEqual(app.buttons().map(x => x.props['aria-label']), ['回收站'])
+  assert.doesNotMatch(app.css(), /nav\[class\*="panelList"\]/)
+  const otherPage = browser.page([recycle()], native)
+  assert.deepEqual(otherPage.buttons().map(x => x.props['aria-label']), ['回收站'])
+  assert.equal(otherPage.dock.getSettings().captureNative, false)
+  otherPage.dock.reset()
+  assert.deepEqual(otherPage.buttons().map(x => x.props['aria-label']), ['插件', '回收站'])
+})
+
+test('unsafe or unsupported native panel id never hides original navigation', () => {
+  const app = createHarness().page([recycle()], [
+    { id: 'plugins', label: '插件', order: 0 },
+    { id: '../unknown', label: '未支持的面板', order: 2 },
+  ])
+  assert.deepEqual(app.buttons().map(x => x.props['aria-label']), ['插件', '回收站'])
+  assert.doesNotMatch(app.css(), /nav\[class\*="panelList"\]/)
+  assert.equal(app.dock.getNativeCaptured(), false)
 })
