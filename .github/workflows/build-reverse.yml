@@ -109,6 +109,7 @@ jobs:
           node --check reverse/purge-ui/index.js
           bash -n docker/entrypoint.sh
           bash -n ci/reverse-push-gate.sh
+          bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
 
