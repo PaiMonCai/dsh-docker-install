@@ -135,6 +135,7 @@ jobs:
           node tests/test-release-workflows.mjs
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
+          bash tests/test-dshd-reverse-install.sh
           node --test tests/test-reverse-edition.cjs
           node tests/test-semver-max.mjs
 
