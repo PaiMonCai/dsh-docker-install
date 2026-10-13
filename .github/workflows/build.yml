@@ -328,7 +328,7 @@ jobs:
           # The Web can be HTTP-healthy while its optional bundled client
           # plugins failed installation. This happened when pnpm rejected
           # an unrelated locked package under minimumReleaseAge.
-          docker exec "$name" node - <<'NODE'
+          docker exec -i "$name" node - <<'NODE'
           const fs = require('node:fs')
           const manifest = '/root/.dsh/profiles/web/package.json'
           const profile = JSON.parse(fs.readFileSync(manifest, 'utf8'))
