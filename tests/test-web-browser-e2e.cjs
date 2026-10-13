@@ -172,7 +172,7 @@ async function run() {
   await editorLink.waitFor({ state: 'visible', timeout })
   await editorLink.click()
   await page.getByLabel('快捷栏布局预览').waitFor({ state: 'visible', timeout })
-  const selects = page.getByLabel('显示位置 验收图标 03')
+  const selects = page.getByLabel('显示位置 验收图标 3')
   await selects.waitFor({ state: 'visible' })
   assert.equal(await selects.inputValue(), 'hidden')
 
