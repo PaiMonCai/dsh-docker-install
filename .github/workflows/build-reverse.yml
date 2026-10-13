@@ -199,10 +199,10 @@ jobs:
             done
             node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs
             node --input-type=module -e "
-              import(\x27/opt/dsh-reverse/purge/lib/redteam/preset-composition.js\x27).then(m=>{
-                const p=m.readPresetDefinition(\x27reverse-engineering\x27,\x27/opt/dsh-reverse/purge/presets/reverse-engineering\x27);
-                const t=p.plugins.find(x=>x.id===\x27reverse-workflow-tools\x27);
-                if(!t?.name?.endsWith(\x27/opt/dsh-reverse/purge/lib/reverse/tools.js\x27))process.exit(1)
+              import(\"/opt/dsh-reverse/purge/lib/redteam/preset-composition.js\").then(m=>{
+                const p=m.readPresetDefinition(\"reverse-engineering\",\"/opt/dsh-reverse/purge/presets/reverse-engineering\");
+                const t=p.plugins.find(x=>x.id===\"reverse-workflow-tools\");
+                if(!t?.name?.endsWith(\"/opt/dsh-reverse/purge/lib/reverse/tools.js\"))process.exit(1)
               })
             "
           '
