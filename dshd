@@ -3502,7 +3502,7 @@ cmd_install() {
 
   if [[ "$first_install" == "true" ]]; then
     # 交互安装必须由用户明确输入；无 TTY 时只接受调用方显式传入的环境变量。
-    if is_tty && [[ "${DSHD_REVERSE_MODE:-0}" != "1" ]]; then
+    if is_tty && [[ "${DSHD_REVERSE_MODE:-0}" != "1" && -z "${DSHD_INSTANCE_ID:-}" ]]; then
       DSH_NAME=""
       DSH_PORT=""
     else
