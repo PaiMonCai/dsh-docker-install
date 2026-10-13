@@ -15,14 +15,18 @@
 | Standard | `:latest` / `:<dsh版本>` / `:alpha`·`:next` | 日常 DSH Agent、Web UI、开发环境 |
 | Research Core | `:research` / `:research-<dsh版本>` / `:research-alpha` | 一般科研、文献、数据、可复现分析 |
 | Research Economics | `:research-economics` / `:research-economics-<dsh版本>` / `:research-economics-alpha` | 经济学、计量、DiD / Event Study |
+| Reverse Edition | `:reverse`（独立镜像、待 CI 验收发布） | 完整 dsh-purge + REA + Ghidra/JADX/GDB/Frida；与 Standard 完全分离的容器和数据卷 |
 
 关系始终是：
 
 ```text
 DSH Standard
-   └─ Research Core
-        └─ Economics Pack
+   ├─ Research Core
+   │    └─ Economics Pack
+   └─ Reverse Edition（独立容器；全量 dsh-purge）
 ```
+
+Reverse Edition 的入口为 [独立逆向镜像指南](docs/reverse-edition.md)。不要把完整 dsh-purge 加载到现有 Standard 容器；其宿主级补丁不能依靠预设选择器隔离。
 
 ## 快速开始
 
