@@ -221,7 +221,7 @@ window.__ModuleLoader__.load({
           // live dock counterpart, and only while the dock is mounted.
           // A changed upstream class or a disabled takeover leaves the
           // original navigation intact rather than intercepting clicks.
-          ? '\nnav[class*="panelList"]{display:none!important}'
+          ? '\ndiv:has(> [class*="footArea"] .dsh-icon-dock) > nav[class*="panelList"]{display:none!important}'
           : '')),
       ...active.map(item => h('button', {
         key: item.id, type: 'button',
