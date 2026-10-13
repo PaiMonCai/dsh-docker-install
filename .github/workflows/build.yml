@@ -80,6 +80,8 @@ jobs:
           bash -n install.sh
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
+          bash tests/test-dshd-rollback.sh
+          node --test tests/test-icon-dock.cjs
           bash -n tests/test-dshd-mounts.sh
           bash tests/test-dshd-mounts.sh
           bash -n tests/test-dshd-dashboard.sh
