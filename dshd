@@ -3822,8 +3822,12 @@ cmd_rollback() {
         return 1
       fi
       if ! docker_cmd start "$DSH_NAME" >/dev/null || ! wait_upgrade_healthy; then
-        err "回滚版本未能健康启动；尝试恢复升级后容器。"
-        docker_cmd rm -f "$DSH_NAME" >/dev/null || true
+        err "回滚版本未能健康启动；尝试恢复升级后容器，保留旧版候选。"
+        docker_cmd stop "$DSH_NAME" >/dev/null || true
+        if ! docker_cmd rename "$DSH_NAME" "$previous"; then
+          err "旧版回滚容器无法恢复名称，请手动检查容器。"
+          return 1
+        fi
         if docker_cmd inspect "$failed" >/dev/null 2>&1; then
           docker_cmd rename "$failed" "$DSH_NAME" || return 1
           docker_cmd start "$DSH_NAME" >/dev/null || return 1
