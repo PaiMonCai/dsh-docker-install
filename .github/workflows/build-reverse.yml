@@ -190,9 +190,10 @@ jobs:
             for tool in rea gdb jadx frida apktool; do command -v "$tool"; done
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
-            for skill in binary-triage ghidra-headless android-apk-analysis electron-javascript-analysis reverse-evidence-report; do
+            for skill in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
               test -s "/opt/dsh-reverse/skills/$skill/SKILL.md"
             done
+            test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
             for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui dsh-reverse-skill-bootstrap; do
@@ -223,9 +224,10 @@ jobs:
             fi
             if docker logs "$name" 2>&1 | grep -Fq "reverse preset ready:"; then
               docker exec "$name" bash -c '
-                for id in binary-triage ghidra-headless android-apk-analysis electron-javascript-analysis reverse-evidence-report; do
+                for id in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
                 done
+                test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
               echo "Reverse Agent registration and Skills bootstrap confirmed"
               exit 0

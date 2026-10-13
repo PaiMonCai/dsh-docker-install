@@ -113,12 +113,15 @@ test('Dedicated image pins published tools and does not redistribute proprietary
 })
 
 
-test('Five reverse Skills are valid and bootstrapped without replacing edits',async t=>{
+test('Nine advanced reverse Skills exclude Android and preserve user edits',async t=>{
  const {pathToFileURL}=require('node:url')
  const module=await import(pathToFileURL(path.join(root,'reverse/skills-bootstrap.mjs')).href)
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-reverse-skilltest-'))
  t.after(()=>fs.rmSync(home,{recursive:true,force:true}))
- assert.equal(module.SKILLS.length,5)
+ assert.equal(module.SKILLS.length,9)
+ assert.equal(new Set(module.SKILLS).size,9)
+ assert.ok(!module.SKILLS.includes('android-apk-analysis'))
+ assert.equal(fs.existsSync(path.join(root,'reverse/skills/android-apk-analysis')),false)
  const dest=path.join(home,'reverse-engineering','skills')
  for(const id of module.SKILLS){
    const source=read('reverse/skills/'+id+'/SKILL.md')
@@ -129,8 +132,17 @@ test('Five reverse Skills are valid and bootstrapped without replacing edits',as
  const existing=path.join(dest,'binary-triage')
  fs.mkdirSync(existing,{recursive:true})
  fs.writeFileSync(path.join(existing,'SKILL.md'),'user-custom-skill')
+ // Retire a previously installed official Android Skill, but never user edits.
+ const retired=path.join(dest,'android-apk-analysis')
+ fs.mkdirSync(retired,{recursive:true})
+ fs.writeFileSync(path.join(retired,'SKILL.md'),"---\nname: android-apk-analysis\ndescription: Inspect authorized Android APK/DEX statically using JADX, apktool and discovered REA MCP tools, mapping manifest and Java/smali classes.\n---\n# Android APK / DEX Static Analysis\n1. Confirm authorized artifact. Record APK hash and preserve original bytes.\n2. Choose unique private output directories in /workspace/reverse-analysis. Read jadx --help and apktool --help before using flags.\n3. Typical read-only inputs: jadx -d /workspace/reverse-analysis/jadx-output /workspace/sample.apk; apktool d -o /workspace/reverse-analysis/resources /workspace/sample.apk.\n4. Review decoded AndroidManifest, exported activities/services/receivers, permissions, intent filters, DEX class entrypoints and relevant resources.\n5. Trace only classes/methods related to the user question. Compare JADX's Java-like reconstruction with smali when compiler transformations or obfuscation cause ambiguity.\n6. If REA exposes Android tools, first verify the real MCP tool list and invoke relevant read-only tools. REA installed does not guarantee device providers.\n7. Record hashes, component names, class/method identifiers and observations separately from hypotheses; do not disclose embedded credentials in reports.\nDo not install or run the APK, attach Frida or connect a device without authorization and an isolated environment.\n")
  module.installSkills(home,path.join(root,'reverse/skills'))
+ assert.equal(fs.existsSync(retired),false)
  assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
+ fs.mkdirSync(retired,{recursive:true})
+ fs.writeFileSync(path.join(retired,'SKILL.md'),'user-custom-android-skill')
+ module.installSkills(home,path.join(root,'reverse/skills'))
+ assert.equal(fs.readFileSync(path.join(retired,'SKILL.md'),'utf8'),'user-custom-android-skill')
  for(const id of module.SKILLS){
    assert.ok(fs.existsSync(path.join(dest,id,'SKILL.md')))
  }

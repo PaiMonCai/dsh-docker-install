@@ -40,15 +40,21 @@ IDA / Hopper 是专有商业工具，不包含、不再分发。Frida 的移动�
 
 ## Reverse Agent 内置 Skills
 
-除了上游原有的 REA 工作流 Skill，逆向版增加五个经过人工审查、无运行时依赖下载的专用 Skill：
+除了上游已有的 REA 工作流 Skill，Reverse Edition 内置 **9 个**静态定义的分析 Skills：
 
-- `binary-triage`：PE / ELF / 固件文件类型、元数据、导入表与哈希静态初检。
-- `ghidra-headless`：使用镜像自带 Ghidra CLI 做函数、调用关系与伪代码分析。
-- `android-apk-analysis`：JADX / apktool 检查 Manifest、组件、DEX、Smali。
-- `electron-javascript-analysis`：Electron ASAR、主进程、Preload、IPC、打包 JavaScript 结构。
-- `reverse-evidence-report`：持续证据、项目阶段与报告导出。
+- `binary-triage`：PE / ELF / 固件文件头、哈希、导入表和结构初检。
+- `ghidra-headless`：Ghidra 无界面静态反编译、函数与引用定位。
+- `electron-javascript-analysis`：Electron ASAR、Main / Preload / Renderer、IPC 与模块调用链。
+- `reverse-evidence-report`：项目证据、阶段检查点、验证与报告。
+- `gdb-native-debugging`：GDB 离线 Core Dump、栈帧、寄存器、ABI 与授权隔离调试。
+- `frida-runtime-instrumentation`：Frida 授权动态观察设计、有限插桩与实验复现。
+- `javascript-deobfuscation`：不执行目标代码的 JavaScript 混淆还原、常量追踪与调用关系。
+- `network-protocol-reconstruction`：HAR / 已授权网络记录的 API、WebSocket 与状态机分析。
+- `firmware-static-analysis`：固件段结构、体系架构、受限解包与 Ghidra 静态分析。
 
-源码位于 `reverse/skills/<id>/SKILL.md`，构建时复制到 `/opt/dsh-reverse/skills/`，启动时只在 Reverse 容器内复制到 `$DSH_HOME/reverse-engineering/skills/`。存在的同名用户 Skill 文件不会被覆盖。来源参考 [Trail of Bits Ghidra Headless](https://github.com/trailofbits/skills-curated/tree/main/plugins/ghidra-headless) 和 Agent Skills 的标准组织格式；五份文件为本仓库独立编写，没有直接复用上游未经审查的下载/执行脚本。
+原 `android-apk-analysis` Skill **已从内置清单和镜像源码删除**。如果此前安装了完全未修改的内置副本，启动器会识别其文件内容并清理；如果是用户自定义修改版则不会删除。**仅删除 Android Skill；REA 所用的 JADX、apktool、JADX Headless MCP 底层工具暂时保留，以免破坏插件兼容性。**
+
+Skills 作为只读说明文件随镜像打包到 `/opt/dsh-reverse/skills/`，启动时只向 `$DSH_HOME/reverse-engineering/skills/` 复制缺失项，不覆盖现有同名用户文件。动态调试、附加进程、外部网络操作均需另外取得授权；未知程序不能仅因在 Docker 内就视为安全。参考了 [Trail of Bits Ghidra Headless](https://github.com/trailofbits/skills-curated/tree/main/plugins/ghidra-headless) 的分析组织方式，以上文件是本项目自行编写的内容，不打包第三方不明执行脚本。
 
 ## 版本自动发布
 
