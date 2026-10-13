@@ -8,6 +8,21 @@ window.__ModuleLoader__.load({
     const { useState, useEffect } = React
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-web-search'
+    // Shared with the always-on session manager's footer row. It exposes a
+    // search action only while this optional plugin is installed/enabled.
+    const dock = window.__dshDockerFooterActions || (window.__dshDockerFooterActions = (() => {
+      const listeners = new Set()
+      let search = null
+      return {
+        subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) },
+        getSearch: () => search,
+        setSearch: fn => {
+          if (search === fn) return
+          search = fn
+          for (const listener of listeners) listener()
+        },
+      }
+    })())
     // Shared shell overlay state, matching the built-in recycle-bin shortcut.
     const listeners = new Set()
     let opened = false
@@ -21,7 +36,7 @@ window.__ModuleLoader__.load({
     const overlayCss = [
       '.dsh-search-overlay,.dsh-search-overlay *{box-sizing:border-box}',
       '.dsh-search-panel{width:min(820px,96vw);max-height:min(800px,calc(100dvh - 48px));border-radius:16px}',
-      '.dsh-search-close:focus-visible,.dsh-search-footer:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}',
+      '.dsh-search-close:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:2px}',
       '@media(max-width:640px){.dsh-search-overlay{padding:0!important}.dsh-search-panel{width:100%;height:100dvh;max-height:100dvh;border-radius:0}.dsh-search-settings{padding:12px 18px 26px!important}}',
     ].join('\n')
     const styles = {
@@ -173,29 +188,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SearchIcon() {
-      return h('svg', {
-        width: 19, height: 19, viewBox: '0 0 24 24', 'aria-hidden': 'true',
-        fill: 'none', stroke: 'currentColor', strokeWidth: 1.9,
-        strokeLinecap: 'round', strokeLinejoin: 'round',
-      },
-      h('circle', { cx: 10.8, cy: 10.8, r: 6.8 }),
-      h('path', { d: 'm16 16 4.6 4.6' }))
-    }
-    function SearchFooter({ wide }) {
-      return h('button', {
-        type: 'button', title: '网络搜索', 'aria-label': '网络搜索',
-        className: 'dsh-search-footer',
-        onClick: () => setOpened(true),
-        style: {
-          width: '100%', display: 'flex', gap: '10px', alignItems: 'center',
-          justifyContent: wide ? 'flex-start' : 'center',
-          border: 'none', borderRadius: '8px', cursor: 'pointer',
-          background: 'transparent', color: 'inherit',
-          padding: '9px 12px', fontSize: '13px',
-        },
-      }, h(SearchIcon), wide ? h('span', null, '网络搜索') : null)
-    }
     function SearchOverlay({ remote }) {
       const active = React.useSyncExternalStore(subscribe, snapshot, snapshot)
       const dialogRef = React.useRef(null)
@@ -282,13 +274,13 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'remote', 'remote.credentials'],
       apply(ctx) {
+        // A single owned footer row avoids stacked labels and mismatched
+        // spacing between independently registered slot components.
+        dock.setSearch(() => setOpened(true))
         ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: 'dsh-docker-web-search', order: 80,
           label: () => 'DSH Web Search',
         }, props => h(SearchCard, { ...props, remote: ctx.remote.credentials })))
-        ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-          name: 'sidebar.footer.action', id: 'dsh-docker.search-footer', order: 440,
-        }, SearchFooter))
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'dsh-docker.search-panel',
         }, () => h(SearchOverlay, { remote: ctx.remote.credentials })))
