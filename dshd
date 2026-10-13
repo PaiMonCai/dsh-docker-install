@@ -3895,6 +3895,11 @@ cmd_reverse_instance() {
   [[ -f "$self" ]] || die "无法定位当前 dshd 文件；请先安装 dshd 命令。"
   next_state="${DSHD_REVERSE_STATE_DIR:-${STATE_DIR}-reverse}"
   [[ "$next_state" != "$STATE_DIR" ]] || die "Reverse 配置目录不可与 Standard 相同。"
+  if [[ "$action" != "install" ]]; then
+    [[ -f "$next_state/config.env" ]] || die "Reverse 实例尚未安装：请先执行 dshd reverse install。"
+    grep -Fxq "DSH_EDITION=reverse" "$next_state/config.env" \
+      || die "Reverse 配置标识不正确；拒绝管理可能属于 Standard 的容器。"
+  fi
   local defaults=()
   if [[ "$action" == "install" ]]; then
     defaults+=( "DSH_EDITION=reverse" "DSHD_REVERSE_MODE=1"
