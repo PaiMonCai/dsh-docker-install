@@ -5315,9 +5315,25 @@ cmd_uninstall() {
   fi
 
   if [[ -d "$DSH_WORKSPACE" ]] && confirm "删除工作区 $DSH_WORKSPACE？" N; then as_root rm -rf "$DSH_WORKSPACE"; ok "工作区已删除"; fi
-  if confirm "删除 dshd 配置目录 $STATE_DIR？" N; then rm -rf "$STATE_DIR"; ok "配置目录已删除"; fi
+  # Default state is also the registry root. Deleting it would silently erase
+  # the configurations, credentials and backups of every named instance.
+  local shared_registry=false cfg
+  if [[ -z "${DSHD_INSTANCE_ID:-}" ]]; then
+    for cfg in "$STATE_DIR"/instances/*/config.env; do
+      if [[ -f "$cfg" ]]; then shared_registry=true; break; fi
+    done
+  fi
+  if [[ "$shared_registry" == true ]]; then
+    warn "已安装其他命名实例，保留共享配置根目录 $STATE_DIR；不能从默认实例卸载流程整体删除。"
+  elif confirm "删除 dshd 配置目录 $STATE_DIR？" N; then
+    rm -rf -- "$STATE_DIR"; ok "配置目录已删除"
+  fi
   if [[ -z "${DSHD_INSTANCE_ID:-}" && "${DSHD_REVERSE_MODE:-0}" != "1" ]]; then
-    if [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"; fi
+    if [[ "$shared_registry" == true || -f "$STATE_DIR-reverse/config.env" ]]; then
+      warn "存在其他 DSH 实例，保留全局 dshd 可执行文件。"
+    elif [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then
+      as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"
+    fi
   fi
 }
 
