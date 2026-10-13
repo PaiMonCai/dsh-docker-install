@@ -67,40 +67,29 @@ repair_stale_workspace_cwd() {
     fi
 }
 
-ensure_reasoning_editor() {
-    local reconciler="/usr/local/bin/ensure-dsh-reasoning-editor"
-    [[ -x "$reconciler" ]] || return 0
-
-    if "$reconciler"; then
-        return 0
-    fi
-
-    # UI enhancement failure must not make the core DSH runtime unavailable.
-    # The error remains visible in logs and can be repaired with `dsh plugin`.
-    log "警告：内置自定义模型推理等级编辑器未能完成 profile 对账；DSH 将继续启动"
+# Built-in Web extensions ship with the image. They are mounted as DSH
+# launcher patch layers directly from their absolute paths, like app glue.
+# None invokes the external Profile Plugin Manager or pnpm.
+native_plugin_enabled() {
+    local value="${1:-true}"
+    case "${value,,}" in
+        0|false|no|off|disabled) return 1 ;;
+        1|true|yes|on|enabled) return 0 ;;
+        *) log "无效的内置插件开关：$value"; return 2 ;;
+    esac
 }
 
-ensure_web_search() {
-    local reconciler="/usr/local/bin/ensure-dsh-web-search"
-    [[ -x "$reconciler" ]] || return 0
-    if ! "$reconciler"; then
-        log "警告：Web Search 插件对账失败，DSH 继续启动。检查 dshd search doctor。"
-    fi
+prepare_native_web_plugins() {
+    local migrator="/usr/local/bin/prepare-dsh-native-web-plugins.js"
+    [[ -f "$migrator" ]] || { log "缺少内置插件迁移工具：$migrator"; return 1; }
+    node "$migrator"
 }
 
-ensure_icon_dock() {
-    local reconciler="/usr/local/bin/ensure-dsh-icon-dock"
-    [[ -x "$reconciler" ]] || return 0
-    if ! "$reconciler"; then
-        log "警告：快捷入口管理插件对账失败；DSH 继续启动。"
-    fi
-}
-
-ensure_session_manager_web() {
-    local reconciler="/usr/local/bin/ensure-dsh-session-manager-web"
-    [[ -x "$reconciler" ]] || return 0
-    if ! "$reconciler"; then
-        log "警告：会话管理 Web 插件安装失败；DSH 仍可启动。"
+append_native_web_patch() {
+    local filename="$1" flag="$2"
+    if native_plugin_enabled "$flag"; then
+        [[ -f "$filename" ]] || { log "缺少内置插件补丁：$filename"; return 1; }
+        args+=(--patch "$filename")
     fi
 }
 
@@ -128,10 +117,15 @@ run_web() {
     DSH_WEB_LOGIN_TOKEN="$(node /usr/local/bin/dsh-web-token.js print)"
     export DSH_WEB_LOGIN_TOKEN
 
-    ensure_reasoning_editor
-    ensure_icon_dock
-    ensure_session_manager_web
-    ensure_web_search
+    # Move only our retired built-in rows out of persistent bundle selection.
+    # Old dependency pins and pnpm-lock.yaml remain untouched, so this does
+    # not invoke the third-party installer or impact unrelated plugins.
+    prepare_native_web_plugins
+
+    append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml" "${DSH_REASONING_EDITOR:-true}"
+    append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}"
+    append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}"
+    append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}"
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then
