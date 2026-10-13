@@ -76,10 +76,19 @@ prepare_native_web_plugins() {
     node "$migrator"
 }
 
-compose_native_web_patch() {
-    local composer="/usr/local/bin/compose-dsh-native-web-patch.js"
-    [[ -f "$composer" ]] || { log "缺少内置插件补丁组合器：$composer"; return 1; }
-    node "$composer"
+# The official DSH CLI accepts repeatable --patch overlays. All must be
+# positioned BEFORE any Web-only argument such as --no-open or --port.
+append_native_web_patch() {
+    local file="$1" flag="$2" label="$3"
+    local value="${flag,,}"
+    case "$value" in
+        1|true|yes|on|enabled)
+            [[ -f "$file" ]] || { log "内置插件 $label 缺少补丁文件：$file"; return 1; }
+            args+=(--patch "$file")
+            ;;
+        0|false|no|off|disabled) ;;
+        *) log "内置插件 $label 的启用开关值无效：$flag"; return 1 ;;
+    esac
 }
 
 apply_pending_session_deletions() {
@@ -91,7 +100,7 @@ apply_pending_session_deletions() {
 }
 
 run_web() {
-    local args=(web --no-open)
+    local args=(web --patch "$BIND_PATCH")
 
     # Upstream DSH forbids 0.0.0.0 from 0.2.1-alpha.2 onward. Resolve the
     # container's concrete network address so published Docker ports still work.
@@ -106,16 +115,20 @@ run_web() {
     DSH_WEB_LOGIN_TOKEN="$(node /usr/local/bin/dsh-web-token.js print)"
     export DSH_WEB_LOGIN_TOKEN
 
-    # Validate every image-owned bundle and compose the native loader patch
-    # BEFORE touching any persistent Web Profile configuration. A missing
-    # plugin bundle or invalid feature flag must leave user data unchanged.
-    local merged_patch
-    merged_patch="$(compose_native_web_patch)"
+    # Preflight all native extension overlays BEFORE modifying the persistent
+    # Web Profile. DSH CLI launcher flags must precede Web app flags.
+    [[ -f "$BIND_PATCH" ]] || { log "缺少 Web bind 补丁：$BIND_PATCH"; return 1; }
+    append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml" "${DSH_REASONING_EDITOR:-true}" "推理等级编辑器"
+    append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}" "Icon Dock"
+    append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
+    append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}" "Web Search"
 
-    # Retire only old built-in bundle selections, preserving third-party
-    # dependencies and pnpm lockfile. The original manifest is backed up.
+    # Migrate only legacy bundled plugin selections; dependencies, third-party
+    # selection and pnpm-lock.yaml stay untouched, with a manifest backup.
     prepare_native_web_plugins
-    args+=(--patch "$merged_patch")
+    # No more launcher flags after here: --no-open, --port, and --trusted-host
+    # all belong to the Web application rather than the top-level DSH CLI.
+    args+=(--no-open)
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then
