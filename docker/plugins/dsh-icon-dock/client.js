@@ -75,12 +75,16 @@ window.__ModuleLoader__.load({
             continue
           }
           const dockId = 'native-panel.' + id
-          const icon = id === 'plugins' ? 'puzzle'
-            : id === 'schedules' ? 'clock'
-              : /insight|context|洞察/i.test(id + label) ? 'insights' : 'grid'
+          // StoredEntry.component is the SAME icon React component rendered
+          // by upstream SidebarRoot for this panel (not an SVG copy).
+          // The original slot renderer would synthesize extra props for
+          // entries with inject/store/locale/children. Reuse directly only
+          // when none of those runtime-only dependencies are declared.
+          const nativeIcon = typeof panel.component === 'function'
+            && !panel.hasExtraProps ? panel.component : null
           next.set(dockId, {
             id: dockId, label: label.trim().slice(0, 80),
-            icon, nativePanel: true, panelId: id,
+            icon: 'grid', nativeIcon, nativePanel: true, panelId: id,
             order: 10 + (Number.isFinite(panel.order) ? panel.order : 0),
             onClick: () => navigate(id),
           })
@@ -89,7 +93,8 @@ window.__ModuleLoader__.load({
         const nextValues = [...next.values()]
         if (complete === nativeComplete && prev.length === nextValues.length &&
           prev.every((item, i) => item.id === nextValues[i].id &&
-            item.label === nextValues[i].label && item.order === nextValues[i].order)) return
+            item.label === nextValues[i].label && item.order === nextValues[i].order &&
+            item.nativeIcon === nextValues[i].nativeIcon)) return
         nativePanels.clear()
         for (const [id, entry] of next) nativePanels.set(id, entry)
         nativeComplete = complete
@@ -165,6 +170,12 @@ window.__ModuleLoader__.load({
         fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
         strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
       }
+      // Native sidebar icons take precedence over every generated fallback.
+      // Render as a React component, never invoke the function manually:
+      // this preserves upstream component identity and React hook semantics.
+      if (entry.nativeIcon) return h(entry.nativeIcon, {
+        size, active: entry.panelId === selectedPanel,
+      })
       if (entry.renderIcon) {
         try { return entry.renderIcon({ size, h }) }
         catch { /* a broken third-party icon must not hide the entire dock */ }
@@ -175,14 +186,6 @@ window.__ModuleLoader__.load({
       if (entry.icon === 'search') return h('svg', base,
         h('circle', { cx: 10.8, cy: 10.8, r: 6.8 }),
         h('path', { d: 'm16 16 4.6 4.6' }))
-      if (entry.icon === 'puzzle') return h('svg', base,
-        h('path', { d: 'M9.5 4h5v3.2a3 3 0 1 1 3 3H21v5h-3.5a3 3 0 1 1-3 3H9.5v-3.5a3 3 0 1 1-3-3V10H3V5h3.5a3 3 0 1 1 3-3z', transform: 'translate(0 2)' }))
-      if (entry.icon === 'clock') return h('svg', base,
-        h('circle', { cx: 12, cy: 12, r: 9 }),
-        h('path', { d: 'M12 6.5V12l3.5 2' }))
-      if (entry.icon === 'insights') return h('svg', base,
-        h('rect', { x: 4, y: 3, width: 16, height: 18, rx: 2 }),
-        h('path', { d: 'M8 8h8M8 12h4M8 16h8' }))
       if (entry.icon === 'settings') return h('svg', base,
         h('circle', { cx: 12, cy: 12, r: 3.4 }),
         h('path', { d: 'M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.2 2.2M16.8 16.8 19 19M5 19l2.2-2.2M16.8 7.2 19 5' }))
@@ -310,13 +313,17 @@ window.__ModuleLoader__.load({
         const syncNativePanels = () => {
           if (typeof ctx.slots.entriesOfSlot !== 'function') return
           const records = ctx.slots.entriesOfSlot('sidebar.panellist')
-          const list = records.map(({ options }) => {
+          const list = records.map(entry => {
+            const { options } = entry
             let label = options.label
             try { label = typeof label === 'function' ? label() : label }
             catch { label = null }
             return {
               id: options.id, label,
               order: options.order,
+              component: entry.component,
+              hasExtraProps: Boolean(entry.inject || entry.store ||
+                entry.locale || entry.children),
             }
           })
           registry.syncNative(list, id => ctx.layout.selectPanel(id))
