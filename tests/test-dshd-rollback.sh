@@ -19,30 +19,30 @@ load_config() { :; }
 ensure_docker() { :; }
 confirm() { return 0; }
 save_config() { saved=$((saved+1)); }
-container_exists() { [[ -n "\${mock_existing[$DSH_NAME]:-}" ]]; }
-container_running() { [[ "\${mock_running[$DSH_NAME]:-0}" == 1 ]]; }
-health_state() { [[ "\${mock_running[$DSH_NAME]:-0}" == 1 ]] && printf healthy || printf unhealthy; }
+container_exists() { [[ -n "${mock_existing[$DSH_NAME]:-}" ]]; }
+container_running() { [[ "${mock_running[$DSH_NAME]:-0}" == 1 ]]; }
+health_state() { [[ "${mock_running[$DSH_NAME]:-0}" == 1 ]] && printf healthy || printf unhealthy; }
 docker_cmd() {
   echo "$*" >>"$calls"
   local op="$1"; shift
   case "$op" in
     inspect)
       if [[ "$1" == -f ]]; then
-        shift 2; [[ -n "\${mock_existing[$1]:-}" ]] || return 1
-        printf '%s\n' "\${mock_image[$1]}"
-      else [[ -n "\${mock_existing[$1]:-}" ]]; fi ;;
-    stop) [[ -n "\${mock_existing[$1]:-}" ]] || return 1; mock_running[$1]=0 ;;
-    start) [[ -n "\${mock_existing[$1]:-}" ]] || return 1; mock_running[$1]=1 ;;
+        shift 2; [[ -n "${mock_existing[$1]:-}" ]] || return 1
+        printf '%s\n' "${mock_image[$1]}"
+      else [[ -n "${mock_existing[$1]:-}" ]]; fi ;;
+    stop) [[ -n "${mock_existing[$1]:-}" ]] || return 1; mock_running[$1]=0 ;;
+    start) [[ -n "${mock_existing[$1]:-}" ]] || return 1; mock_running[$1]=1 ;;
     rename)
-      [[ -n "\${mock_existing[$1]:-}" && -z "\${mock_existing[$2]:-}" ]] || return 1
+      [[ -n "${mock_existing[$1]:-}" && -z "${mock_existing[$2]:-}" ]] || return 1
       mock_existing[$2]=1
-      mock_running[$2]="\${mock_running[$1]}"
-      mock_image[$2]="\${mock_image[$1]}"
+      mock_running[$2]="${mock_running[$1]}"
+      mock_image[$2]="${mock_image[$1]}"
       unset 'mock_existing[$1]' 'mock_running[$1]' 'mock_image[$1]'
       ;;
     rm)
       if [[ "$1" == -f ]]; then shift; fi
-      [[ -n "\${mock_existing[$1]:-}" ]] || return 1
+      [[ -n "${mock_existing[$1]:-}" ]] || return 1
       unset 'mock_existing[$1]' 'mock_running[$1]' 'mock_image[$1]'
       ;;
     *) echo "unexpected docker call: $op $*" >&2; return 1 ;;
@@ -50,10 +50,10 @@ docker_cmd() {
 }
 
 cmd_rollback apply >"$tmp/out"
-[[ "\${mock_image[dsh]}" == old-sha ]]
-[[ "\${mock_image[dsh-rollback-failed]}" == new-sha ]]
-[[ "\${mock_running[dsh]}" == 1 ]]
-[[ "\${mock_running[dsh-rollback-failed]}" == 0 ]]
+[[ "${mock_image[dsh]}" == old-sha ]]
+[[ "${mock_image[dsh-rollback-failed]}" == new-sha ]]
+[[ "${mock_running[dsh]}" == 1 ]]
+[[ "${mock_running[dsh-rollback-failed]}" == 0 ]]
 [[ "$DSH_IMAGE" == old-sha ]]
 [[ "$saved" == 1 ]]
 ! grep -Eq 'rm .* -v|volume rm|/root/\.dsh|/workspace' "$calls"
@@ -66,26 +66,26 @@ mock_existing[dsh-rollback]=1
 mock_running[dsh-rollback]=0
 mock_image[dsh-rollback]=older-sha
 cmd_rollback clear >"$tmp/out"
-[[ -z "\${mock_existing[dsh-rollback]:-}" ]]
-[[ -n "\${mock_existing[dsh]:-}" ]]
+[[ -z "${mock_existing[dsh-rollback]:-}" ]]
+[[ -n "${mock_existing[dsh]:-}" ]]
 
 mock_existing[dsh-rollback]=1
 mock_running[dsh-rollback]=0
 mock_image[dsh-rollback]=first-sha
 restore_previous_dsh_container dsh-rollback >"$tmp/out"
-[[ "\${mock_image[dsh]}" == first-sha ]]
-[[ "\${mock_running[dsh]}" == 1 ]]
-[[ -z "\${mock_existing[dsh-rollback]:-}" ]]
-[[ -n "\${mock_existing[dsh-rollback-failed]:-}" ]]
+[[ "${mock_image[dsh]}" == first-sha ]]
+[[ "${mock_running[dsh]}" == 1 ]]
+[[ -z "${mock_existing[dsh-rollback]:-}" ]]
+[[ -n "${mock_existing[dsh-rollback-failed]:-}" ]]
 
 pull_best_image() { DSH_IMAGE=new-sha; }
-create_container() { [[ "\${DSHD_SAFE_UPGRADE:-0}" == 1 ]] && return 1; }
+create_container() { [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]] && return 1; }
 prev_saved="$saved"
 if cmd_update >"$tmp/out" 2>&1; then
   echo "expected failed update to return nonzero" >&2; exit 1
 fi
 [[ "$saved" == "$prev_saved" ]]
-create_container() { [[ "\${DSHD_SAFE_UPGRADE:-0}" == 1 ]]; }
+create_container() { [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]]; }
 cmd_update >"$tmp/out"
 [[ "$saved" == $((prev_saved+1)) ]]
 
