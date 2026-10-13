@@ -325,22 +325,46 @@ jobs:
           fi
           echo "DSH Docker healthcheck reports healthy"
 
-          # The Web can be HTTP-healthy while its optional bundled client
-          # plugins failed installation. This happened when pnpm rejected
-          # an unrelated locked package under minimumReleaseAge.
+          # Native bundled Web plugins must be loaded from the immutable
+          # image patch files, not Profile dependencies or pnpm state.
           docker exec -i "$name" node - <<'NODE'
           const fs = require('node:fs')
-          const manifest = '/root/.dsh/profiles/web/package.json'
-          const profile = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-          for (const name of ['dsh-docker-icon-dock', 'dsh-docker-session-manager']) {
-            const installed = Object.hasOwn(profile.dependencies || {}, name)
-            const enabled = profile.dsh?.profile?.bundles?.includes(name)
-            if (!installed || !enabled) {
-              console.error('Required Web client plugin not active:', name,
-                { installed, enabled })
-              process.exitCode = 1
+          const path = require('node:path')
+          const names = [
+            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web'
+          ]
+          for (const name of names) {
+            const base = '/opt/dsh/plugins/' + name
+            for (const file of ['package.json', 'client.js', 'index.js', 'cordis.patch.yml']) {
+              if (!fs.existsSync(path.join(base, file))) {
+                throw new Error('Missing native Web plugin file: ' + name + '/' + file)
+              }
             }
           }
+          const profile = JSON.parse(fs.readFileSync('/root/.dsh/profiles/web/package.json', 'utf8'))
+          const selected = profile.dsh?.profile?.bundles || []
+          for (const name of [
+            'dsh-docker-reasoning-editor',
+            'dsh-docker-icon-dock',
+            'dsh-docker-session-manager',
+            'dsh-docker-web-search',
+          ]) {
+            if (selected.includes(name)) throw new Error('Legacy profile bundle still active: ' + name)
+          }
+          const processes = fs.readdirSync('/proc').filter(name => /^[0-9]+$/.test(name))
+          const argSets = processes.map(pid => {
+            try { return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').split('\0') }
+            catch { return [] }
+          })
+          const launch = argSets.find(args =>
+            args.includes('web') && args.includes('--patch') &&
+            args.some(arg => arg.endsWith('/dsh-bind.patch.yml')))
+          if (!launch) throw new Error('Cannot locate DSH Web launcher with native patches')
+          for (const name of names) {
+            const patch = '/opt/dsh/plugins/' + name + '/cordis.patch.yml'
+            if (!launch.includes(patch)) throw new Error('Missing DSH-native patch argument: ' + patch)
+          }
+          console.log('Bundled Web plugins mounted as DSH-native launcher patch layers')
           NODE
 
           # A rendered index does NOT prove the Web API route exists.
