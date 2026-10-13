@@ -2671,7 +2671,8 @@ container_exists() {
   fi
 }
 container_running() {
-  docker_cmd ps --format '{{.Names}}' | grep -Fxq "$DSH_NAME"
+  docker_cmd ps --format '{{.Names}}' | grep -Fxq "$DSH_NAME" || return 1
+  container_exists
 }
 container_state() {
   if ! container_exists; then printf 'not-created'; return; fi
