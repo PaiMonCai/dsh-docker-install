@@ -8,21 +8,6 @@ window.__ModuleLoader__.load({
     const { useState, useEffect } = React
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-web-search'
-    // Shared with the always-on session manager's footer row. It exposes a
-    // search action only while this optional plugin is installed/enabled.
-    const dock = window.__dshDockerFooterActions || (window.__dshDockerFooterActions = (() => {
-      const listeners = new Set()
-      let search = null
-      return {
-        subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) },
-        getSearch: () => search,
-        setSearch: fn => {
-          if (search === fn) return
-          search = fn
-          for (const listener of listeners) listener()
-        },
-      }
-    })())
     // Shared shell overlay state, matching the built-in recycle-bin shortcut.
     const listeners = new Set()
     let opened = false
@@ -271,12 +256,20 @@ window.__ModuleLoader__.load({
       h('div', { style: { flex: 1, minHeight: 0, overflowY: 'auto' } },
         h(SearchCard, { remote, spacious: true }))))
     }
+    function registerDockShortcut() {
+      const entry = {
+        id: 'dsh-docker.web-search', label: '网络搜索',
+        icon: 'search', order: 200,
+        onClick: () => setOpened(true),
+      }
+      const dock = window.__dshDockerIconDockV1
+      if (dock) dock.register(entry)
+      else (window.__dshDockerIconDockPendingV1 ||= []).push(entry)
+    }
     return {
       inject: ['slots', 'remote', 'remote.credentials'],
       apply(ctx) {
-        // A single owned footer row avoids stacked labels and mismatched
-        // spacing between independently registered slot components.
-        dock.setSearch(() => setOpened(true))
+        registerDockShortcut()
         ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: 'dsh-docker-web-search', order: 80,
           label: () => 'DSH Web Search',
