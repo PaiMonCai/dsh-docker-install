@@ -29,6 +29,7 @@ for(const [,id,sourceFile] of modules){
   // CI observes the REAL registered preset through agentPresets.list().
   // This probe is inert in production; source.apply remains untouched.
   const extra=id==='reverse' ? [
+    'export const inject = [\'agentPresets\']',
     'export function apply(ctx){',
     '  source.apply(ctx)',
     '  if(process.env.DSH_REVERSE_CI_VERIFY_PRESET===\'1\')process.stdout.write(\'DSH_REVERSE_CI_PLUGIN_APPLIED\\n\')',
@@ -55,7 +56,10 @@ for(const [,id,sourceFile] of modules){
     '    return()=>{stopped=true;clearInterval(timer)}',
     '  },\'CI-only reverse preset registration audit\')',
     '}',
-    'export default { ...(source.default ?? source), apply }',
+    'export default { ...(source.default ?? source), inject, apply }',
+  ]:id==='redteam' ? [
+    'export const inject = [\'agentPresets\']',
+    'export default { ...(source.default ?? source), inject }',
   ]:[
     'export default source.default ?? { name: source.name, inject: source.inject, apply: source.apply }',
   ]
