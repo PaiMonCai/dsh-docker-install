@@ -20,6 +20,7 @@ on:
       - 'tests/test-dshd-search-recovery.sh'
       - 'tests/test-web-search-plugin.sh'
       - 'tests/test-web-search-sidebar.cjs'
+      - 'tests/test-dshd-rollback.sh'
       - '.github/workflows/search-tests.yml'
   workflow_dispatch:
 permissions:
@@ -38,6 +39,7 @@ jobs:
           bash -n dshd
           bash tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-recovery.sh
+          bash tests/test-dshd-rollback.sh
           bash tests/test-native-web-plugins.sh
           node --check docker/plugins/dsh-icon-dock/index.js
           node --check docker/plugins/dsh-icon-dock/client.js
