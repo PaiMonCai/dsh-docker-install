@@ -58,7 +58,11 @@ container_exists() { return 1; }
 ensure_storage() { mkdir -p "$DSH_DATA_DIR"; }
 wait_ready() { return 0; }
 docker_cmd() {
-  CAPTURED_DOCKER_ARGS="$(printf '%q ' "$@")"
+  # Sidecar cleanup now runs after a healthy container start. Capture the
+  # actual docker run args instead of the last Docker maintenance command.
+  if [[ "${1:-}" == run ]]; then
+    CAPTURED_DOCKER_ARGS="$(printf '%q ' "$@")"
+  fi
   return 0
 }
 create_container

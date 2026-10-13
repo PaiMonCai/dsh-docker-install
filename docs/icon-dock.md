@@ -43,6 +43,8 @@ function registerShortcut() {
 
 可用 API：`register(entry)`、`unregister(id)`、`getAll()`、`setVisible(id, visible)`、`move(id, -1/1)`、`setSize(18/20/22/24)`、`reset()`、`subscribe(listener)` 和 `snapshot()`。功能插件只需使用注册/移除接口，别直接修改用户偏好。
 
+「更多」浮层会根据视口自动选择位置，支持方向键、Home/End、Escape 和 Tab 键盘操作，窗口空间不足时不会强行伸出屏幕。
+
 ## 安装与独立性
 
 镜像在 `/opt/dsh/plugins/dsh-icon-dock` 预装完整插件，由容器启动脚本通过 DSH 原生 `--patch /opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml` 加载（该启动器参数位于 Web 应用参数之前）；**不调用 `dsh plugin add`、不运行 pnpm，也不需要 Web Profile 安装依赖**。`DSH_ICON_DOCK_ENABLED=false` 可禁用整个快捷入口栏。禁用管理器不会关闭搜索与会话管理后端。建议通过管理页隐藏单个图标。旧版 Profile 中曾经安装的内置插件，其旧选中项会在首次启动时有备份地退出；第三方依赖与 pnpm 锁文件不变。

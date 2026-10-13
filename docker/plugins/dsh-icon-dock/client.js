@@ -79,12 +79,62 @@ window.__ModuleLoader__.load({
       return { primary, more, limit }
     }
     let menuOpen = false
+    let menuPlacement = null
     let dragId = null
     let pointerDrag = null
     function setMenuOpen(next) {
       if (menuOpen === next) return
       menuOpen = next
+      if (!next) menuPlacement = null
       emit()
+    }
+    function positionMoreMenu(target) {
+      const rect = target?.getBoundingClientRect?.()
+      if (!rect || typeof window.innerWidth !== 'number') {
+        menuPlacement = null
+        return
+      }
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight || 700
+      const menuWidth = Math.min(234, Math.max(120, viewportWidth - 16))
+      const menuHeight = Math.min(330, Math.max(100, viewportHeight * .55))
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - menuWidth - 8))
+      // Prefer above the trigger. Fall below when the top is too tight;
+      // clamp to the viewport on small phones or zoomed-in layouts.
+      const top = rect.top >= menuHeight + 12
+        ? rect.top - menuHeight - 8
+        : rect.bottom + menuHeight + 12 <= viewportHeight
+          ? rect.bottom + 8
+          : Math.max(8, Math.min(rect.top - menuHeight - 8,
+            viewportHeight - menuHeight - 8))
+      menuPlacement = { left, top: Math.max(8, top), width: menuWidth }
+    }
+    function focusMoreItem(which) {
+      const items = document?.querySelectorAll?.('.dsh-icon-menu [role="menuitem"]')
+      if (!items?.length) return
+      const index = which === 'last' ? items.length - 1 : 0
+      items[index]?.focus?.()
+    }
+    function onMoreMenuKeyDown(event) {
+      const key = event.key
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Tab'].includes(key)) return
+      if (key === 'Escape' || key === 'Tab') {
+        setMenuOpen(false)
+        if (key === 'Escape') {
+          event.preventDefault?.()
+          document?.querySelector?.('.dsh-icon-dock [aria-haspopup="menu"]')?.focus?.()
+        }
+        return
+      }
+      event.preventDefault?.()
+      const items = Array.from(
+        event.currentTarget?.querySelectorAll?.('[role="menuitem"]') || [])
+      if (!items.length) return
+      const current = items.indexOf(document?.activeElement)
+      const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1
+        : key === 'ArrowDown' ? (current + 1) % items.length
+          : (current - 1 + items.length) % items.length
+      items[next]?.focus?.()
     }
     const registry = {
       version: 1, subscribe, snapshot, getAll, getDockLayout,
@@ -231,7 +281,7 @@ window.__ModuleLoader__.load({
     const styleTag = [
       '.dsh-icon-dock button{color:inherit}',
       '.dsh-icon-dock button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
-      '.dsh-icon-dock button:focus-visible,.dsh-icon-settings button:focus-visible,.dsh-icon-settings input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}',
+      '.dsh-icon-dock button:focus-visible,.dsh-icon-editor button:focus-visible,.dsh-icon-editor select:focus-visible,.dsh-icon-editor input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}',
       '.dsh-icon-dock .dsh-icon-menu{box-shadow:0 12px 36px rgba(0,0,0,.2)}',
       '.dsh-icon-dock .dsh-icon-menu button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
       '.dsh-icon-editor [draggable="true"]{cursor:grab}',
@@ -354,7 +404,22 @@ window.__ModuleLoader__.load({
         type: 'button', 'aria-label': '更多',
         title: '更多（' + more.length + '）',
         'aria-haspopup': 'menu', 'aria-expanded': menuOpen,
-        onClick: () => setMenuOpen(!menuOpen),
+        onClick: event => {
+          if (!menuOpen) {
+            positionMoreMenu(event?.currentTarget)
+            setMenuOpen(true)
+            Promise.resolve().then(() => focusMoreItem('first'))
+          } else setMenuOpen(false)
+        },
+        onKeyDown: event => {
+          if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !menuOpen) {
+            event.preventDefault?.()
+            positionMoreMenu(event.currentTarget)
+            setMenuOpen(true)
+            Promise.resolve().then(() => focusMoreItem(
+              event.key === 'ArrowUp' ? 'last' : 'first'))
+          }
+        },
         style: {
           width: '100%', minWidth: 0,
           height: wide ? 36 : 30,
@@ -365,9 +430,14 @@ window.__ModuleLoader__.load({
       }, h(MoreIcon, { size: wide ? settings.size : 16 })) : null),
       more.length && menuOpen ? h('div', {
         className: 'dsh-icon-menu', role: 'menu', 'aria-label': '更多快捷入口',
+        onKeyDown: onMoreMenuKeyDown,
         style: {
-          position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
-          width: 234, maxWidth: 'calc(100vw - 24px)',
+          position: menuPlacement ? 'fixed' : 'absolute',
+          ...(menuPlacement
+            ? { left: menuPlacement.left, top: menuPlacement.top,
+              width: menuPlacement.width }
+            : { bottom: 'calc(100% + 8px)', left: 0, width: 234 }),
+          maxWidth: 'calc(100vw - 16px)',
           maxHeight: 'min(330px, 55vh)', overflowY: 'auto', zIndex: 1000,
           borderRadius: 12, padding: 7,
           border: '1px solid ' + separator,
