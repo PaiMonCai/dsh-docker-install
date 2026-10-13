@@ -1,0 +1,4 @@
+# Standalone owner of the DSH Web sidebar icon dock.
+- insert:
+    - id: dsh-docker-icon-dock
+      name: dsh-docker-icon-dock
