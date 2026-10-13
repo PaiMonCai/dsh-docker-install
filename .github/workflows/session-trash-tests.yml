@@ -7,6 +7,7 @@ on:
       - docker/plugins/dsh-icon-dock/**
       - docker/ensure-icon-dock.sh
       - tests/test-icon-dock.cjs
+      - tests/test-icon-dock-installer.sh
       - tests/test-session-manager-web.mjs
       - tests/test-session-trash-ui.cjs
       - .github/workflows/session-trash-tests.yml
@@ -36,6 +37,7 @@ jobs:
           node --check docker/plugins/dsh-icon-dock/client.js
           node --check docker/plugins/dsh-icon-dock/index.js
           bash -n docker/ensure-icon-dock.sh
+          bash tests/test-icon-dock-installer.sh
           node --check docker/plugins/dsh-session-manager-web/index.js
           node --check tests/test-session-trash-ui.cjs
       - name: Exercise recycle bin API
