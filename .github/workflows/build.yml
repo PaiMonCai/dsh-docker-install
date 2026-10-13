@@ -251,7 +251,7 @@ jobs:
             dsh --version
             # REA and the dsh-purge reverse Agent are baked into this Docker image.
             command -v rea
-            node -e "const p=require('/usr/local/lib/node_modules/rea-agents/package.json');if(p.version!=='6.4.0')process.exit(1)"
+            npm ls --global --depth=0 rea-agents | grep -Fq 'rea-agents@6.4.0'
             node --check /opt/dsh/plugins/dsh-reverse-agent/index.js
             node --check /opt/dsh/plugins/dsh-reverse-agent/client.js
             test -f /opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/ui.js
