@@ -22,6 +22,9 @@ function createHarness(initial = new Map()) {
     const documentHandlers = new Map()
     let touchTarget = null
     const document = {
+      activeElement: null,
+      querySelectorAll() { return [] },
+      querySelector() { return null },
       addEventListener(name, callback) { documentHandlers.set(name, callback) },
       removeEventListener(name) { documentHandlers.delete(name) },
       elementFromPoint() { return touchTarget },
@@ -34,7 +37,8 @@ function createHarness(initial = new Map()) {
       getItem(id) { return records.has(id) ? records.get(id) : null },
       setItem(id, text) { records.set(id, String(text)) },
     }
-    const window = { localStorage: storage, addEventListener() {},
+    const window = { localStorage: storage, innerWidth: 320, innerHeight: 580,
+      addEventListener() {},
       __ModuleLoader__: { load(value) { plugin = value } },
       __dshDockerIconDockPendingV1: before,
     }
@@ -102,7 +106,7 @@ function createHarness(initial = new Map()) {
       item => item.type === 'button')
     const card = () => render('plugins.item', { view: 'settings' })
     return {
-      window, dock, buttons, card, walk, slots, render, records, selectedPanels,
+      window, document, dock, buttons, card, walk, slots, render, records, selectedPanels,
       setTouchTarget(id, zone) {
         touchTarget = {
           closest() { return this },
@@ -525,4 +529,60 @@ test('hiding the official Plugins icon keeps a recovery path through More', () =
   assert.deepEqual(app.selectedPanels, ['plugins'])
   app.dock.setLocation('native-panel.plugins', 'dock')
   assert.deepEqual(app.buttons().map(button => button.props['aria-label']), ['插件'])
+})
+
+
+test('More menu stays inside narrow viewport and preserves two-row icon limit', () => {
+  const app = createHarness().page(Array.from({ length: 14 }, (_, i) =>
+    shortcut('test.more-' + i, 'Extra ' + i, i + 1)))
+  const trigger = app.buttons().find(item => item.props['aria-label'] === '更多')
+  const rect = { left: 295, top: 35, right: 319, bottom: 65 }
+  trigger.props.onClick({ currentTarget: { getBoundingClientRect: () => rect } })
+  const root = app.render('sidebar.footer.action', { wide: true })
+  const menu = app.walk(root, item => item.props?.role === 'menu')[0]
+  assert.equal(menu.props.style.position, 'fixed')
+  assert.ok(menu.props.style.left >= 8)
+  assert.ok(menu.props.style.left + menu.props.style.width <= app.window.innerWidth - 8)
+  assert.ok(menu.props.style.top >= 8)
+  assert.ok(menu.props.style.maxHeight)
+  const grid = app.walk(root, item => item.props?.className === 'dsh-icon-grid')[0]
+  assert.equal(app.walk(grid, item => item.type === 'button').length, 10)
+  trigger.props.onClick()
+  assert.equal(app.dock.isMoreOpen(), false)
+})
+
+test('More menu supports arrow navigation, Home, End, Escape and Tab', () => {
+  const app = createHarness().page(Array.from({ length: 12 }, (_, i) =>
+    shortcut('test.access-' + i, 'Access ' + i, i + 1)))
+  const trigger = app.buttons()[9]
+  trigger.props.onClick()
+  const menu = app.walk(app.render('sidebar.footer.action', { wide: true }),
+    item => item.props?.role === 'menu')[0]
+  assert.ok(menu.props.onKeyDown)
+  const focused = []
+  const nodes = Array.from({ length: 3 }, (_, index) => ({
+    focus() { app.document.activeElement = this; focused.push(index) },
+  }))
+  const currentTarget = { querySelectorAll() { return nodes } }
+  let prevented = 0
+  const event = key => ({
+    key, currentTarget, preventDefault() { prevented++ },
+  })
+  menu.props.onKeyDown(event('ArrowDown'))
+  assert.deepEqual(focused, [0])
+  menu.props.onKeyDown(event('End'))
+  assert.deepEqual(focused, [0, 2])
+  menu.props.onKeyDown(event('Home'))
+  assert.deepEqual(focused, [0, 2, 0])
+  menu.props.onKeyDown(event('ArrowUp'))
+  assert.deepEqual(focused, [0, 2, 0, 2])
+  assert.equal(prevented, 4)
+  menu.props.onKeyDown(event('Tab'))
+  assert.equal(app.dock.isMoreOpen(), false)
+  trigger.props.onClick()
+  let triggerFocused = false
+  app.document.querySelector = () => ({ focus() { triggerFocused = true } })
+  menu.props.onKeyDown(event('Escape'))
+  assert.equal(triggerFocused, true)
+  assert.equal(app.dock.isMoreOpen(), false)
 })
