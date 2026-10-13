@@ -3,19 +3,45 @@
  * Preserve every upstream row and setting, including global prompt and
  * approval patches; the separate container is the isolation boundary.
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 const root=process.env.DSH_REVERSE_ROOT || '/opt/dsh-reverse'
 const purge=join(root,'purge')
 const source=readFileSync(join(purge,'cordis.patch.yml'),'utf8')
-const mappings=[
-  ["name: 'dsh-purge'",'name: ./purge/lib/index.js'],
-  ['name: dsh-purge/redteam','name: ./purge/lib/redteam/index.js'],
-  ['name: dsh-purge/reverse','name: ./purge/lib/reverse/index.js'],
-  ['name: dsh-purge/reverse/ui','name: ./purge/lib/reverse/ui.js'],
-  ['name: dsh-purge/redteam/store','name: ./purge/lib/redteam/store.js'],
-  ['name: dsh-purge/redteam/ui','name: ./purge/lib/redteam/ui.js'],
+// Each Loader plugin MUST have its own package root. Loading six source files
+// under dsh-purge/package.json directly makes client-modules reject the image:
+// "package dsh-purge resolves from multiple active Loader sources".
+const modules=[
+  ["name: 'dsh-purge'",'core','lib/index.js'],
+  ['name: dsh-purge/redteam','redteam','lib/redteam/index.js'],
+  ['name: dsh-purge/reverse','reverse','lib/reverse/index.js'],
+  ['name: dsh-purge/reverse/ui','reverse-ui','lib/reverse/ui.js'],
+  ['name: dsh-purge/redteam/store','redteam-store','lib/redteam/store.js'],
+  ['name: dsh-purge/redteam/ui','redteam-ui','lib/redteam/ui.js'],
 ]
+const mappings=modules.map(([from,id])=>[from,'name: ./host-modules/'+id+'/index.js'])
+for(const [,id,sourceFile] of modules){
+  const upstream=join(purge,sourceFile)
+  if(!existsSync(upstream))throw Error('Missing upstream module: '+sourceFile)
+  const location=join(root,'host-modules',id)
+  mkdirSync(location,{recursive:true})
+  const entry='../../purge/'+sourceFile
+  const adapter=[
+    'import * as source from '+JSON.stringify(entry),
+    'export * from '+JSON.stringify(entry),
+    'export default source.default ?? { name: source.name, inject: source.inject, apply: source.apply }',
+    '',
+  ].join('\n')
+  writeFileSync(join(location,'index.js'),adapter)
+  writeFileSync(join(location,'package.json'),JSON.stringify({
+    name:'dsh-reverse-'+id,
+    version:'1.0.0',
+    private:true,
+    type:'module',
+    main:'./index.js',
+    exports:{'.':'./index.js','./package.json':'./package.json'},
+  },null,2)+'\n')
+}
 let patch=source
 for(const [from,to] of mappings.sort((a,b)=>b[0].length-a[0].length)){
   const lines=patch.split('\n')
@@ -24,8 +50,8 @@ for(const [from,to] of mappings.sort((a,b)=>b[0].length-a[0].length)){
   patch=lines.map(s=>s.trim()===from?s.replace(from,to):s).join('\n')
 }
 if(!patch.includes('includeHarnessIdentity: false') ||
-   !patch.includes('name: ./purge/lib/index.js') ||
-   !patch.includes('name: ./purge/lib/reverse/index.js'))
+   !patch.includes('name: ./host-modules/core/index.js') ||
+   !patch.includes('name: ./host-modules/reverse/index.js'))
   throw new Error('dsh-purge overlay failed full contract validation')
 patch+='\n# Docker-native frontend for the original full dsh-purge dock.\n'+
   '- insert:\n    - id: dsh-reverse-purge-ui\n      name: ./purge-ui/index.js\n    - id: dsh-reverse-skill-bootstrap\n      name: ./skills-bootstrap.mjs\n'
