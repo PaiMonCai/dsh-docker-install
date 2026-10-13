@@ -35,7 +35,18 @@ window.__ModuleLoader__.load({
         : []
       const size = [18, 20, 22, 24].includes(input.size) ? input.size : 20
       const captureNative = input.captureNative !== false
-      return { hidden, order, size, captureNative }
+      const location = {}
+      if (input.location && typeof input.location === 'object') {
+        for (const [id, position] of Object.entries(input.location)) {
+          if (/^[a-z0-9][a-z0-9._-]{1,100}$/i.test(id)
+            && ['dock', 'more', 'hidden'].includes(position)) location[id] = position
+        }
+      }
+      // Existing hidden preferences continue working after the editor upgrade.
+      for (const id of Object.keys(hidden)) {
+        if (!Object.hasOwn(location, id)) location[id] = 'hidden'
+      }
+      return { hidden, order, size, captureNative, location }
     }
     function readSaved() {
       try { return normalize(JSON.parse(window.localStorage?.getItem(KEY) || '{}')) }
@@ -56,8 +67,30 @@ window.__ModuleLoader__.load({
         (place.has(b.id) ? place.get(b.id) : 1000) ||
         a.order - b.order || a.id.localeCompare(b.id))
     }
+    const locationOf = id => settings.location[id] ||
+      (settings.hidden[id] ? 'hidden' : 'dock')
+    function getDockLayout(wide) {
+      const limit = wide ? 9 : 3
+      const available = getAll().filter(item => locationOf(item.id) !== 'hidden')
+      const pinned = available.filter(item => locationOf(item.id) !== 'more')
+      const primary = pinned.slice(0, limit)
+      const primaryIds = new Set(primary.map(item => item.id))
+      const more = available.filter(item => !primaryIds.has(item.id))
+      return { primary, more, limit }
+    }
+    let menuOpen = false
+    let dragId = null
+    let pointerDrag = null
+    function setMenuOpen(next) {
+      if (menuOpen === next) return
+      menuOpen = next
+      emit()
+    }
     const registry = {
-      version: 1, subscribe, snapshot, getAll,
+      version: 1, subscribe, snapshot, getAll, getDockLayout,
+      locationOf,
+      isMoreOpen: () => menuOpen,
+      setMenuOpen,
       getSettings: () => settings,
       getNativeCount: () => nativePanels.size,
       getSelectedPanel: () => selectedPanel,
@@ -118,11 +151,35 @@ window.__ModuleLoader__.load({
         return true
       },
       unregister(id) { if (entries.delete(id)) emit() },
-      setVisible(id, visible) {
+      setLocation(id, position) {
+        if (!['dock', 'more', 'hidden'].includes(position)
+          || !getAll().some(entry => entry.id === id)) return
+        const location = { ...settings.location, [id]: position }
         const hidden = { ...settings.hidden }
-        if (visible) delete hidden[id]
-        else hidden[id] = true
-        save({ ...settings, hidden })
+        if (position === 'hidden') hidden[id] = true
+        else delete hidden[id]
+        save({ ...settings, location, hidden })
+      },
+      setVisible(id, visible) {
+        registry.setLocation(id, visible ? 'dock' : 'hidden')
+      },
+      arrange(id, beforeId, destination) {
+        const all = getAll().map(item => item.id)
+        const source = all.indexOf(id)
+        if (source < 0 || (beforeId && !all.includes(beforeId))) return
+        if (destination && !['dock', 'more'].includes(destination)) return
+        const order = all.filter(item => item !== id)
+        if (beforeId && beforeId !== id) {
+          const insert = order.indexOf(beforeId)
+          order.splice(insert, 0, id)
+        } else if (beforeId !== id) order.push(id)
+        const location = { ...settings.location }
+        const hidden = { ...settings.hidden }
+        if (destination) {
+          location[id] = destination
+          delete hidden[id]
+        }
+        save({ ...settings, order, location, hidden })
       },
       move(id, direction) {
         const ordered = getAll().map(item => item.id)
@@ -161,7 +218,11 @@ window.__ModuleLoader__.load({
       '.dsh-icon-dock button{color:inherit}',
       '.dsh-icon-dock button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
       '.dsh-icon-dock button:focus-visible,.dsh-icon-settings button:focus-visible,.dsh-icon-settings input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}',
-      '.dsh-icon-dock{scrollbar-width:none}.dsh-icon-dock::-webkit-scrollbar{display:none}',
+      '.dsh-icon-dock .dsh-icon-menu{box-shadow:0 12px 36px rgba(0,0,0,.2)}',
+      '.dsh-icon-dock .dsh-icon-menu button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
+      '.dsh-icon-editor [draggable="true"]{cursor:grab;touch-action:none}',
+      '.dsh-icon-editor [draggable="true"]:active{cursor:grabbing}',
+      '.dsh-icon-editor [data-dock-drop]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe)}',
     ].join('\n')
 
     function SvgIcon({ entry, size }) {
@@ -200,47 +261,126 @@ window.__ModuleLoader__.load({
         h('rect', { x: 3, y: 14, width: 7, height: 7, rx: 1.5 }),
         h('rect', { x: 14, y: 14, width: 7, height: 7, rx: 1.5 }))
     }
+    function MoreIcon({ size }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 24 24',
+        stroke: 'currentColor', fill: 'currentColor', 'aria-hidden': 'true',
+      }, ...[5, 12, 19].map(cx => h('circle', { key: cx, cx, cy: 12, r: 1.7 })))
+    }
     function IconDock({ wide }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
-      const active = getAll().filter(item => !settings.hidden[item.id])
+      const { primary, more } = getDockLayout(wide)
       const takingOver = registry.getNativeCaptured()
-      if (!active.length && !takingOver) return null
-      return h('div', {
-        className: 'dsh-icon-dock', role: 'group', 'aria-label': '快捷入口',
-        style: {
-          width: wide ? '100%' : '36px',
-          minWidth: wide ? 0 : '36px',
-          display: 'flex', flexWrap: 'wrap',
-          gap: wide ? '8px' : '2px',
-          overflow: 'visible', alignItems: 'center',
-          padding: wide ? '2px 8px' : 0,
-          boxSizing: 'border-box',
-        },
-      },
-      h('style', null, styleTag +
-        (takingOver
-          // Upstream SidebarRoot owns its panelList (not a public slot for
-          // replacement). Hide only when every registered native panel has a
-          // live dock counterpart, and only while the dock is mounted.
-          // A changed upstream class or a disabled takeover leaves the
-          // original navigation intact rather than intercepting clicks.
-          ? '\ndiv:has(> [class*="footArea"] .dsh-icon-dock) > nav[class*="panelList"]{display:none!important}'
-          : '')),
-      ...active.map(item => h('button', {
+      if (!primary.length && !more.length && !takingOver) return null
+      const activeIcon = item => h('button', {
         key: item.id, type: 'button',
         'aria-label': item.label, title: item.label,
         'aria-current': item.nativePanel && selectedPanel === item.panelId ? 'page' : undefined,
-        onClick: item.onClick,
+        onClick: () => {
+          setMenuOpen(false)
+          item.onClick()
+        },
         style: {
-          flex: wide ? '0 0 38px' : '0 0 17px',
-          width: wide ? '38px' : '17px', minHeight: wide ? 34 : 30,
+          width: '100%', minWidth: 0, height: wide ? 36 : 30,
           border: 'none', borderRadius: 9,
           background: item.nativePanel && selectedPanel === item.panelId
             ? 'var(--dsw-alias-bg-secondary,rgba(128,128,128,.14))' : 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          padding: wide ? '5px 3px' : 0, cursor: 'pointer',
+          padding: 0, cursor: 'pointer',
         },
-      }, h(SvgIcon, { entry: item, size: wide ? settings.size : 16 }))))
+      }, h(SvgIcon, { entry: item, size: wide ? settings.size : 16 }))
+      return h('div', {
+        className: 'dsh-icon-dock', role: 'group', 'aria-label': '快捷入口',
+        onKeyDown: event => {
+          if (event.key === 'Escape' && menuOpen) {
+            event.preventDefault()
+            setMenuOpen(false)
+          }
+        },
+        style: {
+          position: 'relative',
+          width: wide ? '100%' : '36px',
+          minWidth: wide ? 0 : '36px',
+          boxSizing: 'border-box',
+          padding: wide ? '2px 6px' : 0,
+        },
+      },
+      h('style', null, styleTag +
+        (takingOver
+          ? '\ndiv:has(> [class*="footArea"] .dsh-icon-dock) > nav[class*="panelList"]{display:none!important}'
+          : '')),
+      h('div', {
+        className: 'dsh-icon-grid',
+        style: {
+          display: 'grid',
+          gridTemplateColumns: wide ? 'repeat(5, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))',
+          gridAutoRows: wide ? 36 : 30,
+          gap: wide ? '5px 4px' : '2px',
+          maxHeight: wide ? 77 : 62,
+        },
+      },
+      ...primary.map(activeIcon),
+      more.length ? h('button', {
+        type: 'button', 'aria-label': '更多',
+        title: '更多（' + more.length + '）',
+        'aria-haspopup': 'menu', 'aria-expanded': menuOpen,
+        onClick: () => setMenuOpen(!menuOpen),
+        style: {
+          width: '100%', minWidth: 0,
+          height: wide ? 36 : 30,
+          border: 'none', borderRadius: 9, background: 'transparent',
+          color: 'inherit', display: 'inline-flex', alignItems: 'center',
+          justifyContent: 'center', cursor: 'pointer', padding: 0,
+        },
+      }, h(MoreIcon, { size: wide ? settings.size : 16 })) : null),
+      more.length && menuOpen ? h('div', {
+        className: 'dsh-icon-menu', role: 'menu', 'aria-label': '更多快捷入口',
+        style: {
+          position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
+          width: 234, maxWidth: 'calc(100vw - 24px)',
+          maxHeight: 'min(330px, 55vh)', overflowY: 'auto', zIndex: 1000,
+          borderRadius: 12, padding: 7,
+          border: '1px solid ' + separator,
+          color: 'var(--dsw-alias-label-primary,inherit)',
+          background: 'var(--dsw-alias-bg-primary,var(--surface-primary,#fff))',
+        },
+      },
+        h('div', { style: { padding: '6px 9px', color: muted, fontSize: 12 } },
+          '更多快捷入口 · ' + more.length),
+        ...more.map(item => h('button', {
+          key: item.id, type: 'button', role: 'menuitem',
+          title: item.label,
+          onClick: () => {
+            setMenuOpen(false)
+            item.onClick()
+          },
+          style: {
+            width: '100%', minHeight: 38, display: 'flex', alignItems: 'center',
+            gap: 10, border: 'none', borderRadius: 8, padding: '6px 10px',
+            color: 'inherit', background: 'transparent', cursor: 'pointer',
+            textAlign: 'left', fontSize: 13,
+          },
+        },
+          h(SvgIcon, { entry: item, size: 18 }),
+          h('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden',
+            textOverflow: 'ellipsis' } }, item.label)))) : null)
+    }
+    // Pointer-down outside closes the menu; menu clicks themselves remain
+    // inside the dock. The listener is disposable through DSH's effect scope.
+    function bindMenuDismissal() {
+      if (typeof document === 'undefined') return () => {}
+      const outside = event => {
+        if (menuOpen && !event.target?.closest?.('.dsh-icon-dock')) setMenuOpen(false)
+      }
+      const escape = event => {
+        if (event.key === 'Escape' && menuOpen) setMenuOpen(false)
+      }
+      document.addEventListener('pointerdown', outside)
+      document.addEventListener('keydown', escape)
+      return () => {
+        document.removeEventListener('pointerdown', outside)
+        document.removeEventListener('keydown', escape)
+      }
     }
     function ManagerCard({ view }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
@@ -310,6 +450,9 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'layout', 'locale'],
       apply(ctx) {
+        if (typeof ctx.effect === 'function') {
+          ctx.effect(bindMenuDismissal, 'icon-dock: more menu dismiss')
+        } else bindMenuDismissal()
         const syncNativePanels = () => {
           if (typeof ctx.slots.entriesOfSlot !== 'function') return
           const records = ctx.slots.entriesOfSlot('sidebar.panellist')
