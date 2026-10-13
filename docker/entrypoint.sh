@@ -106,15 +106,15 @@ run_web() {
     DSH_WEB_LOGIN_TOKEN="$(node /usr/local/bin/dsh-web-token.js print)"
     export DSH_WEB_LOGIN_TOKEN
 
-    # Move only our retired built-in rows out of persistent bundle selection.
-    # Old dependency pins and pnpm-lock.yaml remain untouched, so this does
-    # not invoke the third-party installer or impact unrelated plugins.
-    prepare_native_web_plugins
-
-    # Upstream DSH accepts one --patch flag. Consolidate the bind fix and
-    # enabled built-in overlays into a single native patch file.
+    # Validate every image-owned bundle and compose the native loader patch
+    # BEFORE touching any persistent Web Profile configuration. A missing
+    # plugin bundle or invalid feature flag must leave user data unchanged.
     local merged_patch
     merged_patch="$(compose_native_web_patch)"
+
+    # Retire only old built-in bundle selections, preserving third-party
+    # dependencies and pnpm lockfile. The original manifest is backed up.
+    prepare_native_web_plugins
     args+=(--patch "$merged_patch")
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
