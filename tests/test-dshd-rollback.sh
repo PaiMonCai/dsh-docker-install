@@ -83,6 +83,7 @@ restore_previous_dsh_container dsh-rollback >"$tmp/out"
 [[ -z "${mock_existing[dsh-rollback]:-}" ]]
 [[ -n "${mock_existing[dsh-rollback-failed]:-}" ]]
 
+real_create_container="$(declare -f create_container)"
 pull_best_image() { DSH_IMAGE=new-sha; }
 create_container() { [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]] && return 1; }
 prev_saved="$saved"
@@ -100,6 +101,7 @@ if wait_upgrade_healthy >"$tmp/out" 2>&1; then
   echo "unhealthy container unexpectedly passed upgrade check" >&2; exit 1
 fi
 
+eval "$real_create_container"
 # Integration-level failure: create_container stages the old Docker container,
 # brings up a mock candidate, then fails its health gate and restores old dsh.
 unset 'mock_existing[dsh-rollback-failed]' 'mock_running[dsh-rollback-failed]' \
