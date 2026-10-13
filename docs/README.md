@@ -8,3 +8,5 @@ DSH Docker 的根 README 只负责项目定位、快速开始和主要入口。�
 - [自定义模型推理等级](reasoning-editor.md)：Models 页 `reasoningEfforts` 编辑器；Composer 保持 DSH 原版交互。
 - [镜像构建与自动更新](ci.md)：Standard / Research CI、GHCR 发布和 DSH 版本自动更新。
 - [Research Edition](../research/README.md)：Research Engine、Economics Pack、Dashboard、V2 架构与 RC Gate。
+
+- [Docker 内置逆向工程 Agent（dsh-purge × REA）](reverse-agent.md)
