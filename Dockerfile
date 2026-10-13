@@ -213,6 +213,8 @@ COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
 # Keep the source module name beside the health probe for Node require().
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
+COPY docker/dsh-plugin-doctor.js /usr/local/bin/dsh-plugin-doctor.js
+COPY tests/test-web-browser-e2e.cjs /usr/local/bin/test-dsh-web-browser-e2e.cjs
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/compose-native-web-patch.js /usr/local/bin/compose-dsh-native-web-patch.js
@@ -235,6 +237,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && node --check /usr/local/bin/compose-dsh-native-web-patch.js \
+ && node --check /usr/local/bin/dsh-plugin-doctor.js \
+ && node --check /usr/local/bin/test-dsh-web-browser-e2e.cjs \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
