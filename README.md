@@ -26,7 +26,7 @@ DSH Standard
    └─ Reverse Edition（独立容器；全量 dsh-purge）
 ```
 
-Reverse Edition 的入口为 [独立逆向镜像指南](docs/reverse-edition.md)。不要把完整 dsh-purge 加载到现有 Standard 容器；其宿主级补丁不能依靠预设选择器隔离。
+Reverse Edition 的入口为 [独立逆向镜像指南](docs/reverse-edition.md)。 正式发布后可通过 `bash install.sh reverse` / `dshd reverse install` 在独立数据目录中安装，通过 `dshd reverse update` 更新；安装脚本不会用 Reverse 覆盖已有 Standard 的容器。不要把完整 dsh-purge 加载到现有 Standard 容器；其宿主级补丁不能依靠预设选择器隔离。
 
 ## 快速开始
 
