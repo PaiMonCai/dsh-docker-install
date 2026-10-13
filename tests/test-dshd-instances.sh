@@ -14,7 +14,7 @@ load_config
 DSH_NAME=dsh
 DSH_PORT=3082
 save_config
-grep -Fxq 'DSHD_INSTANCE_ID=' "$CONFIG_FILE"
+grep -q '^DSHD_INSTANCE_ID=' "$CONFIG_FILE"
 grep -Fxq 'DSH_PORT=3082' "$CONFIG_FILE"
 
 instance_validate_id my-research
