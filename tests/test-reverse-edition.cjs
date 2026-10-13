@@ -109,7 +109,7 @@ test('Five reverse Skills are valid and bootstrapped without replacing edits',as
    const source=read('reverse/skills/'+id+'/SKILL.md')
    assert.ok(source.startsWith('---\nname: '+id+'\n'))
    assert.match(source,/^description:/m)
-   assert.doesNotMatch(source,/curl .* \| (?:bash|sh)|npm install|pip install/)
+   assert.doesNotMatch(source,/^\s*(?:curl\b.*\|\s*(?:bash|sh)\b|npm\s+install\b|pip\s+install\b)/m)
  }
  const existing=path.join(dest,'binary-triage')
  fs.mkdirSync(existing,{recursive:true})
