@@ -19,6 +19,8 @@ function createHarness(initial = new Map()) {
     const panels = [...panelInput]
     const panelListeners = new Set()
     const selectedPanels = []
+    const activeListeners = new Set()
+    let activePanelId = null
     let cursor = 0
     let key = 'dock'
     const storage = {
@@ -40,7 +42,17 @@ function createHarness(initial = new Map()) {
       return React
     })
     manager.apply({
-      layout: { selectPanel(id) { selectedPanels.push(id) } },
+      layout: {
+        selectPanel(id) {
+          selectedPanels.push(id)
+          activePanelId = id
+          for (const cb of activeListeners) cb()
+        },
+        panelInfo: {
+          getSnapshot() { return { activePanelId } },
+          subscribe(fn) { activeListeners.add(fn); return () => activeListeners.delete(fn) },
+        },
+      },
       locale: { subscribe() { return () => {} } },
       slots: {
         inject(slot, cb) { cb() },
@@ -194,6 +206,11 @@ test('official panel list is mirrored and clicking a dock icon uses native layou
   app.buttons()[2].props.onClick()
   assert.deepEqual(app.selectedPanels, ['plugins', 'schedules', 'context-insights'])
   assert.equal(app.dock.getNativeCount(), 3)
+  assert.equal(app.buttons()[2].props['aria-current'], 'page')
+  assert.equal(app.buttons()[0].props['aria-current'], undefined)
+  const collapsed = app.render('sidebar.footer.action', { wide: false })
+  assert.equal(collapsed.props.style.width, '36px')
+  assert.equal(collapsed.props.style.flexWrap, 'wrap')
 })
 
 test('native panel discovery follows additions and removals without restarting dock', () => {
