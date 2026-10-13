@@ -96,7 +96,7 @@ COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
 COPY reverse/purge-ui/ /opt/dsh-reverse/purge-ui/
 # Reverse only: install the edition-aware entrypoint from this tree. The
 # Standard published image and its persistent DSH_HOME remain untouched.
-COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node /opt/dsh-reverse/generate-overlay.mjs \
  && node --check /opt/dsh-reverse/purge/lib/index.js \
  && node --check /opt/dsh-reverse/purge-ui/client.js \
@@ -105,6 +105,7 @@ RUN node /opt/dsh-reverse/generate-overlay.mjs \
  && node --check /opt/dsh-reverse/purge/lib/redteam/index.js \
  && node --check /opt/dsh-reverse/purge/lib/reverse/index.js \
  && bash -n /usr/local/bin/dsh-entrypoint \
+ && test -x /usr/local/bin/dsh-entrypoint \
  && DSH_HOME="$(mktemp -d)" dsh --profile web \
        --patch /opt/dsh-reverse/cordis.patch.yml --dump-config | grep -Fq 'dsh-purge' \
  && command -v rea && command -v jadx && command -v gdb \
