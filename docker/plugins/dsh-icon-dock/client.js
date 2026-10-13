@@ -154,6 +154,16 @@ window.__ModuleLoader__.load({
       setLocation(id, position) {
         if (!['dock', 'more', 'hidden'].includes(position)
           || !getAll().some(entry => entry.id === id)) return
+        // Selecting "快捷栏" for an item in More should actually promote it
+        // into the nine immediately visible slots, not leave it at the end.
+        if (position === 'dock' && locationOf(id) !== 'dock') {
+          const pinned = getAll().filter(item =>
+            item.id !== id && locationOf(item.id) === 'dock')
+          if (pinned.length >= 9) {
+            registry.arrange(id, pinned[8].id, 'dock')
+            return
+          }
+        }
         const location = { ...settings.location, [id]: position }
         const hidden = { ...settings.hidden }
         if (position === 'hidden') hidden[id] = true
@@ -168,6 +178,10 @@ window.__ModuleLoader__.load({
         const source = all.indexOf(id)
         if (source < 0 || (beforeId && !all.includes(beforeId))) return
         if (destination && !['dock', 'more'].includes(destination)) return
+        if (beforeId === id) {
+          if (destination) registry.setLocation(id, destination)
+          return
+        }
         const order = all.filter(item => item !== id)
         if (beforeId && beforeId !== id) {
           const insert = order.indexOf(beforeId)
