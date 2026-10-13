@@ -64,14 +64,27 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
   'name: dsh-purge/redteam/tools\n')
  write('purge/client.js','window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => ({}) });\n')
  write('purge-ui/index.js','export function apply(){}\n')
+ const hostModules=[
+   ['core','lib/index'], ['redteam','lib/redteam/index'],
+   ['redteam-store','lib/redteam/store'], ['redteam-ui','lib/redteam/ui'],
+   ['reverse','lib/reverse/index'], ['reverse-ui','lib/reverse/ui'],
+ ]
+ for(const [,source] of hostModules){
+   write('purge/'+source+'.js',"export const name='stub'; export const inject=[]; export function apply(){}\n")
+ }
  cp.execFileSync(process.execPath,[path.join(root,'reverse/generate-overlay.mjs')],
   {env:{...process.env,DSH_REVERSE_ROOT:tmp}})
  const made=fs.readFileSync(path.join(tmp,'cordis.patch.yml'),'utf8')
  assert.match(made,/hooksDenyBypass: true/)
  assert.match(made,/includeHarnessIdentity: false/)
- assert.match(made,/name: \.\/purge\/lib\/index\.js/)
- for(const mod of ['redteam/index','redteam/store','redteam/ui','reverse/index','reverse/ui'])
-   assert.ok(made.includes('name: ./purge/lib/'+mod+'.js'),mod)
+ assert.match(made,/name: \.\/host-modules\/core\/index\.js/)
+ for(const [id] of hostModules){
+   assert.ok(made.includes('name: ./host-modules/'+id+'/index.js'),id)
+   const pkg=JSON.parse(fs.readFileSync(path.join(tmp,'host-modules',id,'package.json'),'utf8'))
+   assert.equal(pkg.name,'dsh-reverse-'+id)
+   cp.execFileSync(process.execPath,['--check',path.join(tmp,'host-modules',id,'index.js')])
+ }
+ assert.equal(new Set(hostModules.map(([id])=>id)).size,6)
  assert.match(made,/dsh-reverse-purge-ui/)
  assert.match(made,/dsh-reverse-skill-bootstrap/)
  assert.equal(fs.readFileSync(path.join(tmp,'purge/cordis.patch.yml'),'utf8'),original)
