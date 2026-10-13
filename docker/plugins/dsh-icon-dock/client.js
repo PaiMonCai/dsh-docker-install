@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
     const entries = new Map()
     const nativePanels = new Map()
     let nativeComplete = false
+    let selectedPanel = null
     const listeners = new Set()
     const emit = () => {
       revision++
@@ -59,6 +60,7 @@ window.__ModuleLoader__.load({
       version: 1, subscribe, snapshot, getAll,
       getSettings: () => settings,
       getNativeCount: () => nativePanels.size,
+      getSelectedPanel: () => selectedPanel,
       getNativeCaptured: () => nativeComplete && settings.captureNative && nativePanels.size > 0,
       syncNative(rows, navigate) {
         if (!Array.isArray(rows) || typeof navigate !== 'function') return
@@ -127,6 +129,11 @@ window.__ModuleLoader__.load({
       },
       setSize(size) { save({ ...settings, size }) },
       setNativeCapture(captureNative) { save({ ...settings, captureNative: Boolean(captureNative) }) },
+      setSelectedPanel(id) {
+        if (selectedPanel === id) return
+        selectedPanel = id
+        emit()
+      },
       reset() { save({}) },
     }
     // Plugin evaluation order is not specified by DSH. Providers loaded first
@@ -198,10 +205,12 @@ window.__ModuleLoader__.load({
       return h('div', {
         className: 'dsh-icon-dock', role: 'group', 'aria-label': '快捷入口',
         style: {
-          width: '100%', display: 'flex', flexWrap: 'nowrap',
+          width: wide ? '100%' : '36px',
+          minWidth: wide ? 0 : '36px',
+          display: 'flex', flexWrap: 'wrap',
           gap: wide ? '8px' : '2px',
-          overflowX: 'auto', alignItems: 'center',
-          padding: wide ? '2px 8px' : '2px 0',
+          overflow: 'visible', alignItems: 'center',
+          padding: wide ? '2px 8px' : 0,
           boxSizing: 'border-box',
         },
       },
@@ -217,15 +226,18 @@ window.__ModuleLoader__.load({
       ...active.map(item => h('button', {
         key: item.id, type: 'button',
         'aria-label': item.label, title: item.label,
+        'aria-current': item.nativePanel && selectedPanel === item.panelId ? 'page' : undefined,
         onClick: item.onClick,
         style: {
-          flex: wide ? '0 0 38px' : '0 0 23px',
-          width: wide ? '38px' : '23px', minHeight: 34,
-          border: 'none', borderRadius: 9, background: 'transparent',
+          flex: wide ? '0 0 38px' : '0 0 17px',
+          width: wide ? '38px' : '17px', minHeight: wide ? 34 : 30,
+          border: 'none', borderRadius: 9,
+          background: item.nativePanel && selectedPanel === item.panelId
+            ? 'var(--dsw-alias-bg-secondary,rgba(128,128,128,.14))' : 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          padding: wide ? '5px 3px' : '5px 1px', cursor: 'pointer',
+          padding: wide ? '5px 3px' : 0, cursor: 'pointer',
         },
-      }, h(SvgIcon, { entry: item, size: wide ? settings.size : Math.min(18, settings.size) }))))
+      }, h(SvgIcon, { entry: item, size: wide ? settings.size : 16 }))))
     }
     function ManagerCard({ view }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
@@ -320,6 +332,16 @@ window.__ModuleLoader__.load({
           }, 'icon-dock: native sidebar mirror')
         }
         syncNativePanels()
+        const info = ctx.layout?.panelInfo
+        if (info?.getSnapshot && info?.subscribe) {
+          const updateSelection = () => {
+            registry.setSelectedPanel(info.getSnapshot()?.activePanelId ?? null)
+          }
+          const offInfo = info.subscribe(updateSelection)
+          updateSelection()
+          if (typeof ctx.effect === 'function') ctx.effect(
+            () => () => offInfo?.(), 'icon-dock: active native panel')
+        }
         ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
           name: 'sidebar.footer.action', id: 'dsh-docker.icon-dock', order: 440,
         }, IconDock))
