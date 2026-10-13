@@ -284,8 +284,23 @@ window.__ModuleLoader__.load({
     }
     function IconDock({ wide }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
-      const { primary, more } = getDockLayout(wide)
-      const takingOver = registry.getNativeCaptured()
+      const layout = getDockLayout(wide)
+      const { primary } = layout
+      const more = [...layout.more]
+      // A hidden Plugins page must never lock the user out of the manager
+      // that controls its visibility. Offer a recovery action inside More,
+      // not as a pinned icon, while the native sidebar is being replaced.
+      const nativePlugins = nativePanels.get('native-panel.plugins')
+      const nativeAvailable = registry.getNativeCaptured()
+      if (nativeAvailable && nativePlugins &&
+        locationOf(nativePlugins.id) === 'hidden') {
+        more.push({
+          ...nativePlugins, id: 'icon-dock.recovery',
+          label: '插件设置（恢复入口）',
+        })
+      }
+      const takingOver = nativeAvailable &&
+        (primary.length > 0 || more.length > 0 || Boolean(nativePlugins))
       if (!primary.length && !more.length && !takingOver) return null
       const activeIcon = item => h('button', {
         key: item.id, type: 'button',
