@@ -21,6 +21,15 @@ window.__ModuleLoader__.load({
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
     const snapshot = () => revision
 
+    // React.memo and React.forwardRef are React element types, even though
+    // their values are objects rather than ordinary component functions.
+    function isNativeIconComponent(component) {
+      return typeof component === 'function' ||
+        (component !== null && typeof component === 'object' &&
+          (component.$typeof === Symbol.for('react.memo') ||
+            component.$typeof === Symbol.for('react.forward_ref')))
+    }
+
     function normalize(value) {
       const input = value && typeof value === 'object' ? value : {}
       const hidden = {}
@@ -158,16 +167,18 @@ window.__ModuleLoader__.load({
             continue
           }
           const dockId = 'native-panel.' + id
-          // StoredEntry.component is the SAME icon React component rendered
-          // by upstream SidebarRoot for this panel (not an SVG copy).
-          // The original slot renderer would synthesize extra props for
-          // entries with inject/store/locale/children. Reuse directly only
-          // when none of those runtime-only dependencies are declared.
-          const nativeIcon = typeof panel.component === 'function'
-            && !panel.hasExtraProps ? panel.component : null
+          // Reuse the exact upstream React component. A locale-only entry
+          // can receive the original namespaced t() prop without reconstructing
+          // the other framework-injected/store/children props.
+          const nativeIcon = isNativeIconComponent(panel.component) &&
+            !panel.hasUnsupportedProps &&
+            (!panel.locale || typeof panel.translate === 'function')
+            ? panel.component : null
           next.set(dockId, {
             id: dockId, label: label.trim().slice(0, 80),
-            icon: 'grid', nativeIcon, nativePanel: true, panelId: id,
+            icon: 'grid', nativeIcon,
+            nativeTranslate: nativeIcon ? panel.translate : null,
+            nativePanel: true, panelId: id,
             order: 10 + (Number.isFinite(panel.order) ? panel.order : 0),
             onClick: () => navigate(id),
           })
@@ -177,7 +188,8 @@ window.__ModuleLoader__.load({
         if (complete === nativeComplete && prev.length === nextValues.length &&
           prev.every((item, i) => item.id === nextValues[i].id &&
             item.label === nextValues[i].label && item.order === nextValues[i].order &&
-            item.nativeIcon === nextValues[i].nativeIcon)) return
+            item.nativeIcon === nextValues[i].nativeIcon &&
+            item.nativeTranslate === nextValues[i].nativeTranslate)) return
         nativePanels.clear()
         for (const [id, entry] of next) nativePanels.set(id, entry)
         nativeComplete = complete
@@ -301,6 +313,7 @@ window.__ModuleLoader__.load({
       // this preserves upstream component identity and React hook semantics.
       if (entry.nativeIcon) return h(entry.nativeIcon, {
         size, active: entry.panelId === selectedPanel,
+        ...(entry.nativeTranslate ? { t: entry.nativeTranslate } : {}),
       })
       if (entry.renderIcon) {
         try { return entry.renderIcon({ size, h }) }
@@ -746,12 +759,18 @@ window.__ModuleLoader__.load({
             let label = options.label
             try { label = typeof label === 'function' ? label() : label }
             catch { label = null }
+            const locale = typeof entry.locale === 'string' ? entry.locale : null
+            let translate = null
+            if (locale) {
+              try { translate = ctx.locale?.bind?.(locale) || null }
+              catch { /* An unavailable dictionary uses the safe fallback. */ }
+            }
             return {
               id: options.id, label,
               order: options.order,
-              component: entry.component,
-              hasExtraProps: Boolean(entry.inject || entry.store ||
-                entry.locale || entry.children),
+              component: entry.component, locale, translate,
+              hasUnsupportedProps: Boolean(entry.inject || entry.store ||
+                entry.children),
             }
           })
           registry.syncNative(list, id => ctx.layout.selectPanel(id))
