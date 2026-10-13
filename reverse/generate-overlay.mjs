@@ -5,7 +5,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-const root='/opt/dsh-reverse'
+const root=process.env.DSH_REVERSE_ROOT || '/opt/dsh-reverse'
 const purge=join(root,'purge')
 const source=readFileSync(join(purge,'cordis.patch.yml'),'utf8')
 const mappings=[
