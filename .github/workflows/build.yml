@@ -19,7 +19,9 @@ on:
       - tests/**
       - .github/workflows/build.yml
   pull_request:
-    branches: [main]
+    # Allow stacked stage-two PR to exercise full Docker/Web gating before
+    # the stage-one native-loader PR is merged into main.
+    branches: [main, fix/icon-dock-install-policy-diagnostics]
     paths:
       - Dockerfile
       - docker/**
