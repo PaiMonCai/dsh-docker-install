@@ -105,25 +105,20 @@ for(const [file,from,to] of [
   if(content.split(from).length!==2)throw Error('Pinned Agent tools drift: '+file)
   writeFileSync(p,content.replace(from,to))
 }
-// DSH 0.2+ declarative agent-preset-registry does not discover legacy
-// dynamic registration from unrelated Cordis fibers. Embed the complete
-// upstream reverse preset as a native agent-preset row: no tools are omitted.
+// DSH 0.2+ understands declarative Agent presets. Embed all of the upstream
+// reverse preset tools as a normal DSH registry declaration.
 const presetDirectory=join(purge,'presets','reverse-engineering')
 const presetBody=readFileSync(join(presetDirectory,'agent.cordis.yml'),'utf8').trimEnd()
 const display=readFileSync(join(presetDirectory,'preset.yml'),'utf8')
 const field=(key)=>{
-  const match=display.match(new RegExp('^'+key+':\\s*(.+)
-const input=readFileSync(join(purge,'client.js'),'utf8')
-if(!input.startsWith(old)||input.split(old).length!==2)
-  throw Error('Pinned dsh-purge UI bundle has changed')
-writeFileSync(join(root,'purge-ui','client.js'),
- input.replace(old,'window.__ModuleLoader__.load({ id: "dsh-reverse-purge-ui", factory:'))
-console.log('Full dsh-purge composition and browser UI embedded')
-,'m'))
-  if(!match)throw Error('Upstream reverse preset metadata lacks '+key)
-  return match[1].trim().replace(/^['"]|['"]$/g,'')
+  const row=display.split('\n').find(line=>line.startsWith(key+':'))
+  if(!row)throw Error('Upstream reverse preset metadata lacks '+key)
+  const value=row.slice(key.length+1).trim()
+  return value.replace(/^['"]|['"]$/g,'')
 }
-const pluginLines=presetBody.split('\n').map(x=>x.trim()? '          '+x : '').join('\n')
+const pluginLines=presetBody.split('\n')
+  .map(line=>line.trim()?'          '+line:'')
+  .join('\n')
 const embedded=pluginLines.replace(
   'name: ../../lib/reverse/tools.js',
   'name: file:///opt/dsh-reverse/purge/lib/reverse/tools.js'
@@ -131,7 +126,7 @@ const embedded=pluginLines.replace(
 if(embedded===pluginLines)throw Error('Reverse tool file URL was not adapted')
 patch+=[
   '',
-  '# Declarative reverse preset for DSH 0.2+ (the source YAML is authoritative).',
+  '# Declarative reverse preset for the current DSH Agent Preset Registry.',
   '- insert:',
   '    - id: dsh-reverse-preset-declaration',
   "      name: '@deepseek-ai/dsh-agent-preset'",
@@ -152,4 +147,4 @@ if(!input.startsWith(old)||input.split(old).length!==2)
   throw Error('Pinned dsh-purge UI bundle has changed')
 writeFileSync(join(root,'purge-ui','client.js'),
  input.replace(old,'window.__ModuleLoader__.load({ id: "dsh-reverse-purge-ui", factory:'))
-console.log('Full dsh-purge composition and browser UI embedded')
+console.log('Full dsh-purge composition, declarative Agent and browser UI embedded')
