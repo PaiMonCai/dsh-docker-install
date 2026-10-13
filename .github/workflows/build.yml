@@ -119,6 +119,9 @@ jobs:
           sh -n docker/cn-mirror.sh
           node --check docker/plugins/dsh-reasoning-editor/index.js
           node --check docker/plugins/dsh-reasoning-editor/client.js
+          node --check docker/plugins/dsh-reverse-agent/index.js
+          node --check docker/plugins/dsh-reverse-agent/build-client.cjs
+          node --test tests/test-reverse-agent.cjs
           node --check docker/patch-remote-settings.js
           node --check docker/patch-workspace-picker-home.js
           node --check docker/patch-plugin-hub-origin.js
