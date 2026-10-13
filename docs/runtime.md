@@ -256,7 +256,7 @@ Token 仅进入 Web 进程环境，未进入 Docker 配置的环境变量列表�
 
 ## Web 原生导航图标化
 
-`dsh-docker-icon-dock` 默认自动接管上游注册到 `sidebar.panellist` 的原生导航（包括「插件」「自动化任务」及其他接入该插槽的页面），通过 `ctx.layout.selectPanel(id)` 打开原生页面。原本位于新会话下方的文字导航由 Icon Dock 统一显示为侧边栏底部小图标，可隐藏、排序和调整大小。兼容不完整时回退到原生文字导航；「插件 → 快捷入口管理 → 接管官方导航」支持手动关闭接管。实现和限制参见 [Icon Dock](icon-dock.md)。
+`dsh-docker-icon-dock` 默认自动接管上游注册到 `sidebar.panellist` 的原生导航（包括「插件」「自动化任务」及其他接入该插槽的页面），从同一注册项**复用官方原始 React Icon 组件**并通过 `ctx.layout.selectPanel(id)` 打开原生页面；仅无法安全渲染的组件使用后备图标。原本位于新会话下方的文字导航由 Icon Dock 统一显示为侧边栏底部小图标，可隐藏、排序和调整大小。兼容不完整时回退到原生文字导航；「插件 → 快捷入口管理 → 接管官方导航」支持手动关闭接管。实现和限制参见 [Icon Dock](icon-dock.md)。
 
 ## Web 会话管理（删除 / 永久删除 / 回收站）
 
