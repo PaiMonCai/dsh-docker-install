@@ -75,7 +75,7 @@ printf 'reverse-installer-test: invalid Reverse state rejected\n'
 mkdir -p "$TMP/bin"
 cat >"$TMP/bin/bash" <<'EOS'
 #!/bin/sh
-printf 'action=%s\n' "$1"
+printf 'action=%s\n' "$2"
 printf 'state=%s\n' "$DSHD_STATE_DIR"
 printf 'edition=%s\n' "$DSH_EDITION"
 printf 'image=%s\n' "$DSH_IMAGE"
