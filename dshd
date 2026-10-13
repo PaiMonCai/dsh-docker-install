@@ -55,6 +55,20 @@ else
   DEFAULT_WORKSPACE="$HOME/dsh/workspace"
   DEFAULT_DATA_DIR="$HOME/dsh/data"
 fi
+# Named instances use their own defaults. The legacy default and Reverse paths
+# retain their historical layout for zero-migration upgrades.
+if [[ -n "${DSHD_INSTANCE_ID:-}" ]]; then
+  [[ "$DSHD_INSTANCE_ID" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || {
+    printf 'Invalid DSHD_INSTANCE_ID: %s\n' "$DSHD_INSTANCE_ID" >&2; exit 2;
+  }
+  if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    DEFAULT_WORKSPACE="/opt/dsh/instances/$DSHD_INSTANCE_ID/workspace"
+    DEFAULT_DATA_DIR="/opt/dsh/instances/$DSHD_INSTANCE_ID/data"
+  else
+    DEFAULT_WORKSPACE="$HOME/dsh/instances/$DSHD_INSTANCE_ID/workspace"
+    DEFAULT_DATA_DIR="$HOME/dsh/instances/$DSHD_INSTANCE_ID/data"
+  fi
+fi
 CONFIG_FILE="${DSHD_CONFIG_FILE:-$STATE_DIR/config.env}"
 CONTAINER_ENV_FILE="${DSHD_CONTAINER_ENV_FILE:-$STATE_DIR/container.env}"
 MOUNTS_FILE="${DSHD_MOUNTS_FILE:-$STATE_DIR/mounts.conf}"
@@ -406,6 +420,7 @@ detect_docker_socket() {
 
 load_config() {
   local legacy_storage=false requested_volume="${DSH_VOLUME:-}" requested_data_dir="${DSH_DATA_DIR:-}"
+  local requested_instance_id="${DSHD_INSTANCE_ID:-}"
   DSH_EDITION="${DSH_EDITION:-}"
   DSH_RESEARCH_PACK="${DSH_RESEARCH_PACK:-}"
   DSH_IMAGE="${DSH_IMAGE:-$DEFAULT_IMAGE}"
@@ -451,6 +466,9 @@ load_config() {
       legacy_storage=true
     fi
     source "$CONFIG_FILE"
+  fi
+  if [[ -n "$requested_instance_id" && "${DSHD_INSTANCE_ID:-}" != "$requested_instance_id" ]]; then
+    die "实例配置标识不匹配：$CONFIG_FILE（期待 $requested_instance_id）"
   fi
 
   # 兼容旧安装：历史 config.env 只有 DSH_VOLUME，没有存储模式。
@@ -554,6 +572,7 @@ save_config() {
   local tmp
   tmp="$(mktemp)"
   {
+    printf 'DSHD_INSTANCE_ID=%q\n' "${DSHD_INSTANCE_ID:-}"
     printf 'DSH_EDITION=%q\n' "$DSH_EDITION"
     printf 'DSH_RESEARCH_PACK=%q\n' "$DSH_RESEARCH_PACK"
     printf 'DSH_IMAGE=%q\n' "$DSH_IMAGE"
@@ -2640,7 +2659,16 @@ pull_best_image() {
 }
 
 container_exists() {
-  docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "$DSH_NAME"
+  docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "$DSH_NAME" || return 1
+  # Never adopt, stop or replace a container owned by another named instance.
+  local owner=""
+  owner="$(docker_cmd inspect -f '{{index .Config.Labels "io.caicailo.dsh.instance"}}' "$DSH_NAME" 2>/dev/null || true)"
+  [[ "$owner" == "<no value>" ]] && owner=""
+  if [[ -n "${DSHD_INSTANCE_ID:-}" && "$owner" != "$DSHD_INSTANCE_ID" ]]; then
+    die "容器 $DSH_NAME 的实例标签不匹配（实际: ${owner:-未标记}），拒绝接管。"
+  elif [[ -z "${DSHD_INSTANCE_ID:-}" && -n "$owner" ]]; then
+    die "容器 $DSH_NAME 属于实例 $owner，当前默认管理器拒绝接管。"
+  fi
 }
 container_running() {
   docker_cmd ps --format '{{.Names}}' | grep -Fxq "$DSH_NAME"
@@ -2726,6 +2754,7 @@ create_container() {
   local args=(
     run -d
     --name "$DSH_NAME"
+    --label "io.caicailo.dsh.instance=${DSHD_INSTANCE_ID:-}"
     --restart unless-stopped
     --shm-size "$DSH_SHM_SIZE"
     -p "${DSH_BIND_ADDR}:${DSH_PORT}:3080"
@@ -3008,7 +3037,7 @@ interactive_config() {
       DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$REVERSE_IMAGE"
       info "独立 Reverse Edition：使用隔离的管理配置、端口与工作区"
-    elif is_tty; then
+    elif is_tty && [[ -z "${DSHD_INSTANCE_EDITION:-}" ]]; then
       heading "DSH 版本"
       cat <<'EOF'
   1) Standard  通用开发版
@@ -3488,7 +3517,7 @@ cmd_install() {
 
   # 先落盘：后面的镜像拉取 / 容器创建即使失败，用户刚才的输入也不会丢。
   save_config
-  install_self
+  if [[ -z "${DSHD_INSTANCE_ID:-}" ]]; then install_self; fi
 
   if ! pull_best_image; then
     warn "配置已保存到 $CONFIG_FILE，但镜像尚未就绪。"
@@ -5286,7 +5315,9 @@ cmd_uninstall() {
 
   if [[ -d "$DSH_WORKSPACE" ]] && confirm "删除工作区 $DSH_WORKSPACE？" N; then as_root rm -rf "$DSH_WORKSPACE"; ok "工作区已删除"; fi
   if confirm "删除 dshd 配置目录 $STATE_DIR？" N; then rm -rf "$STATE_DIR"; ok "配置目录已删除"; fi
-  if [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"; fi
+  if [[ -z "${DSHD_INSTANCE_ID:-}" && "${DSHD_REVERSE_MODE:-0}" != "1" ]]; then
+    if [[ -e /usr/local/bin/dshd ]] && confirm "删除 dshd 命令本身？" N; then as_root rm -f /usr/local/bin/dshd; ok "dshd 已删除"; fi
+  fi
 }
 
 print_help() {
@@ -5296,6 +5327,10 @@ dshd - DeepSeek Harness Docker 管理器
 用法:
   dshd                     打开交互式运维菜单
   dshd install             首次交互安装
+  dshd instances           列出所有独立实例（含原默认实例与旧 Reverse）
+  dshd instance add ID [standard|research|research-economics|reverse]  新增独立实例
+  dshd -i ID status         查看指定实例状态（同样支持 update/backup/logs/menu 等）
+  dshd instance ID update  更新指定实例
   dshd status              查看状态
   dshd start|stop|restart  启停/重启
   dshd logs                实时日志
@@ -5493,7 +5528,7 @@ menu_render_main() {
   [08] 修改完整配置                     [09] DeepSeek API / Base URL
   [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
   [11] Docker 项目管理权限              [27] 国际网络 / sing-box
-  [28] Web Search / SearXNG
+  [28] Web Search / SearXNG          [29] 多实例管理
   [21] Standard / Research / Reverse 版本     [22] Research Pack 切换
 @开发与数据
   [12] 查看容器开发环境                 [13] Web 登录 Token 管理
@@ -5561,6 +5596,7 @@ menu() {
       26) run_action cmd_mounts_menu ;;
       27) run_action cmd_proxy ;;
       28) run_action cmd_search_menu ;;
+      29) run_action cmd_instances_menu ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -5571,8 +5607,164 @@ menu() {
   done
 }
 
+
+# Multi-instance registry. The original $STATE_DIR remains the default instance;
+# $STATE_DIR-reverse is supported for older dedicated Reverse installations.
+instance_validate_id() {
+  [[ "$1" =~ ^[a-z][a-z0-9-]{0,31}$ ]] && [[ "$1" != default ]]
+}
+instance_config_dir() {
+  printf '%s/instances/%s' "$STATE_DIR" "$1"
+}
+instance_config_exists() {
+  [[ -f "$(instance_config_dir "$1")/config.env" ]]
+}
+instance_assert_registered() {
+  local id="$1" file
+  instance_validate_id "$id" || die "实例名称必须为小写字母开头的 1-32 位字母、数字或连字符，且不能为 default。"
+  file="$(instance_config_dir "$id")/config.env"
+  [[ -f "$file" ]] || die "实例 $id 未安装。请执行 dshd instance add $id [standard|research|research-economics|reverse]。"
+  grep -Fxq "DSHD_INSTANCE_ID=$id" "$file" ||
+    die "实例 $id 配置标识缺失或不正确，拒绝接管：$file"
+}
+instance_exec() {
+  local id="${1:-}" self="${BASH_SOURCE[0]}" directory
+  shift || true
+  [[ -f "$self" ]] || die "无法定位 dshd 可执行文件。"
+  if [[ "$id" == reverse && ! -f "$(instance_config_dir reverse)/config.env" && -f "$STATE_DIR-reverse/config.env" ]]; then
+    cmd_reverse_instance "${1:-menu}" "${@:2}"
+    return
+  fi
+  instance_assert_registered "$id"
+  directory="$(instance_config_dir "$id")"
+  env -u DSHD_LIB_ONLY -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
+    -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
+    "DSHD_STATE_DIR=$directory" "DSHD_INSTANCE_ID=$id" \
+    bash "$self" "${@:-menu}"
+}
+instance_port_reserved() {
+  local port="$1" file
+  for file in "$STATE_DIR/config.env" "$STATE_DIR-reverse/config.env" "$STATE_DIR"/instances/*/config.env; do
+    [[ -f "$file" ]] || continue
+    grep -Fxq "DSH_PORT=$port" "$file" && return 0
+  done
+  return 1
+}
+instance_next_port() {
+  local port
+  for port in $(seq 3082 3199); do
+    if ! instance_port_reserved "$port" && ! port_in_use "$port"; then
+      printf '%s' "$port"
+      return 0
+    fi
+  done
+  die "3082-3199 内没有空闲端口，请释放端口后重试。"
+}
+instance_add() {
+  local id="${1:-}" edition="${2:-standard}" image pack=none port self
+  instance_validate_id "$id" || die "实例名称必须为小写字母开头的 1-32 位字母、数字或连字符，且不能为 default。"
+  [[ ! -e "$(instance_config_dir "$id")" ]] || die "实例 $id 已存在，请通过 dshd -i $id 管理。"
+  if [[ "$id" == reverse && -f "$STATE_DIR-reverse/config.env" ]]; then
+    die "已有历史 Reverse 实例，请使用 dshd reverse 管理。"
+  fi
+  case "$edition" in
+    standard) image="$DEFAULT_IMAGE" ;;
+    research) image="$RESEARCH_IMAGE" ;;
+    research-economics) image="$RESEARCH_ECONOMICS_IMAGE"; pack=economics ;;
+    reverse) image="$REVERSE_IMAGE" ;;
+    *) die "未知 Edition: $edition（支持 standard/research/research-economics/reverse）" ;;
+  esac
+  local flavor="$edition"
+  [[ "$edition" == research-economics ]] && edition=research
+  ensure_docker
+  if docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "dsh-$id"; then
+    die "容器 dsh-$id 已存在；请先核实其所有权，不允许覆盖。"
+  fi
+  port="$(instance_next_port)"
+  self="${BASH_SOURCE[0]}"
+  [[ -f "$self" ]] || die "无法定位 dshd 可执行文件。"
+  info "创建实例 $id（$flavor），使用容器 dsh-$id、建议端口 $port"
+  env -u DSHD_LIB_ONLY -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
+    -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
+    "DSHD_STATE_DIR=$(instance_config_dir "$id")" \
+    "DSHD_INSTANCE_ID=$id" "DSHD_INSTANCE_EDITION=$edition" \
+    "DSHD_REVERSE_MODE=$([[ "$edition" == reverse ]] && echo 1 || echo 0)" \
+    "DSH_NAME=dsh-$id" "DSH_PORT=$port" \
+    "DSH_EDITION=$edition" "DSH_RESEARCH_PACK=$pack" "DSH_IMAGE=$image" \
+    "DSH_DOCKER_ACCESS=false" bash "$self" install
+}
+instance_show_one() {
+  local id="$1" cfg="$2" record name edition port state
+  [[ -f "$cfg" ]] || return 0
+  record="$(
+    unset DSH_NAME DSH_EDITION DSH_PORT
+    # Each config is already sourced by its individual manager.
+    source "$cfg"
+    printf '%s|%s|%s' "${DSH_NAME:-unknown}" "${DSH_EDITION:-standard}" "${DSH_PORT:-?}"
+  )" || { warn "无法读取 $id 的配置"; return 1; }
+  IFS='|' read -r name edition port <<<"$record"
+  state="not-created"
+  if docker_cmd inspect "$name" >/dev/null 2>&1; then
+    state="$(docker_cmd inspect -f '{{.State.Status}}' "$name" 2>/dev/null || printf 'unknown')"
+  fi
+  printf '%-19s %-22s %-12s %-7s %s\n' "$id" "$name" "$edition" "$port" "$state"
+}
+cmd_instances() {
+  local cfg id
+  printf '\n%-19s %-22s %-12s %-7s %s\n' "INSTANCE" "CONTAINER" "EDITION" "PORT" "STATE"
+  instance_show_one default "$STATE_DIR/config.env"
+  instance_show_one reverse "$STATE_DIR-reverse/config.env"
+  for cfg in "$STATE_DIR"/instances/*/config.env; do
+    [[ -f "$cfg" ]] || continue
+    id="${cfg%/config.env}"
+    id="${id##*/}"
+    instance_show_one "$id" "$cfg"
+  done
+}
+cmd_instance() {
+  local action="${1:-list}" id
+  shift || true
+  case "$action" in
+    list|ls|status) cmd_instances ;;
+    add|create) instance_add "$@" ;;
+    *)
+      id="$action"
+      instance_exec "$id" "${@:-menu}"
+      ;;
+  esac
+}
+cmd_instances_menu() {
+  local choice id edition
+  while true; do
+    cmd_instances
+    printf '\n  [a] 新建实例  [s] 选择实例  [0] 返回\n'
+    menu_read choice '请选择: ' || return 0
+    case "$choice" in
+      0|'') return 0 ;;
+      a|A)
+        menu_read id '新实例 ID: ' || return 0
+        menu_read edition 'Edition [standard/research/research-economics/reverse] (默认 standard): ' || return 0
+        run_action instance_add "$id" "${edition:-standard}"
+        ;;
+      s|S)
+        menu_read id '实例 ID（或 reverse 历史实例）: ' || return 0
+        [[ "$id" == default ]] && { info "当前已在默认实例菜单。"; continue; }
+        run_action instance_exec "$id" menu
+        ;;
+      *) warn '未知选项' ;;
+    esac
+  done
+}
+
 main() {
   local cmd="${1:-menu}"
+  if [[ "$cmd" == "-i" || "$cmd" == "--instance" ]]; then
+    [[ $# -ge 2 ]] || die "缺少实例 ID，用法: dshd -i ID status"
+    local selected="$2"
+    shift 2
+    instance_exec "$selected" "${@:-menu}"
+    return
+  fi
 
   # 除 help/version 这类纯本地命令外，每次调用都先检查脚本自身是否有新版本。
   case "$cmd" in
@@ -5594,6 +5786,8 @@ main() {
     config) cmd_config ;;
     edition) shift; cmd_edition "${1:-show}" ;;
     reverse) shift; cmd_reverse_instance "${@:-status}" ;;
+    instances|list-instances) cmd_instances ;;
+    instance) shift; cmd_instance "$@" ;;
     research-pack|pack) shift; cmd_research_pack "${1:-show}" ;;
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
