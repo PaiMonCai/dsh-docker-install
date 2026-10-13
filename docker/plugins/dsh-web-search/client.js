@@ -54,17 +54,33 @@ window.__ModuleLoader__.load({
       const [secret, setSecret] = useState('')
       const [busy, setBusy] = useState(false)
       const [message, setMessage] = useState('')
+      // Plugin list summary rows must not fetch runtime settings or credentials.
+      // Keep the Settings client ref current without re-reading and discarding
+      // unsaved form inputs if DSH recreates its remote proxy while rendering.
+      const credentialsRef = React.useRef(remote)
+      credentialsRef.current = remote
       useEffect(() => {
+        if (view === 'summary') return undefined
         let live = true
         api().then(value => {
           if (live) { setSettings(value.settings); setRunning(value.running); if (value.error) setMessage(value.error) }
         }).catch(e => { if (live) setMessage(e.message) })
-        remote.describe(['BRAVE_SEARCH_API_KEY']).then(result => {
+        credentialsRef.current.describe(['BRAVE_SEARCH_API_KEY']).then(result => {
           if (live && result.ok) setInfo(result.value.BRAVE_SEARCH_API_KEY)
         }).catch(() => {})
         return () => { live = false }
-      }, [remote])
+      }, [view])
       if (view === 'summary') return '内置 SearXNG · 共享 DSH 网络与代理 · Brave 可选备用'
+      const refreshStatus = async () => {
+        setBusy(true); setMessage('')
+        try {
+          const value = await api()
+          if (value.settings) setSettings(value.settings)
+          setRunning(Boolean(value.running))
+          setMessage(value.error || '状态已刷新。')
+        } catch (e) { setMessage(e.message || '状态刷新失败。') }
+        finally { setBusy(false) }
+      }
       const reloadKey = async () => {
         const result = await remote.describe(['BRAVE_SEARCH_API_KEY'])
         if (result.ok) setInfo(result.value.BRAVE_SEARCH_API_KEY)
@@ -111,7 +127,7 @@ window.__ModuleLoader__.load({
           h('div', { style: styles.row },
             h('strong', null, '运行状态：', running ? '运行中' : '未运行'),
             h('button', { type: 'button', style: styles.btn, disabled: busy,
-              onClick: () => { void api().then(result => { setRunning(result.running);setSettings(result.settings) }) } },
+              onClick: () => { void refreshStatus() } },
               '刷新'),
             h('button', { type: 'button', style: styles.btn, disabled: busy || !settings?.enabled,
               onClick: () => { void action('test') } }, '测试搜索'),
