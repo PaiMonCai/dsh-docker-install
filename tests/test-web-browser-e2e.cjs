@@ -5,13 +5,19 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const net = require('node:net')
 const { chromium } = require('/usr/local/lib/node_modules/playwright')
 const { resolveBindHost } = require('/usr/local/bin/resolve-bind-host.js')
 
 const tokenFile = path.join(process.env.DSH_HOME || '/root/.dsh',
   '.dshd-web-login-token.json')
 const port = Number(process.env.DSH_PORT || '3080')
-const base = 'http://' + resolveBindHost(process.env.DSH_BIND_HOST || '') + ':' + port
+const bindHost = resolveBindHost(process.env.DSH_BIND_HOST || '')
+// Web binds to a concrete Docker-interface address while its trusted-host
+// policy permits localhost. A private loopback-only TCP relay lets real
+// Chromium send the correct Host header without relaxing server security.
+let proxy
+let base
 const token = JSON.parse(fs.readFileSync(tokenFile, 'utf8')).token
 if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) throw Error('invalid CI login token')
 
@@ -20,6 +26,19 @@ let browser
 let page
 
 async function run() {
+  proxy = net.createServer(client => {
+    const upstream = net.connect({ host: bindHost, port })
+    const close = () => { client.destroy(); upstream.destroy() }
+    client.on('error', close)
+    upstream.on('error', close)
+    client.pipe(upstream)
+    upstream.pipe(client)
+  })
+  await new Promise((resolve, reject) => {
+    proxy.once('error', reject)
+    proxy.listen(0, '127.0.0.1', resolve)
+  })
+  base = 'http://127.0.0.1:' + proxy.address().port
   browser = await chromium.launch({
     headless: true, executablePath: process.env.CHROME_BIN || '/usr/local/bin/chromium',
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
@@ -156,4 +175,9 @@ run().catch(async error => {
   }
   console.error('Browser E2E FAIL: ' + String(error.message).replaceAll(token, '[REDACTED]'))
   process.exitCode = 1
-}).finally(async () => { if (browser) await browser.close() })
+}).finally(async () => {
+  if (browser) await browser.close()
+  if (proxy) {
+    await new Promise(resolve => proxy.close(resolve))
+  }
+})
