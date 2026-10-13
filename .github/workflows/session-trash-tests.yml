@@ -7,6 +7,7 @@ on:
       - docker/plugins/dsh-icon-dock/**
       - docker/prepare-native-web-plugins.js
       - tests/test-icon-dock.cjs
+      - tests/test-dshd-rollback.sh
       - tests/test-native-web-plugins.sh
       - tests/test-session-manager-web.mjs
       - tests/test-session-trash-ui.cjs
