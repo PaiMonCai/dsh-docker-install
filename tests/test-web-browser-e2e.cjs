@@ -104,6 +104,15 @@ async function run() {
   const firstRow = boxes.filter(b => Math.round(b.y) === Math.min(...boxes.map(x => Math.round(x.y))))
   assert.equal(firstRow.length, 5, 'wide dock must fit five icons per row')
 
+  // Fresh DSH Profiles can open an upstream onboarding/workspace modal
+  // on first visit. This modal deliberately intercepts pointer events.
+  // DSH's official Modal closes on its backdrop; dismiss it through a
+  // real user click rather than Playwright force-clicking through the mask.
+  const startupBackdrop = page.locator('[role="presentation"] > [aria-hidden="true"]')
+  if (await startupBackdrop.first().isVisible().catch(() => false)) {
+    await startupBackdrop.first().click()
+    await startupBackdrop.first().waitFor({ state: 'hidden', timeout: 5000 })
+  }
   await buttons.last().click()
   const menu = page.getByRole('menu', { name: '更多快捷入口' })
   await menu.waitFor({ state: 'visible' })
