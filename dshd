@@ -2645,6 +2645,35 @@ health_state() {
   docker_cmd inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$DSH_NAME" 2>/dev/null || printf 'unknown'
 }
 
+# A kept container owns the old image's immutable filesystem and Docker
+# configuration. The persistent sessions/credentials/workspace are SHARED and
+# are never restored or overwritten during an automatic rollback.
+restore_previous_dsh_container() {
+  local previous="$1"
+  if container_exists; then docker_cmd rm -f "$DSH_NAME" >/dev/null || return 1; fi
+  docker_cmd rename "$previous" "$DSH_NAME" || return 1
+  if ! docker_cmd start "$DSH_NAME" >/dev/null; then
+    err "旧容器已恢复名称但未能启动，请执行 dshd logs 查看错误。"
+    return 1
+  fi
+  ok "旧版容器已恢复；原持久化数据未回滚或覆盖。"
+}
+
+wait_upgrade_healthy() {
+  local retry status
+  for retry in $(seq 1 "${DSHD_UPGRADE_HEALTH_RETRIES:-60}"); do
+    if ! container_running; then return 1; fi
+    status="$(health_state)"
+    case "$status" in
+      healthy) return 0 ;;
+      unhealthy) return 1 ;;
+      *) sleep "${DSHD_UPGRADE_HEALTH_INTERVAL:-2}" ;;
+    esac
+  done
+  err "新版健康状态在规定时间内未变为 healthy（当前：$(health_state)）。"
+  return 1
+}
+
 create_container() {
   if ! mkdir -p "$DSH_WORKSPACE" 2>/dev/null; then
     as_root mkdir -p "$DSH_WORKSPACE"
@@ -2665,7 +2694,22 @@ create_container() {
     proxy_start_sidecar
   fi
 
-  if container_exists; then
+  local rollback_name="${DSH_NAME}-rollback"
+  local preserved_previous=0
+  if [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]] && container_exists; then
+    if docker_cmd inspect "$rollback_name" >/dev/null 2>&1; then
+      err "旧版回滚容器 $rollback_name 已存在；请先执行 dshd rollback 或 dshd rollback clear，再更新。"
+      return 1
+    fi
+    info "保留旧版容器为 $rollback_name（与新版共享原持久数据卷）..."
+    docker_cmd stop "$DSH_NAME" >/dev/null || return 1
+    if ! docker_cmd rename "$DSH_NAME" "$rollback_name"; then
+      docker_cmd start "$DSH_NAME" >/dev/null || true
+      err "旧容器重命名失败，已尝试恢复运行。"
+      return 1
+    fi
+    preserved_previous=1
+  elif container_exists; then
     info "移除旧容器 $DSH_NAME（持久化数据保留: $(storage_label)）..."
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
@@ -2759,8 +2803,24 @@ create_container() {
   fi
 
   info "启动容器 $DSH_NAME ..."
-  docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null
-  wait_ready
+  if ! docker_cmd "${args[@]}" "$DSH_IMAGE" >/dev/null; then
+    err "新容器创建失败。"
+    if (( preserved_previous )); then restore_previous_dsh_container "$rollback_name" || true; fi
+    return 1
+  fi
+  if ! wait_ready; then
+    err "新 Web 容器尚未就绪。"
+    if (( preserved_previous )); then restore_previous_dsh_container "$rollback_name" || true; fi
+    return 1
+  fi
+  if (( preserved_previous )); then
+    if ! wait_upgrade_healthy; then
+      err "新版容器没有通过健康检查；开始恢复旧容器。"
+      restore_previous_dsh_container "$rollback_name" || return 1
+      return 1
+    fi
+    ok "新版健康检查通过。旧版容器保留在 $rollback_name，可执行 dshd rollback。"
+  fi
   # Opt-in migrations only. The disabled path must not query or mutate old
   # search resources during unrelated DSH container operations.
   if [[ "$DSH_SEARCH_ENABLED" == "true" ]]; then
@@ -3707,12 +3767,78 @@ cmd_logs() {
 cmd_update() {
   load_config; ensure_docker
   heading "更新 dsh 镜像"
-  pull_best_image; save_config; create_container
-  ok "更新并重建完成"
+  pull_best_image || return 1
+  DSHD_SAFE_UPGRADE=1 create_container || return 1
+  save_config
+  ok "更新并重建完成；旧容器已保留，可用 dshd rollback 恢复应用版本。"
 }
 cmd_recreate() {
   load_config; ensure_docker
-  pull_best_image; save_config; create_container
+  pull_best_image || return 1
+  DSHD_SAFE_UPGRADE=1 create_container || return 1
+  save_config
+}
+
+cmd_rollback() {
+  load_config; ensure_docker
+  local action="${1:-apply}" previous="${DSH_NAME}-rollback" failed="${DSH_NAME}-rollback-failed"
+  case "$action" in
+    clear)
+      if ! docker_cmd inspect "$previous" >/dev/null 2>&1; then
+        info "没有保留的旧版容器。"
+        return 0
+      fi
+      confirm "只删除停止的旧容器 $previous（不删除数据卷），确认？" N || return 0
+      docker_cmd rm -f "$previous" >/dev/null
+      ok "旧版回滚容器已清理；会话、配置和数据卷均未删除。"
+      ;;
+    status)
+      if docker_cmd inspect "$previous" >/dev/null 2>&1; then
+        info "可回滚容器：$previous；原持久化数据始终共享，不会自动恢复历史数据库。"
+      else
+        info "没有可用的旧版回滚容器。"
+      fi
+      ;;
+    apply)
+      docker_cmd inspect "$previous" >/dev/null 2>&1 ||
+        { err "没有可用的回滚容器 $previous"; return 1; }
+      docker_cmd inspect "$failed" >/dev/null 2>&1 &&
+        { err "存在未清理的失败候选容器 $failed；请先手动检查。"; return 1; }
+      if ! confirm "将容器切回旧版本。数据卷不会回滚；旧版程序可能不兼容新版已写入的数据结构。确认？" N; then
+        return 0
+      fi
+      local old_image
+      old_image="$(docker_cmd inspect -f '{{.Image}}' "$previous")" || return 1
+      if container_exists; then
+        docker_cmd stop "$DSH_NAME" >/dev/null || return 1
+        if ! docker_cmd rename "$DSH_NAME" "$failed"; then
+          docker_cmd start "$DSH_NAME" >/dev/null || true
+          return 1
+        fi
+      fi
+      if ! docker_cmd rename "$previous" "$DSH_NAME"; then
+        docker_cmd rename "$failed" "$DSH_NAME" || true
+        docker_cmd start "$DSH_NAME" >/dev/null || true
+        return 1
+      fi
+      if ! docker_cmd start "$DSH_NAME" >/dev/null || ! wait_upgrade_healthy; then
+        err "回滚版本未能健康启动；尝试恢复升级后容器。"
+        docker_cmd rm -f "$DSH_NAME" >/dev/null || true
+        if docker_cmd inspect "$failed" >/dev/null 2>&1; then
+          docker_cmd rename "$failed" "$DSH_NAME" || return 1
+          docker_cmd start "$DSH_NAME" >/dev/null || return 1
+        fi
+        return 1
+      fi
+      # Never accidentally recreate the *new* image after a successful
+      # rollback; pin the running old Docker image ID in local config.
+      DSH_IMAGE="$old_image"
+      save_config
+      ok "应用容器已回滚；配置已固定到旧镜像 ID。数据卷和工作区保持当前状态。"
+      warn "升级后的容器保留在 $failed（已停止）。检查无误后可用 docker rm 删除；不要用 -v。"
+      ;;
+    *) err "用法：dshd rollback [status|apply|clear]"; return 2 ;;
+  esac
 }
 cmd_config() {
   load_config
@@ -5153,6 +5279,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd token reset         重新生成随机 Token 并重启生效
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复持久化数据备份
+  dshd rollback [status|apply|clear]  查看/执行应用容器回滚（保留数据）
   dshd doctor              环境/网络/容器诊断
   dshd self-update         立即检查并更新 dshd 脚本自身
   dshd uninstall           交互卸载
@@ -5370,6 +5497,7 @@ main() {
     restart) cmd_restart ;;
     logs) cmd_logs ;;
     update|upgrade) cmd_update ;;
+    rollback) shift; cmd_rollback "${1:-apply}" ;;
     recreate) cmd_recreate ;;
     config) cmd_config ;;
     edition) shift; cmd_edition "${1:-show}" ;;
