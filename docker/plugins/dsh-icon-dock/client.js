@@ -163,13 +163,13 @@ window.__ModuleLoader__.load({
         'aria-label': item.label, title: item.label,
         onClick: item.onClick,
         style: {
-          flex: wide ? '0 0 38px' : '0 0 33px',
-          width: wide ? '38px' : '33px', minHeight: 36,
+          flex: wide ? '0 0 38px' : '0 0 23px',
+          width: wide ? '38px' : '23px', minHeight: 34,
           border: 'none', borderRadius: 9, background: 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          padding: '5px 3px', cursor: 'pointer',
+          padding: wide ? '5px 3px' : '5px 1px', cursor: 'pointer',
         },
-      }, h(SvgIcon, { entry: item, size: settings.size }))))
+      }, h(SvgIcon, { entry: item, size: wide ? settings.size : Math.min(18, settings.size) }))))
     }
     function ManagerCard({ view }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
