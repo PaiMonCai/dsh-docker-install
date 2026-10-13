@@ -64,7 +64,7 @@ jobs:
             if (!patch.includes(value)) throw Error('missing '+value)
           }
           const sh = fs.readFileSync('docker/entrypoint.sh','utf8')
-          if (!sh.includes('compose_native_web_patch') || sh.includes('dsh plugin --profile web add')) throw Error('must use one native consolidated launcher patch')
+          if (!sh.includes('append_native_web_patch') || sh.includes('dsh plugin --profile web add')) throw Error('must use official native launcher patch overlays')
           NODE
       - name: Compose syntax validation
         run: docker compose config --quiet
