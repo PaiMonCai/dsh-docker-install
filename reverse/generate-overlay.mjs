@@ -26,10 +26,41 @@ for(const [,id,sourceFile] of modules){
   const location=join(root,'host-modules',id)
   mkdirSync(location,{recursive:true})
   const entry='../../purge/'+sourceFile
+  // CI observes the REAL registered preset through agentPresets.list().
+  // This probe is inert in production; source.apply remains untouched.
+  const extra=id==='reverse' ? [
+    'export function apply(ctx){',
+    '  source.apply(ctx)',
+    '  if(process.env.DSH_REVERSE_CI_VERIFY_PRESET!==\'1\')return',
+    '  ctx.effect(()=>{',
+    '    let stopped=false',
+    '    let announced=false',
+    '    const check=async()=>{',
+    '      if(stopped||announced)return',
+    '      let r=null',
+    '      try{r=ctx.agentPresets?.register?ctx.agentPresets:ctx.get?.(\'agentPresets\')}catch{}',
+    '      if(!r?.list)return',
+    '      const rows=await r.list()',
+    '      const preset=rows?.find(x=>x.id===\'reverse-engineering\')',
+    '      if(!preset||preset.broken)return',
+    '      announced=true',
+    '      clearInterval(timer)',
+    '      process.stdout.write(\'DSH_REVERSE_CI_PRESET_REGISTERED\\n\')',
+    '    }',
+    '    const timer=setInterval(()=>void check().catch(()=>{}),500)',
+    '    timer.unref?.()',
+    '    void check().catch(()=>{})',
+    '    return()=>{stopped=true;clearInterval(timer)}',
+    '  },\'CI-only reverse preset registration audit\')',
+    '}',
+    'export default { ...(source.default ?? source), apply }',
+  ]:[
+    'export default source.default ?? { name: source.name, inject: source.inject, apply: source.apply }',
+  ]
   const adapter=[
     'import * as source from '+JSON.stringify(entry),
     'export * from '+JSON.stringify(entry),
-    'export default source.default ?? { name: source.name, inject: source.inject, apply: source.apply }',
+    ...extra,
     '',
   ].join('\n')
   writeFileSync(join(location,'index.js'),adapter)

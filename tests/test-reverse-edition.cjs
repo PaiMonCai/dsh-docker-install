@@ -82,6 +82,12 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
    assert.ok(made.includes('name: ./host-modules/'+id+'/index.js'),id)
    const pkg=JSON.parse(fs.readFileSync(path.join(tmp,'host-modules',id,'package.json'),'utf8'))
    assert.equal(pkg.name,'dsh-reverse-'+id)
+    if(id==='reverse'){
+      const content=fs.readFileSync(path.join(tmp,'host-modules',id,'index.js'),'utf8')
+      assert.match(content,/DSH_REVERSE_CI_VERIFY_PRESET/)
+      assert.match(content,/agentPresets/)
+      assert.match(content,/preset\.broken/)
+    }
    cp.execFileSync(process.execPath,['--check',path.join(tmp,'host-modules',id,'index.js')])
  }
  assert.equal(new Set(hostModules.map(([id])=>id)).size,6)

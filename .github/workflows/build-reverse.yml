@@ -217,19 +217,19 @@ jobs:
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
           trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$name" "$IMAGE" >/dev/null
+          docker run -d --name "$name" -e DSH_REVERSE_CI_VERIFY_PRESET=1 "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
             fi
-            if docker logs "$name" 2>&1 | grep -Fq "reverse preset ready:"; then
+            if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_PRESET_REGISTERED"; then
               docker exec "$name" bash -c '
                 for id in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
                 done
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
-              echo "Reverse Agent registration and Skills bootstrap confirmed"
+              echo "Healthy reverse-engineering Agent registry entry and Skills bootstrap confirmed"
               exit 0
             fi
             sleep 1
