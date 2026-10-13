@@ -213,12 +213,16 @@ COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
 # Keep the source module name beside the health probe for Node require().
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
+COPY docker/dsh-plugin-doctor.js /usr/local/bin/dsh-plugin-doctor.js
+COPY tests/test-web-browser-e2e.cjs /usr/local/bin/test-dsh-web-browser-e2e.cjs
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
  && node --check /usr/local/bin/dsh-web-token.js \
+ && node --check /usr/local/bin/dsh-plugin-doctor.js \
+ && node --check /usr/local/bin/test-dsh-web-browser-e2e.cjs \
  && node --check /opt/dsh/plugins/dsh-web-search/index.js \
  && node --check /opt/dsh/plugins/dsh-web-search/client.js \
  && node --check /opt/dsh/plugins/dsh-web-search/embedded.js \
