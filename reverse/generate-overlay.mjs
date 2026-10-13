@@ -31,7 +31,8 @@ for(const [,id,sourceFile] of modules){
   const extra=id==='reverse' ? [
     'export const inject = [\'agentPresets\']',
     'export function apply(ctx){',
-    '  source.apply(ctx)',
+    // Declarative adapter registers the preset; keep source asset bootstrap.
+    '  source.prepareReverseAssets()',
     '  if(process.env.DSH_REVERSE_CI_VERIFY_PRESET===\'1\')process.stdout.write(\'DSH_REVERSE_CI_PLUGIN_APPLIED\\n\')',
     '  if(process.env.DSH_REVERSE_CI_VERIFY_PRESET!==\'1\')return',
     '  ctx.effect(()=>{',
@@ -104,6 +105,47 @@ for(const [file,from,to] of [
   if(content.split(from).length!==2)throw Error('Pinned Agent tools drift: '+file)
   writeFileSync(p,content.replace(from,to))
 }
+// DSH 0.2+ declarative agent-preset-registry does not discover legacy
+// dynamic registration from unrelated Cordis fibers. Embed the complete
+// upstream reverse preset as a native agent-preset row: no tools are omitted.
+const presetDirectory=join(purge,'presets','reverse-engineering')
+const presetBody=readFileSync(join(presetDirectory,'agent.cordis.yml'),'utf8').trimEnd()
+const display=readFileSync(join(presetDirectory,'preset.yml'),'utf8')
+const field=(key)=>{
+  const match=display.match(new RegExp('^'+key+':\\s*(.+)
+const input=readFileSync(join(purge,'client.js'),'utf8')
+if(!input.startsWith(old)||input.split(old).length!==2)
+  throw Error('Pinned dsh-purge UI bundle has changed')
+writeFileSync(join(root,'purge-ui','client.js'),
+ input.replace(old,'window.__ModuleLoader__.load({ id: "dsh-reverse-purge-ui", factory:'))
+console.log('Full dsh-purge composition and browser UI embedded')
+,'m'))
+  if(!match)throw Error('Upstream reverse preset metadata lacks '+key)
+  return match[1].trim().replace(/^['"]|['"]$/g,'')
+}
+const pluginLines=presetBody.split('\n').map(x=>x.trim()? '        '+x : '').join('\n')
+const embedded=pluginLines.replace(
+  'name: ../../lib/reverse/tools.js',
+  'name: file:///opt/dsh-reverse/purge/lib/reverse/tools.js'
+)
+if(embedded===pluginLines)throw Error('Reverse tool file URL was not adapted')
+patch+=[
+  '',
+  '# Declarative reverse preset for DSH 0.2+ (the source YAML is authoritative).',
+  '- insert:',
+  '    - id: dsh-reverse-preset-declaration',
+  "      name: '@deepseek-ai/dsh-agent-preset'",
+  '      config:',
+  '        id: reverse-engineering',
+  '        name: '+JSON.stringify(field('name')),
+  '        description: '+JSON.stringify(field('description')),
+  '        order: '+Number(field('order')),
+  '        plugins:',
+  embedded,
+  '',
+].join('\n')
+writeFileSync(join(root,'cordis.patch.yml'),patch)
+
 const old='window.__ModuleLoader__.load({ id: "dsh-purge", factory:'
 const input=readFileSync(join(purge,'client.js'),'utf8')
 if(!input.startsWith(old)||input.split(old).length!==2)
