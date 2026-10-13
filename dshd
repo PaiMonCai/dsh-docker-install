@@ -3764,8 +3764,16 @@ cmd_logs() {
   container_exists || die "容器 $DSH_NAME 不存在。"
   docker_cmd logs -f --tail 200 "$DSH_NAME"
 }
+ensure_rollback_slot_free() {
+  if container_exists && docker_cmd inspect "${DSH_NAME}-rollback" >/dev/null 2>&1; then
+    err "旧版回滚点 ${DSH_NAME}-rollback 尚未处理，请执行 dshd rollback status / clear。"
+    return 1
+  fi
+}
+
 cmd_update() {
   load_config; ensure_docker
+  ensure_rollback_slot_free || return 1
   heading "更新 dsh 镜像"
   pull_best_image || return 1
   DSHD_SAFE_UPGRADE=1 create_container || return 1
@@ -3774,6 +3782,7 @@ cmd_update() {
 }
 cmd_recreate() {
   load_config; ensure_docker
+  ensure_rollback_slot_free || return 1
   pull_best_image || return 1
   DSHD_SAFE_UPGRADE=1 create_container || return 1
   save_config
