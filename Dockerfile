@@ -203,13 +203,10 @@ RUN groupadd --gid 62000 searxng \
  && useradd --no-create-home --uid 62000 --gid 62000 --home-dir /var/cache/searxng --shell /usr/sbin/nologin searxng \
  && install -d -m 0700 -o searxng -g searxng /var/cache/searxng
 COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
-COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-session-manager
 COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
-COPY docker/ensure-icon-dock.sh /usr/local/bin/ensure-dsh-icon-dock
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
-COPY docker/ensure-session-manager-web.sh /usr/local/bin/ensure-dsh-session-manager-web
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
@@ -217,7 +214,7 @@ COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
-COPY docker/ensure-reasoning-editor.sh /usr/local/bin/ensure-dsh-reasoning-editor
+COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
@@ -229,16 +226,14 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/index.js \
  && node --check /opt/dsh/plugins/dsh-reasoning-editor/client.js \
  && bash -n /usr/local/bin/dsh-session-manager \
- && bash -n /usr/local/bin/ensure-dsh-web-search \
  && node --check /opt/dsh/plugins/dsh-web-search/providers/searxng.js \
  && node --check /opt/dsh/plugins/dsh-web-search/providers/brave.js \
- && bash -n /usr/local/bin/ensure-dsh-session-manager-web \
  && bash -n /usr/local/bin/apply-dsh-session-deletions \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
- && bash -n /usr/local/bin/ensure-dsh-icon-dock \
- && chmod 0755 /usr/local/bin/ensure-dsh-icon-dock /usr/local/bin/ensure-dsh-web-search /usr/local/bin/ensure-dsh-session-manager-web /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+ && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
+ && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
