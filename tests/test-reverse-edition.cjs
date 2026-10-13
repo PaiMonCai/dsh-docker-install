@@ -73,6 +73,7 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
  for(const mod of ['redteam/index','redteam/store','redteam/ui','reverse/index','reverse/ui'])
    assert.ok(made.includes('name: ./purge/lib/'+mod+'.js'),mod)
  assert.match(made,/dsh-reverse-purge-ui/)
+ assert.match(made,/dsh-reverse-skill-bootstrap/)
  assert.equal(fs.readFileSync(path.join(tmp,'purge/cordis.patch.yml'),'utf8'),original)
  assert.match(fs.readFileSync(path.join(tmp,'purge/presets/reverse-engineering/agent.cordis.yml'),'utf8'),
    /name: \.\.\/\.\.\/lib\/reverse\/tools\.js/)
@@ -94,4 +95,30 @@ test('Dedicated image pins published tools and does not redistribute proprietary
  assert.match(f,/gdb-multiarch/)
  assert.match(f,/apktool/)
  assert.doesNotMatch(f,/apt-get install[^\n]*ida-pro|hopper/)
+})
+
+
+test('Five reverse Skills are valid and bootstrapped without replacing edits',async t=>{
+ const {pathToFileURL}=require('node:url')
+ const module=await import(pathToFileURL(path.join(root,'reverse/skills-bootstrap.mjs')).href)
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-reverse-skilltest-'))
+ t.after(()=>fs.rmSync(home,{recursive:true,force:true}))
+ assert.equal(module.SKILLS.length,5)
+ const dest=path.join(home,'reverse-engineering','skills')
+ for(const id of module.SKILLS){
+   const source=read('reverse/skills/'+id+'/SKILL.md')
+   assert.ok(source.startsWith('---\nname: '+id+'\n'))
+   assert.match(source,/^description:/m)
+   assert.doesNotMatch(source,/curl .* \| (?:bash|sh)|npm install|pip install/)
+ }
+ const existing=path.join(dest,'binary-triage')
+ fs.mkdirSync(existing,{recursive:true})
+ fs.writeFileSync(path.join(existing,'SKILL.md'),'user-custom-skill')
+ module.installSkills(home,path.join(root,'reverse/skills'))
+ assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
+ for(const id of module.SKILLS){
+   assert.ok(fs.existsSync(path.join(dest,id,'SKILL.md')))
+ }
+ module.installSkills(home,path.join(root,'reverse/skills'))
+ assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
 })
