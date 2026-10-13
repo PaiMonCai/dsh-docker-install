@@ -28,7 +28,7 @@ if(!patch.includes('includeHarnessIdentity: false') ||
    !patch.includes('name: ./purge/lib/reverse/index.js'))
   throw new Error('dsh-purge overlay failed full contract validation')
 patch+='\n# Docker-native frontend for the original full dsh-purge dock.\n'+
-  '- insert:\n    - id: dsh-reverse-purge-ui\n      name: ./purge-ui/index.js\n'
+  '- insert:\n    - id: dsh-reverse-purge-ui\n      name: ./purge-ui/index.js\n    - id: dsh-reverse-skill-bootstrap\n      name: ./skills-bootstrap.mjs\n'
 writeFileSync(join(root,'cordis.patch.yml'),patch)
 for(const [file,from,to] of [
   ['presets/reverse-engineering/agent.cordis.yml',
