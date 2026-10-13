@@ -121,7 +121,7 @@ test('manager card toggles visibility, moves icons and persists per browser', ()
   a.dock.setSize(24)
   const second = browser.page([recycle(), search()])
   assert.deepEqual(second.buttons().map(x => x.props['aria-label']), ['网络搜索'])
-  assert.deepEqual(second.dock.getAll().map(x => x.id),
+  assert.deepEqual(Array.from(second.dock.getAll(), x => x.id),
     ['dsh-docker.web-search', 'dsh-docker.session-recycle'])
   assert.equal(second.dock.getSettings().size, 24)
   second.dock.reset()
