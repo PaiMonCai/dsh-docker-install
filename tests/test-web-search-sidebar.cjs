@@ -214,7 +214,11 @@ test('recycle and search icons share exactly one footer row with no visible labe
     assert.doesNotMatch(app.text(dock), /回收站|网络搜索/)
     assert.equal(buttons[0].props.children[0].type.name, 'SvgIcon')
     assert.equal(buttons[1].props.children[0].type.name, 'SvgIcon')
-    assert.equal(dock.props.style.display, 'flex')
+    const grid = app.nodes(dock, n => n.props?.className === 'dsh-icon-grid')[0]
+    assert.ok(grid)
+    assert.equal(grid.props.style.display, 'grid')
+    assert.equal(grid.props.style.gridTemplateColumns,
+      dock === expanded ? 'repeat(5, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))')
   }
 })
 
