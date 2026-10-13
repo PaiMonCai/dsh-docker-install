@@ -104,14 +104,22 @@ async function run() {
   const firstRow = boxes.filter(b => Math.round(b.y) === Math.min(...boxes.map(x => Math.round(x.y))))
   assert.equal(firstRow.length, 5, 'wide dock must fit five icons per row')
 
-  // Fresh DSH Profiles can open an upstream onboarding/workspace modal
-  // on first visit. This modal deliberately intercepts pointer events.
-  // DSH's official Modal closes on its backdrop; dismiss it through a
-  // real user click rather than Playwright force-clicking through the mask.
-  const startupBackdrop = page.locator('[role="presentation"] > [aria-hidden="true"]')
-  if (await startupBackdrop.first().isVisible().catch(() => false)) {
-    await startupBackdrop.first().click()
-    await startupBackdrop.first().waitFor({ state: 'hidden', timeout: 5000 })
+  // Fresh DSH Web uses a *blocking*, accessible first-run onboarding
+  // dialog: "预览版说明" → "添加一个 API Key 开始使用". Clicking
+  // its mask is not a valid way through; the modal card intercepts the
+  // event. Complete the official flow using a fake key in the disposable
+  // CI-only volume, never in production.
+  const welcome = page.getByRole('dialog', { name: '预览版说明' })
+  if (await welcome.isVisible().catch(() => false)) {
+    await welcome.getByRole('button', { name: '继续' }).click()
+    await welcome.waitFor({ state: 'detached', timeout: 15000 })
+  }
+  const credential = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
+  if (await credential.isVisible().catch(() => false)) {
+    await credential.getByLabel('API 密钥', { exact: true }).fill(
+      'dsh_ci_only_fake_credential_no_network')
+    await credential.getByRole('button', { name: '保存并继续' }).click()
+    await credential.waitFor({ state: 'detached', timeout: 15000 })
   }
   await buttons.last().click()
   const menu = page.getByRole('menu', { name: '更多快捷入口' })
