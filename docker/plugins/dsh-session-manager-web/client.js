@@ -7,6 +7,22 @@ window.__ModuleLoader__.load({
     const { MenuItemButton, Modal } = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-session-manager'
+    // The always-on session manager owns ONE footer row. Optional search
+    // contributes an action through a shared, reactive in-page registry.
+    // Both plugins can initialize this registry in either load order.
+    const dock = window.__dshDockerFooterActions || (window.__dshDockerFooterActions = (() => {
+      const listeners = new Set()
+      let search = null
+      return {
+        subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) },
+        getSearch: () => search,
+        setSearch: fn => {
+          if (search === fn) return
+          search = fn
+          for (const listener of listeners) listener()
+        },
+      }
+    })())
     const listeners = new Set()
     let overlay = null
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
@@ -85,20 +101,52 @@ window.__ModuleLoader__.load({
     function TrashMenu(props) {
       return menu(t.trash, () => move(props.sessionId, props.displayTitle), props, false, true)
     }
-    function RecycleFooter({ wide }) {
-      return h('button', {
-        type: 'button', title: t.recycle, 'aria-label': t.recycle,
-        onClick: () => show({ type: 'recycle' }),
-        style: {
-          width: '100%', display: 'flex', gap: '10px', alignItems: 'center',
-          justifyContent: wide ? 'flex-start' : 'center',
-          border: 'none', borderRadius: '8px', cursor: 'pointer',
-          background: 'transparent', color: 'inherit', padding: '9px 12px',
-          fontSize: '13px',
-        },
-      }, h('span', { 'aria-hidden': 'true', style: { fontSize: '17px' } }, '♻'),
-      wide ? h('span', null, t.recycle) : null)
+    function DockIcon({ kind }) {
+      const attrs = {
+        width: 20, height: 20, viewBox: '0 0 24 24',
+        fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
+        strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+      }
+      if (kind === 'search') return h('svg', attrs,
+        h('circle', { cx: 10.8, cy: 10.8, r: 6.8 }),
+        h('path', { d: 'm16 16 4.6 4.6' }))
+      return h('svg', attrs,
+        h('rect', { x: 4.6, y: 7, width: 14.8, height: 13.5, rx: 2 }),
+        h('path', { d: 'M3 7h18M9 4h6M10 11v5.5M14 11v5.5' }))
     }
+    function RecycleFooter({ wide }) {
+      const openSearch = React.useSyncExternalStore(dock.subscribe, dock.getSearch, dock.getSearch)
+      const iconButton = (name, click, kind) => h('button', {
+        type: 'button', title: name, 'aria-label': name,
+        className: 'dsh-dock-icon-button',
+        onClick: click,
+        style: {
+          flex: '1 1 0', minWidth: 0, width: '100%', minHeight: '36px',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          border: 'none', borderRadius: '9px',
+          background: 'transparent', color: 'inherit',
+          cursor: 'pointer', padding: '7px 3px',
+        },
+      }, h(DockIcon, { kind }))
+      return h('div', {
+        className: 'dsh-dock-icon-row',
+        role: 'group', 'aria-label': '快捷入口',
+        style: {
+          width: '100%', display: 'flex', gap: wide ? '8px' : '2px',
+          alignItems: 'center',
+          // Narrow/collapsed sidebars can fit two 20px icons without wrapping.
+          padding: wide ? '2px 8px' : '2px 0',
+          boxSizing: 'border-box',
+        },
+      },
+      h('style', null, [
+        '.dsh-dock-icon-button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
+        '.dsh-dock-icon-button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}',
+      ].join('\n')),
+      iconButton(t.recycle, () => show({ type: 'recycle' }), 'recycle'),
+      openSearch ? iconButton('网络搜索', openSearch, 'search') : null)
+    }
+
     const ui = {
       edge: 'var(--dsw-alias-separator-primary, rgba(125,135,155,.24))',
       surface: 'var(--dsw-alias-bg-primary, var(--surface-primary, #fff))',
