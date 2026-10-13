@@ -3467,10 +3467,13 @@ cmd_install() {
   local requested_name="${DSH_NAME:-}" requested_port="${DSH_PORT:-}"
   [[ -f "$CONFIG_FILE" ]] || first_install=true
   load_config
+  if [[ "$DSH_EDITION" == "reverse" && "${DSHD_REVERSE_MODE:-0}" != "1" ]]; then
+    die "Reverse 必须独立安装：使用 dshd reverse install（专用配置与数据目录），不能复用 Standard 的存储。"
+  fi
 
   if [[ "$first_install" == "true" ]]; then
     # 交互安装必须由用户明确输入；无 TTY 时只接受调用方显式传入的环境变量。
-    if is_tty; then
+    if is_tty && [[ "${DSHD_REVERSE_MODE:-0}" != "1" ]]; then
       DSH_NAME=""
       DSH_PORT=""
     else
@@ -3885,6 +3888,30 @@ cmd_config() {
     create_container
   fi
 }
+# Reverse is an independent managed instance, never a conversion of Standard.
+cmd_reverse_instance() {
+  local action="${1:-status}" self="${BASH_SOURCE[0]}" next_state
+  shift || true
+  [[ -f "$self" ]] || die "无法定位当前 dshd 文件；请先安装 dshd 命令。"
+  next_state="${DSHD_REVERSE_STATE_DIR:-${STATE_DIR}-reverse}"
+  [[ "$next_state" != "$STATE_DIR" ]] || die "Reverse 配置目录不可与 Standard 相同。"
+  local defaults=()
+  if [[ "$action" == "install" ]]; then
+    defaults+=( "DSH_EDITION=reverse" "DSHD_REVERSE_MODE=1"
+      "DSH_IMAGE=${DSH_IMAGE_OVERRIDE_REVERSE:-$REVERSE_IMAGE}"
+      "DSH_NAME=${DSH_REVERSE_NAME:-dsh-reverse}"
+      "DSH_PORT=${DSH_REVERSE_PORT:-3081}"
+      "DSH_WORKSPACE=${DSH_REVERSE_WORKSPACE:-$BASE_WORKSPACE/reverse}"
+      "DSH_STORAGE_MODE=bind"
+      "DSH_DATA_DIR=${DSH_REVERSE_DATA_DIR:-$BASE_WORKSPACE/reverse-data}"
+      "DSH_VOLUME=${DSH_REVERSE_VOLUME:-dsh-reverse-home}"
+      "DSH_DOCKER_ACCESS=false" )
+  fi
+  env -u DSHD_LIB_ONLY -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
+    -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
+    "DSHD_STATE_DIR=$next_state" "${defaults[@]}" bash "$self" "$action" "$@"
+}
+
 cmd_edition() {
   load_config
   ensure_docker
@@ -3911,8 +3938,13 @@ cmd_edition() {
       DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$RESEARCH_IMAGE"
       ;;
+    reverse)
+      info "Reverse 作为独立实例安装；不切换当前 Standard/Research 的数据卷。"
+      cmd_reverse_instance install
+      return
+      ;;
     *)
-      die "未知 edition: $action（可用: show/standard/research）"
+      die "未知 edition: $action（可用: show/standard/research/reverse）"
       ;;
   esac
 
@@ -3975,11 +4007,12 @@ cmd_edition_menu() {
   menu_signal_guard
   load_config_guarded || return 1
   while true; do
-    heading "Standard / Research 版本"
+    heading "Standard / Research / Reverse 版本"
     printf '当前: %s（Research Pack=%s）\n\n' "$DSH_EDITION" "$DSH_RESEARCH_PACK"
     cat <<'EOF'
   1) Standard  通用开发版
   2) Research  一般科研版
+  3) Reverse   逆向工程版（独立容器与数据）
   0) 返回
 EOF
     local choice=""
@@ -3990,6 +4023,7 @@ EOF
     case "$choice" in
       1) run_action cmd_edition standard; return ;;
       2) run_action cmd_edition research; return ;;
+      3) run_action cmd_reverse_instance install; return ;;
       0) return ;;
       *) warn "无效选项" ;;
     esac
@@ -5449,7 +5483,7 @@ menu_render_main() {
   [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
   [11] Docker 项目管理权限              [27] 国际网络 / sing-box
   [28] Web Search / SearXNG
-  [21] Standard / Research 版本切换     [22] Research Pack 切换
+  [21] Standard / Research / Reverse 版本     [22] Research Pack 切换
 @开发与数据
   [12] 查看容器开发环境                 [13] Web 登录 Token 管理
   [14] 进入容器 Shell
@@ -5548,6 +5582,7 @@ main() {
     recreate) cmd_recreate ;;
     config) cmd_config ;;
     edition) shift; cmd_edition "${1:-show}" ;;
+    reverse) shift; cmd_reverse_instance "${@:-status}" ;;
     research-pack|pack) shift; cmd_research_pack "${1:-show}" ;;
     api|provider) shift; cmd_api "$@" ;;
     hosts|trusted-hosts) shift; cmd_hosts "$@" ;;
