@@ -206,6 +206,8 @@ COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/ensure-web-search.sh /usr/local/bin/ensure-dsh-web-search
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-session-manager
+COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
+COPY docker/ensure-icon-dock.sh /usr/local/bin/ensure-dsh-icon-dock
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/ensure-session-manager-web.sh /usr/local/bin/ensure-dsh-session-manager-web
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
@@ -234,7 +236,9 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && bash -n /usr/local/bin/apply-dsh-session-deletions \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
- && chmod 0755 /usr/local/bin/ensure-dsh-web-search /usr/local/bin/ensure-dsh-session-manager-web /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+ && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
+ && bash -n /usr/local/bin/ensure-dsh-icon-dock \
+ && chmod 0755 /usr/local/bin/ensure-dsh-icon-dock /usr/local/bin/ensure-dsh-web-search /usr/local/bin/ensure-dsh-session-manager-web /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/ensure-dsh-reasoning-editor /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
