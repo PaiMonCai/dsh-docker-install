@@ -13,6 +13,8 @@ function harness() {
   const registered = new Map()
   const injections = []
   const requests = []
+  let failNextGet = false
+  const keyHandlers = new Map()
   const effects = []
   const frames = new Map()
   let frame
@@ -67,13 +69,17 @@ function harness() {
     document: {
       activeElement: null,
       body: { style: { overflow: '' } },
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener(type, handler) { keyHandlers.set(type, handler) },
+      removeEventListener(type) { keyHandlers.delete(type) },
     },
     console,
     fetch: async (_url, options) => {
       const method = options.method
       requests.push({ method, action: method === 'POST' ? JSON.parse(options.body).action : null })
+      if (method === 'GET' && failNextGet) {
+        failNextGet = false
+        return { ok: false, async json() { return { error: '搜索服务暂不可用' } } }
+      }
       return {
         ok: true,
         async json() {
@@ -126,7 +132,11 @@ function harness() {
     for (let i = 0; i < 20; i++) await Promise.resolve()
     return render(fn)
   }
-  return { registered, injections, requests, render, overlay, card, nodes, text, settle }
+  return {
+    registered, injections, requests, render, overlay, card, nodes, text, settle,
+    failNextRefresh() { failNextGet = true },
+    keydown(event) { keyHandlers.get('keydown')?.(event) },
+  }
 }
 
 test('search shortcut registers beside recycle bin and retains the plugin settings view', () => {
@@ -188,4 +198,39 @@ test('opened settings reuse existing authenticated API and Brave controls', asyn
   assert.match(app.text(tree), /搜索正常：找到 2 条结果/)
   assert.deepEqual(app.requests.map(x => x.method), ['GET', 'POST'])
   assert.deepEqual(app.requests.map(x => x.action), [null, 'test'])
+})
+
+test('plugin summary view remains available without querying search backend or credentials', async () => {
+  const app = harness()
+  const item = app.registered.get('plugins.item').component({ view: 'summary' })
+  const view = app.render(() => item.type(item.props), 'summary')
+  assert.match(view, /内置 SearXNG/)
+  await app.settle(() => item.type(item.props))
+  assert.equal(app.requests.length, 0, 'summary rows should not trigger network requests')
+})
+
+test('Refresh reports server errors in the panel and does not create unhandled rejection', async () => {
+  const app = harness()
+  app.registered.get('sidebar.footer.action').component({ wide: true }).props.onClick()
+  const panel = app.overlay()
+  const view = app.card(panel)
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  app.failNextRefresh()
+  const refresh = app.nodes(tree, n => n.type === 'button' && app.text(n) === '刷新')[0]
+  refresh.props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.match(app.text(tree), /搜索服务暂不可用/)
+  assert.equal(app.requests.filter(row => row.method === 'GET').length, 2)
+})
+
+test('Escape closes the search overlay', () => {
+  const app = harness()
+  app.registered.get('sidebar.footer.action').component({ wide: true }).props.onClick()
+  const panel = app.overlay()
+  assert.equal(panel.props.className, 'dsh-search-overlay')
+  let prevented = false
+  app.keydown({ key: 'Escape', preventDefault() { prevented = true } })
+  assert.equal(prevented, true)
+  assert.equal(app.overlay(), null)
 })
