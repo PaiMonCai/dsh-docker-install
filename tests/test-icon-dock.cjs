@@ -64,7 +64,10 @@ function createHarness(initial = new Map()) {
           subscribe(fn) { activeListeners.add(fn); return () => activeListeners.delete(fn) },
         },
       },
-      locale: { subscribe() { return () => {} } },
+      locale: {
+         bind(namespace) { return key => namespace + ':' + key },
+         subscribe() { return () => {} },
+       },
       slots: {
         inject(slot, cb) { cb() },
         register(meta, component) { slots.set(meta.name, { meta, component }) },
@@ -309,6 +312,61 @@ test('official icons inherit the exact upstream React component and forwarded si
   assert.strictEqual(selectedNode.type, OfficialPluginIcon)
   assert.equal(selectedNode.props.active, true)
   assert.equal(current.props['aria-current'], 'page')
+})
+
+test('official locale-only icons reuse upstream components with namespaced t', () => {
+  // Plugin management and schedules both register locale, but their
+  // upstream icons only read size.
+  function PluginsPanelIcon({ size }) { return size }
+  function TaskManagerIcon({ size }) { return size }
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', locale: 'pluginManager',
+      order: 0, component: PluginsPanelIcon },
+    { id: 'schedules', label: '自动化任务', locale: 'schedule.manager',
+      order: 10, component: TaskManagerIcon },
+  ])
+  const [plugin, schedule] = app.buttons().map(button => {
+    const wrapper = button.props.children[0]
+    return wrapper.type(wrapper.props)
+  })
+  assert.strictEqual(plugin.type, PluginsPanelIcon)
+  assert.strictEqual(schedule.type, TaskManagerIcon)
+  assert.equal(plugin.props.size, 20)
+  assert.equal(schedule.props.size, 20)
+  assert.equal(plugin.props.t('panel'), 'pluginManager:panel')
+  assert.equal(schedule.props.t('panel'), 'schedule.manager:panel')
+  app.buttons()[1].props.onClick()
+  const selected = app.buttons()[1].props.children[0]
+  assert.equal(selected.type(selected.props).props.active, true)
+})
+
+test('native memo and forwardRef icons keep upstream React element types', () => {
+  const MemoIcon = { $typeof: Symbol.for('react.memo'), type: () => null }
+  const ForwardRefIcon = { $typeof: Symbol.for('react.forward_ref'), render: () => null }
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', locale: 'pluginManager', component: MemoIcon },
+    { id: 'schedules', label: '自动化任务', component: ForwardRefIcon },
+  ])
+  const types = app.buttons().map(button => {
+    const wrapper = button.props.children[0]
+    return wrapper.type(wrapper.props).type
+  })
+  assert.strictEqual(types[0], MemoIcon)
+  assert.strictEqual(types[1], ForwardRefIcon)
+})
+
+test('native injected props keep safe fallback even alongside locale', () => {
+  const NativeIcon = () => null
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', locale: 'pluginManager',
+      inject: () => ({ special: true }), component: NativeIcon },
+  ])
+  const wrapper = app.buttons()[0].props.children[0]
+  const rendered = wrapper.type(wrapper.props)
+  assert.equal(rendered.type, 'svg')
+  assert.equal(rendered.props.children.length, 4)
+  app.buttons()[0].props.onClick()
+  assert.deepEqual(app.selectedPanels, ['plugins'])
 })
 
 test('hot-swapped native icon is reflected by the dock without cloning SVG', () => {
