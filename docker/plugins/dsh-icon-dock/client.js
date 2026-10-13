@@ -220,7 +220,8 @@ window.__ModuleLoader__.load({
       '.dsh-icon-dock button:focus-visible,.dsh-icon-settings button:focus-visible,.dsh-icon-settings input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}',
       '.dsh-icon-dock .dsh-icon-menu{box-shadow:0 12px 36px rgba(0,0,0,.2)}',
       '.dsh-icon-dock .dsh-icon-menu button:hover{background:var(--dsw-alias-bg-secondary,rgba(128,128,128,.12))!important}',
-      '.dsh-icon-editor [draggable="true"]{cursor:grab;touch-action:none}',
+      '.dsh-icon-editor [draggable="true"]{cursor:grab}',
+      '.dsh-icon-preview [draggable="true"]{touch-action:none}',
       '.dsh-icon-editor [draggable="true"]:active{cursor:grabbing}',
       '.dsh-icon-editor [data-dock-drop]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe)}',
     ].join('\n')
@@ -382,71 +383,256 @@ window.__ModuleLoader__.load({
         document.removeEventListener('keydown', escape)
       }
     }
+    function beginDrag(event, id) {
+      dragId = id
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', id)
+      }
+    }
+    function dropDrag(event, targetId, destination) {
+      event.preventDefault()
+      if (dragId) registry.arrange(dragId, targetId, destination)
+      dragId = null
+    }
+    function startPointerDrag(event, id) {
+      if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
+      pointerDrag = {
+        id, startX: event.clientX, startY: event.clientY, moved: false,
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    }
+    function movePointerDrag(event) {
+      if (!pointerDrag) return
+      if (Math.hypot(event.clientX - pointerDrag.startX,
+        event.clientY - pointerDrag.startY) > 8) pointerDrag.moved = true
+    }
+    function finishPointerDrag(event) {
+      if (!pointerDrag) return
+      const { id, moved } = pointerDrag
+      pointerDrag = null
+      if (!moved || typeof document === 'undefined') return
+      // Hit testing is against the underlying target, even when the dragged
+      // preview button holds pointer capture.
+      const node = document.elementFromPoint?.(event.clientX, event.clientY)
+        ?.closest?.('[data-dock-drop]')
+      if (!node) return
+      const destination = node.getAttribute('data-dock-zone')
+      const targetId = node.getAttribute('data-dock-drop')
+      if (destination === 'more') registry.arrange(id, null, 'more')
+      else if (destination === 'dock') registry.arrange(id, targetId || null, 'dock')
+      else if (destination === 'list') registry.arrange(id, targetId || null)
+      event.preventDefault()
+    }
     function ManagerCard({ view }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
-      if (view === 'summary') return '统一管理侧边栏插件图标的显示、顺序和大小'
+      if (view === 'summary') return '统一管理侧边栏图标的排列、收纳和显示'
       const sorted = getAll()
-      const allVisible = sorted.filter(item => !settings.hidden[item.id]).length
-      const btn = { padding: '6px 10px', minHeight: 30, background: 'transparent',
-        border: '1px solid ' + separator, color: 'inherit', borderRadius: 7,
-        fontSize: 12, cursor: 'pointer' }
+      const { primary, more } = getDockLayout(true)
+      const hiddenCount = sorted.filter(item => locationOf(item.id) === 'hidden').length
+      const overflowIds = new Set(more.map(item => item.id))
+      const iconButtonStyle = {
+        width: '100%', minHeight: 55, padding: '7px 4px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', gap: 4, borderRadius: 9,
+        border: '1px solid ' + separator, color: 'inherit',
+        background: 'var(--dsw-alias-bg-secondary,rgba(128,128,128,.05))',
+        cursor: 'grab',
+      }
+      const smallButton = {
+        display: 'inline-flex', justifyContent: 'center', alignItems: 'center',
+        width: 31, height: 31, borderRadius: 8, border: '1px solid ' + separator,
+        background: 'transparent', color: 'inherit', cursor: 'pointer',
+      }
+      const preview = []
+      for (let index = 0; index < 10; index++) {
+        const item = primary[index]
+        if (item) {
+          preview.push(h('button', {
+            key: item.id, type: 'button',
+            draggable: true, 'data-dock-drop': item.id, 'data-dock-zone': 'dock',
+            'aria-label': '拖动排序 ' + item.label, title: item.label,
+            onDragStart: event => beginDrag(event, item.id),
+            onDragOver: event => event.preventDefault(),
+            onDrop: event => dropDrag(event, item.id, 'dock'),
+            onDragEnd: () => { dragId = null },
+            onPointerDown: event => startPointerDrag(event, item.id),
+            onPointerMove: movePointerDrag,
+            onPointerUp: finishPointerDrag,
+            onPointerCancel: () => { pointerDrag = null },
+            style: iconButtonStyle,
+          },
+            h(SvgIcon, { entry: item, size: settings.size }),
+            h('span', {
+              style: { fontSize: 10, maxWidth: '100%', whiteSpace: 'nowrap',
+                overflow: 'hidden', textOverflow: 'ellipsis' },
+            }, item.label)))
+        } else if (index === 9) {
+          preview.push(h('button', {
+            key: 'more-drop', type: 'button',
+            'data-dock-drop': '', 'data-dock-zone': 'more',
+            'aria-label': '更多收纳区', title: '拖动至此放入更多',
+            onDragOver: event => event.preventDefault(),
+            onDrop: event => dropDrag(event, null, 'more'),
+            style: {
+              ...iconButtonStyle, cursor: 'default',
+              borderStyle: more.length ? 'solid' : 'dashed',
+            },
+          },
+            h(MoreIcon, { size: settings.size }),
+            h('span', { style: { fontSize: 10 } },
+              more.length ? '更多 (' + more.length + ')' : '更多')))
+        } else {
+          preview.push(h('div', { key: 'empty-' + index,
+            'aria-hidden': 'true', style: {
+              minHeight: 55, borderRadius: 9,
+              border: '1px dashed ' + separator, opacity: .45,
+            },
+          }))
+        }
+      }
       return h('div', {
-        className: 'dsh-icon-settings',
-        style: { padding: '12px', maxWidth: 700, color: 'inherit', fontSize: 13 },
+        className: 'dsh-icon-editor',
+        style: {
+          padding: '14px 16px 24px', maxWidth: 740,
+          color: 'inherit', fontSize: 13,
+        },
       },
-      h('h3', { style: { margin: '0 0 8px', fontSize: 16 } }, '快捷入口管理'),
-      h('p', { style: { color: muted, lineHeight: 1.7, margin: '0 0 14px', fontSize: 12 } },
-        '集中控制侧边栏底部的插件图标。只显示当前已注册的插件，隐藏图标不会停用插件功能。'),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12,
-        justifyContent: 'space-between', flexWrap: 'wrap', padding: '10px 0',
-        borderBottom: '1px solid ' + separator } },
-        h('span', null, '已启用图标 ' + allVisible + ' / ' + sorted.length),
-        h('button', { type: 'button', style: btn, onClick: () => registry.reset() }, '恢复默认')),
-      sorted.length ? sorted.map((entry, index) => h('div', {
-        key: entry.id,
-        style: { display: 'flex', alignItems: 'center', gap: 11,
-          padding: '12px 0', borderBottom: '1px solid ' + separator },
+      h('div', { style: {
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        gap: 12, flexWrap: 'wrap', marginBottom: 14,
+      } },
+        h('div', null,
+          h('h3', { style: { margin: '0 0 5px', fontSize: 17 } }, '快捷入口管理'),
+          h('p', { style: { color: muted, lineHeight: 1.6, margin: 0, fontSize: 12 } },
+            '拖动预览图标调整顺序，或在下方选择快捷栏、更多、隐藏。')),
+        h('button', { type: 'button', style: {
+          border: '1px solid ' + separator, background: 'transparent',
+          color: 'inherit', padding: '7px 11px', borderRadius: 8,
+          cursor: 'pointer', fontSize: 12,
+        }, onClick: () => registry.reset() }, '恢复默认')),
+      h('section', {
+        className: 'dsh-icon-preview',
+        'aria-label': '快捷栏布局预览',
+        style: {
+          border: '1px solid ' + separator, borderRadius: 12,
+          padding: '14px', marginBottom: 18,
+          background: 'var(--dsw-alias-bg-secondary,rgba(128,128,128,.03))',
+        },
       },
-      h('div', { style: { width: 28, flexShrink: 0 } },
-        h(SvgIcon, { entry, size: settings.size })),
-      h('div', { style: { flex: 1, minWidth: 0 } },
-        h('div', { style: { fontWeight: 600 } }, entry.label),
-        h('div', { style: { color: muted, fontSize: 11, overflow: 'hidden',
-          whiteSpace: 'nowrap', textOverflow: 'ellipsis' } }, entry.id)),
-      h('label', { style: { display: 'inline-flex', gap: 6,
-        alignItems: 'center', cursor: 'pointer', fontSize: 12 } },
-        h('input', { type: 'checkbox', checked: !settings.hidden[entry.id],
-          'aria-label': '显示 ' + entry.label,
-          onChange: event => registry.setVisible(entry.id, event.target.checked) }),
-        '显示'),
-      h('button', { type: 'button', style: btn, disabled: index === 0,
-        'aria-label': '上移 ' + entry.label,
-        onClick: () => registry.move(entry.id, -1) }, '↑'),
-      h('button', { type: 'button', style: btn, disabled: index === sorted.length - 1,
-        'aria-label': '下移 ' + entry.label,
-        onClick: () => registry.move(entry.id, 1) }, '↓')))
-        : h('p', { style: { color: muted, padding: '16px 0' } },
-          '暂时没有已注册的快捷入口。安装支持图标坞的插件后会自动出现在这里。'),
-      h('label', { style: { display: 'flex', alignItems: 'center', gap: 9,
-        padding: '14px 0 8px', borderBottom: '1px solid ' + separator,
-        cursor: 'pointer' } },
-        h('input', { type: 'checkbox', checked: settings.captureNative,
-          'aria-label': '接管官方导航',
-          onChange: event => registry.setNativeCapture(event.target.checked) }),
-        h('span', null, '接管官方导航（插件、自动化任务等）')),
-      h('p', { style: { color: muted, margin: '4px 0 12px', fontSize: 11 } },
-        '关闭后恢复侧边栏原生文字导航。管理器仅复制导航入口，不替换官方页面。'),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 } },
-        h('label', { htmlFor: 'dsh-icon-size' }, '图标大小'),
-        h('select', { id: 'dsh-icon-size', value: settings.size,
-          'aria-label': '图标大小',
-          style: { border: '1px solid ' + separator, borderRadius: 7,
-            padding: '7px 10px', color: 'inherit', background: 'transparent' },
-          onChange: event => registry.setSize(Number(event.target.value)) },
-          ...[18, 20, 22, 24].map(n => h('option', { key: n, value: n }, n + 'px')))),
-      h('p', { style: { color: muted, fontSize: 11, lineHeight: 1.6, marginTop: 15 } },
-        '设置保存在当前浏览器中；不同浏览器或设备可以分别安排快捷入口。'))
+        h('div', { style: {
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 8, marginBottom: 12, flexWrap: 'wrap',
+        } },
+          h('strong', null, '侧边栏快捷栏 · 实时预览'),
+          h('span', { style: { color: muted, fontSize: 11 } },
+            '最多 2 行 × 5 列 · 9 个入口 + 更多')),
+        h('div', {
+          style: { maxWidth: 450, width: '100%', marginInline: 'auto',
+            display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))',
+            gridTemplateRows: 'repeat(2,auto)', gap: 7 },
+        }, ...preview),
+        h('p', { style: {
+          fontSize: 11, color: muted, margin: '12px 0 0', lineHeight: 1.6,
+        } }, more.length
+          ? '另有 ' + more.length + ' 个入口在「更多」中。将图标拖到第 10 格即可收纳。'
+          : '拖动图标调整顺序；第 10 格是「更多」收纳区，超出 9 个会自动进入其中。')),
+      h('section', { 'aria-label': '完整快捷入口列表' },
+        h('div', { style: {
+          display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', gap: 8, marginBottom: 6,
+        } },
+          h('strong', null, '全部已注册入口'),
+          h('span', { style: { color: muted, fontSize: 11 } },
+            '共 ' + sorted.length + ' · 快捷栏 ' + primary.length +
+              ' · 更多 ' + more.length + ' · 隐藏 ' + hiddenCount)),
+        sorted.length
+          ? sorted.map((entry, index) => {
+            const location = locationOf(entry.id)
+            const autoOverflow = location === 'dock' && overflowIds.has(entry.id)
+            return h('div', {
+              key: entry.id, role: 'listitem', draggable: true,
+              'data-dock-drop': entry.id, 'data-dock-zone': 'list',
+              onDragStart: event => beginDrag(event, entry.id),
+              onDragOver: event => event.preventDefault(),
+              onDrop: event => dropDrag(event, entry.id),
+              onDragEnd: () => { dragId = null },
+              style: {
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '9px 0', borderBottom: '1px solid ' + separator,
+                minWidth: 0,
+              },
+            },
+              h('span', { title: '拖动排序', style: {
+                color: muted, fontSize: 15, cursor: 'grab', userSelect: 'none',
+              } }, '⠿'),
+              h('span', { style: { flexShrink: 0, width: 28,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              } }, h(SvgIcon, { entry, size: settings.size })),
+              h('div', { style: { flex: 1, minWidth: 70 } },
+                h('div', { style: { fontWeight: 600, fontSize: 12 } }, entry.label),
+                h('div', { style: {
+                  color: muted, fontSize: 10, whiteSpace: 'nowrap',
+                  textOverflow: 'ellipsis', overflow: 'hidden',
+                } }, autoOverflow ? '超过 9 个，自动收纳到更多' : entry.id)),
+              h('select', {
+                'aria-label': '显示位置 ' + entry.label,
+                value: location, onChange: event =>
+                  registry.setLocation(entry.id, event.target.value),
+                style: {
+                  flexShrink: 0, minWidth: 76, maxWidth: 105,
+                  border: '1px solid ' + separator, borderRadius: 7,
+                  padding: '6px 4px', background: 'transparent',
+                  color: 'inherit', fontSize: 11,
+                },
+              },
+                h('option', { value: 'dock' }, '快捷栏'),
+                h('option', { value: 'more' }, '更多'),
+                h('option', { value: 'hidden' }, '隐藏')),
+              h('button', { type: 'button',
+                'aria-label': '上移 ' + entry.label, title: '上移',
+                style: { ...smallButton, opacity: index === 0 ? .35 : 1 },
+                disabled: index === 0,
+                onClick: () => registry.move(entry.id, -1),
+              }, '↑'),
+              h('button', { type: 'button',
+                'aria-label': '下移 ' + entry.label, title: '下移',
+                style: { ...smallButton, opacity: index === sorted.length - 1 ? .35 : 1 },
+                disabled: index === sorted.length - 1,
+                onClick: () => registry.move(entry.id, 1),
+              }, '↓'))
+          })
+          : h('p', { style: {
+            color: muted, padding: '16px 0', lineHeight: 1.6,
+          } }, '暂无已注册入口；支持 Icon Dock 的新插件安装后会自动出现。')),
+      h('div', { style: {
+        marginTop: 18, paddingTop: 13,
+        borderTop: '1px solid ' + separator,
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 20,
+      } },
+        h('label', { style: {
+          display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+        } },
+          h('input', {
+            type: 'checkbox', checked: settings.captureNative,
+            'aria-label': '接管官方导航',
+            onChange: event => registry.setNativeCapture(event.target.checked),
+          }),
+          '接管官方导航'),
+        h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 8 } },
+          '图标大小',
+          h('select', {
+            id: 'dsh-icon-size', value: settings.size, 'aria-label': '图标大小',
+            onChange: event => registry.setSize(Number(event.target.value)),
+            style: { padding: '6px 9px', borderRadius: 7,
+              border: '1px solid ' + separator,
+              background: 'transparent', color: 'inherit' },
+          }, ...[18, 20, 22, 24].map(n => h('option', { key: n, value: n }, n + 'px'))))),
+      h('p', { style: { color: muted, fontSize: 11,
+        lineHeight: 1.65, margin: '12px 0 0' } },
+        '在快捷栏/更多/隐藏之间切换不会停用插件。收起侧边栏时使用 2×2 图标格，超出的入口同样进入「更多」。排序保存在当前浏览器中。'))
     }
+
     return {
       inject: ['slots', 'layout', 'locale'],
       apply(ctx) {
