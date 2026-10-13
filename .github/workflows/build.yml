@@ -88,6 +88,8 @@ jobs:
           bash tests/test-dshd-admin-hosts.sh
           bash -n tests/test-dshd-interactive.sh
           bash tests/test-dshd-interactive.sh
+          bash -n tests/test-dshd-plugin-doctor.sh
+          bash tests/test-dshd-plugin-doctor.sh
           bash -n tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-menu.sh
           bash -n tests/test-dshd-search-recovery.sh
