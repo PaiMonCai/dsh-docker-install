@@ -100,6 +100,14 @@ DSH 会话管理现由内置 `dsh-docker-session-manager` **Web 插件**提供�
 
 详见 [Runtime 与运维](docs/runtime.md)。
 
+## 内置逆向工程 Agent（dsh-purge × REA）
+
+Standard Docker 镜像已在**构建阶段**集成 REA 和固定版本的 [dsh-purge](https://github.com/ANRCM0/dsh-purge) 逆向模块：进入 DSH Web 直接选择「逆向工程」Agent，MCP 通过容器内预装的 `rea mcp` 连接；Icon Dock 提供「逆向工作台」查看项目、证据与报告。无需容器启动后安装第三方 MCP。
+
+功能通过 `DSH_REVERSE_AGENT_ENABLED=true` 默认启用，设为 `false` 可以关闭预设与工作台；不会运行 dsh-purge 的全局提示词/破甲模块，也不会下载 Ghidra/IDA 等分析引擎。
+
+详见 [Docker 内置逆向工程 Agent](docs/reverse-agent.md)。
+
 ## Standard 提供什么
 
 Standard 镜像主要解决 DSH 的运行和管理问题：
