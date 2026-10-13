@@ -203,7 +203,7 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 
 ## 自部署网页搜索（可选）
 
-内置 Search Router 使用 SearXNG 作为免费主搜索源，并提供用户授权的 Brave API 备用；保留官方 `web_search` / `web_fetch` 工具与现有插件系统，默认关闭，不改变已有安装。通过 `dshd search enable`、`dshd search test` 开启和测试。详见 [Web Search 使用与架构](docs/web-search.md)。
+内置 Search Router 使用 SearXNG 作为免费主搜索源，并提供用户授权的 Brave API 备用；保留官方 `web_search` / `web_fetch` 工具与现有插件系统，默认关闭，不改变已有安装。通过 `dshd search enable`、`dshd search test` 开启和测试。 开启后，Web 左侧边栏底部会显示「网络搜索」放大镜入口，点击即可打开搜索设置面板；原插件页入口仍保留。详见 [Web Search 使用与架构](docs/web-search.md)。
 
 ## 文档
 
