@@ -88,6 +88,8 @@ jobs:
           bash tests/test-dshd-admin-hosts.sh
           bash -n tests/test-dshd-interactive.sh
           bash tests/test-dshd-interactive.sh
+          bash -n tests/test-dshd-plugin-doctor.sh
+          bash tests/test-dshd-plugin-doctor.sh
           bash -n tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-menu.sh
           bash -n tests/test-dshd-search-recovery.sh
@@ -102,6 +104,9 @@ jobs:
           node --check docker/plugins/dsh-session-manager-web/client.js
           node tests/test-session-manager-web.mjs
           node tests/test-session-trash-ui.cjs
+          node --check docker/dsh-plugin-doctor.js
+          node tests/test-plugin-doctor.cjs
+          node --check tests/test-web-browser-e2e.cjs
           node tests/test-connection-rpc-routes.js
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js
@@ -443,6 +448,28 @@ jobs:
           fi
           rm -f "$cookie_file" "$response_file"
           echo "DSH Web session-manager authenticated trash route is mounted"
+
+          doctor_report="$(mktemp)"
+          if ! docker exec "$name" node /usr/local/bin/dsh-plugin-doctor.js --json >"$doctor_report"; then
+            cat "$doctor_report"
+            echo "::error::Native plugin runtime diagnostics failed"
+            exit 1
+          fi
+          node - "$doctor_report" <<'NODE'
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+          if (!report.healthy || !report.checks.some(c => c.code === 'client-graph' && c.state === 'ok')) {
+            throw new Error('Plugin doctor did not confirm browser boot graph')
+          }
+          NODE
+          rm -f "$doctor_report"
+
+          # Run real Chromium inside disposable CI Docker volume.
+          if ! docker exec "$name" node /usr/local/bin/test-dsh-web-browser-e2e.cjs; then
+            docker cp "$name:/tmp/dsh-web-e2e-failed.png" ./dsh-web-e2e-failed.png 2>/dev/null || true
+            echo "::error::Chromium icon dock and settings smoke test failed"
+            exit 1
+          fi
 
           # Docker recreate must not change the launch Token. The second
           # container uses the same DSH_HOME volume, not just a process restart.
