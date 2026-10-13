@@ -12,6 +12,8 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     '../docker/plugins/dsh-web-search/client.js'), 'utf8')
   const managerSource = readFileSync(join(__dirname,
     '../docker/plugins/dsh-session-manager-web/client.js'), 'utf8')
+  const dockSource = readFileSync(join(__dirname,
+    '../docker/plugins/dsh-icon-dock/client.js'), 'utf8')
   const registered = new Map()
   const injections = []
   const requests = []
@@ -23,7 +25,9 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
   let cursor = 0
   let moduleDefinition
   let managerDefinition
+  let dockDefinition
   const managerSlots = new Map()
+  const dockSlots = new Map()
   const React = {
     createElement(type, props, ...children) {
       return { type, props: { ...props, children } }
@@ -71,6 +75,7 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
   const sandbox = {
     window: { __ModuleLoader__: { load(definition) {
       if (definition.id === 'dsh-docker-session-manager') managerDefinition = definition
+      else if (definition.id === 'dsh-docker-icon-dock') dockDefinition = definition
       else moduleDefinition = definition
     } } },
     document: {
@@ -99,6 +104,7 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
   }
   runInNewContext(source, sandbox, { filename: 'web-search-client.js' })
   runInNewContext(managerSource, sandbox, { filename: 'session-manager-client.js' })
+  runInNewContext(dockSource, sandbox, { filename: 'icon-dock-client.js' })
   function MenuItemButton() {}
   function Modal() {}
   const registry = { inject(name, factory) {
@@ -130,8 +136,18 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     })
     plugin.apply({ slots: managerRegistry })
   }
-  if (managerFirst) { loadManager(); loadSearch() }
-  else { loadSearch(); loadManager() }
+  function loadDock() {
+    const plugin = dockDefinition.factory(name => {
+      if (name === 'react') return React
+      throw Error('unexpected dependency ' + name)
+    })
+    plugin.apply({ slots: {
+      inject(name, register) { register() },
+      register(meta, component) { dockSlots.set(meta.name, { meta, component }) },
+    } })
+  }
+  if (managerFirst) { loadManager(); loadSearch(); loadDock() }
+  else { loadDock(); loadSearch(); loadManager() }
   function nodes(root, predicate, result = []) {
     if (root == null || root === false) return result
     if (Array.isArray(root)) {
@@ -150,7 +166,7 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     return text(root.props?.children)
   }
   function footer(wide = true) {
-    const component = managerSlots.get('sidebar.footer.action')?.component
+    const component = dockSlots.get('sidebar.footer.action')?.component
     assert.equal(typeof component, 'function')
     return render(() => component({ wide }), 'footer')
   }
@@ -173,7 +189,7 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     return render(fn)
   }
   return {
-    registered, managerSlots, injections, requests, render, footer, shortcut, overlay, card, nodes, text, settle,
+    registered, managerSlots, dockSlots, injections, requests, render, footer, shortcut, overlay, card, nodes, text, settle,
     failNextRefresh() { failNextGet = true },
     keydown(event) { keyHandlers.get('keydown')?.(event) },
   }
@@ -190,14 +206,14 @@ test('recycle and search icons share exactly one footer row with no visible labe
   const collapsed = app.footer(false)
   for (const dock of [expanded, collapsed]) {
     assert.equal(dock.props.role, 'group')
-    assert.equal(dock.props.className, 'dsh-dock-icon-row')
+    assert.equal(dock.props.className, 'dsh-icon-dock')
     const buttons = app.nodes(dock, n => n.type === 'button')
     assert.equal(buttons.length, 2)
     assert.deepEqual(buttons.map(n => n.props['aria-label']), ['回收站', '网络搜索'])
     assert.deepEqual(buttons.map(n => n.props.title), ['回收站', '网络搜索'])
     assert.doesNotMatch(app.text(dock), /回收站|网络搜索/)
-    assert.equal(buttons[0].props.children[0].type.name, 'DockIcon')
-    assert.equal(buttons[1].props.children[0].type.name, 'DockIcon')
+    assert.equal(buttons[0].props.children[0].type.name, 'SvgIcon')
+    assert.equal(buttons[1].props.children[0].type.name, 'SvgIcon')
     assert.equal(dock.props.style.display, 'flex')
   }
 })
