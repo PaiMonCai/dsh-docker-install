@@ -4,6 +4,22 @@
 
 ## 使用
 
+正式镜像发布后，优先通过统一管理器安装独立实例（不会使用 Standard 的配置与数据）：
+
+~~~bash
+bash install.sh reverse
+# 如果已经安装了 dshd 管理器，也可以直接：
+dshd reverse install
+dshd reverse status
+dshd reverse logs
+dshd reverse update
+~~~
+
+逆向版默认容器名 `dsh-reverse`、宿主端口 `3081`、专用配置目录 `/etc/dshd-reverse`（root 模式；非 root 位于用户配置目录下），以及独立的持久化路径。已有 Standard 的 `dshd` 命令仍管理原来的 Standard 实例。管理菜单第 21 项也可调用独立逆向安装。
+
+以下是面向从源码构建的替代方式：
+
+
 在本仓库根目录运行：
 
 ~~~bash
