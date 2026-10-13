@@ -38,6 +38,24 @@ docker compose -f docker-compose.reverse.yml logs -f dsh-reverse
 
 IDA / Hopper 是专有商业工具，不包含、不再分发。Frida 的移动设备服务端也没有安装；Ghidra、JADX 的图形界面需要额外显示环境。REA 工具对外部分析器是否真的兼容，要看实际 MCP 工具输出。
 
+## Reverse Agent 内置 Skills
+
+除了上游原有的 REA 工作流 Skill，逆向版增加五个经过人工审查、无运行时依赖下载的专用 Skill：
+
+- `binary-triage`：PE / ELF / 固件文件类型、元数据、导入表与哈希静态初检。
+- `ghidra-headless`：使用镜像自带 Ghidra CLI 做函数、调用关系与伪代码分析。
+- `android-apk-analysis`：JADX / apktool 检查 Manifest、组件、DEX、Smali。
+- `electron-javascript-analysis`：Electron ASAR、主进程、Preload、IPC、打包 JavaScript 结构。
+- `reverse-evidence-report`：持续证据、项目阶段与报告导出。
+
+源码位于 `reverse/skills/<id>/SKILL.md`，构建时复制到 `/opt/dsh-reverse/skills/`，启动时只在 Reverse 容器内复制到 `$DSH_HOME/reverse-engineering/skills/`。存在的同名用户 Skill 文件不会被覆盖。来源参考 [Trail of Bits Ghidra Headless](https://github.com/trailofbits/skills-curated/tree/main/plugins/ghidra-headless) 和 Agent Skills 的标准组织格式；五份文件为本仓库独立编写，没有直接复用上游未经审查的下载/执行脚本。
+
+## 版本自动发布
+
+与 Research Edition 一样，Standard 发布成功后将**精确的基础镜像 SHA-256 digest**、DSH 版本、上游 channel 与源码提交传给 `build-reverse.yml`，独立构建和发布 Reverse，不阻塞 Standard 的成功状态。
+
+浮动标签 `:reverse`；版本标签如 `:reverse-0.2.1-alpha.2`；通道标签如 `:reverse-alpha`。Reverse-only 提交仍可独立发布；同一提交若同时改了 Standard，则等待 Standard 发布完后自动触发，避免使用版本不匹配的 `:latest` 基础镜像。完整构建/发布也需要 CI 与必要的镜像权限。
+
 ## 完整 dsh-purge 的启动与验收
 
 1. 启动逆向版，进入 DSH Web 后确认 dsh-purge Dock 和「逆向工程」Agent 出现。
@@ -51,6 +69,6 @@ IDA / Hopper 是专有商业工具，不包含、不再分发。Frida 的移动�
 - Dockerfile：reverse/Dockerfile；Compose：docker-compose.reverse.yml；CI：.github/workflows/build-reverse.yml。
 - BASE_IMAGE 默认使用已发布的 GHCR Standard latest。正式部署建议设置 DSH_REVERSE_BASE_IMAGE 为经验证的 digest。
 - 构建时拉取固定 dsh-purge commit，并预装所有软件；启动容器不会再自动 npm/pip 安装。
-- PR CI 构建 amd64 审核镜像、检查插件行、工具与启动日志；合并 main 且工作流成功后才会推送 ghcr.io/paimoncai/dsh-docker-install:reverse。
+- PR CI 构建 amd64 审核镜像，验证插件行、工具、Skills 与真实 Web 启动；正式发布支持 amd64 和 arm64，成功后推送 ghcr.io/paimoncai/dsh-docker-install:reverse 及匹配 Standard 版本号的标签。
 - 建议不要向公网直接暴露逆向镜像，尤其不要给它挂载 Docker Socket、SSH 私钥或敏感宿主路径。
 - 仅分析具有合法授权的目标；动态执行或外网测试前须单独确认。
