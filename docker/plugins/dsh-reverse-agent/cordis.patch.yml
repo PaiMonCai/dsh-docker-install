@@ -1,0 +1,5 @@
+# Reverse Agent is image-bundled; only mounts its scoped preset and tools.
+# Never loads dsh-purge's global jailbreak/prompt plugin or redteam plugin.
+- insert:
+    - id: dsh-docker-reverse-agent
+      name: ./index.js
