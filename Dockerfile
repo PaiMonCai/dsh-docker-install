@@ -22,6 +22,21 @@ RUN . /usr/local/bin/cn-mirror \
         /etc/apt/sources.list.d/ubuntu.sources; \
     fi
 
+# Pinned reverse-Agent source; no runtime GitHub fetch or profile plugin install.
+FROM ubuntu-base AS reverse-agent-source
+ARG REVERSE_AGENT_COMMIT=28c8eaf5b5de70d53795387d01faae9498a83d63
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    git init /tmp/dsh-purge; \
+    git -C /tmp/dsh-purge remote add origin https://github.com/ANRCM0/dsh-purge.git; \
+    git -C /tmp/dsh-purge fetch --depth=1 origin "${REVERSE_AGENT_COMMIT}"; \
+    test "$(git -C /tmp/dsh-purge rev-parse FETCH_HEAD)" = "${REVERSE_AGENT_COMMIT}"; \
+    mkdir -p /opt/dsh-reverse-snapshot; \
+    git -C /tmp/dsh-purge archive "${REVERSE_AGENT_COMMIT}" | tar -xf - -C /opt/dsh-reverse-snapshot; \
+    test -f /opt/dsh-reverse-snapshot/presets/reverse-engineering/agent.cordis.yml; \
+    test -f /opt/dsh-reverse-snapshot/lib/reverse/tools.js
+
 # SearXNG builder and runtime use the SAME Ubuntu Python and glibc ABI.
 FROM ubuntu-base AS searxng-builder
 ARG SEARXNG_REF=ad46ebd7d87666edb5f116c5b274b47f689ac6cd
@@ -47,6 +62,7 @@ FROM ubuntu-base
 
 ARG DSH_VERSION=0.2.1-alpha.2
 ARG PNPM_VERSION=11.7.0
+ARG REA_VERSION=6.4.0
 ARG GO_VERSION=1.27.1
 ARG TARGETARCH
 ARG HTTP_PROXY
@@ -192,6 +208,12 @@ RUN . /usr/local/bin/cn-mirror \
       /usr/local/bin/patch-web-launch-token.js \
       /usr/local/bin/patch-workspace-picker-home.js
 
+# REA is baked into the image; the Docker runtime never installs npm packages.
+RUN npm install --global --no-audit --no-fund "rea-agents@${REA_VERSION}" \
+ && node -e "const p=require('/usr/local/lib/node_modules/rea-agents/package.json'); if(p.version!==process.argv[1]||p.name!=='rea-agents')process.exit(1)" "${REA_VERSION}" \
+ && command -v rea \
+ && rm -rf "${NPM_CONFIG_CACHE}"
+
 # Bundled SearXNG: never runs until the Web Search provider is enabled.
 # Source retains upstream AGPL-3.0-or-later license and attribution.
 COPY --from=searxng-builder /opt/dsh/searxng-src /opt/dsh/searxng-src
@@ -207,6 +229,9 @@ COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-session-manager
 COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
+# Reverse preset adapts a pinned, build-time copy of the DSH-purge source.
+COPY docker/plugins/dsh-reverse-agent/ /opt/dsh/plugins/dsh-reverse-agent/
+COPY --from=reverse-agent-source /opt/dsh-reverse-snapshot/ /opt/dsh/plugins/dsh-reverse-agent/vendor/
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
@@ -236,6 +261,12 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
+ && node --check /opt/dsh/plugins/dsh-reverse-agent/index.js \
+ && node --check /opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/tools.js \
+ && node --check /opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/workspace.js \
+ && node --check /opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/index.js \
+ && node --input-type=module -e 'import("/opt/dsh/plugins/dsh-reverse-agent/index.js").then(m=>{const p=m.reverseDefinition();const t=p.plugins.find(x=>x.id==="reverse-workflow-tools");if(t.name!=="file:///opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/tools.js")process.exit(1)})' \
+ && node --test /opt/dsh/plugins/dsh-reverse-agent/vendor/tests/reverse-preset.test.mjs /opt/dsh/plugins/dsh-reverse-agent/vendor/tests/reverse-workflow.test.mjs \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
