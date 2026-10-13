@@ -2,107 +2,235 @@ name: Build & Publish Reverse Edition
 on:
   push:
     branches: [main]
-    paths: [reverse/**, docker-compose.reverse.yml, docker/entrypoint.sh, tests/test-reverse-edition.cjs, .github/workflows/build-reverse.yml]
+    paths:
+      - reverse/**
+      - docker-compose.reverse.yml
+      - .github/workflows/build-reverse.yml
   pull_request:
     branches: [main]
-    paths: [reverse/**, docker-compose.reverse.yml, docker/entrypoint.sh, tests/test-reverse-edition.cjs, .github/workflows/build-reverse.yml]
+    paths:
+      - reverse/**
+      - docker-compose.reverse.yml
+      - docker/entrypoint.sh
+      - tests/test-reverse-edition.cjs
+      - ci/reverse-push-gate.sh
+      - .github/workflows/build-reverse.yml
+      - .github/workflows/build.yml
   workflow_dispatch:
     inputs:
       base_image:
-        description: Optional immutable Standard base image
+        description: Immutable Standard digest, optional for standalone Reverse builds
         required: false
         type: string
+      dsh_version:
+        description: Standard DSH version for aligned Reverse tags
+        required: false
+        type: string
+      channel_tags:
+        description: Standard channel tags, comma-separated
+        required: false
+        type: string
+      source_sha:
+        description: Pinned source commit from successful Standard publish
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      base_image:
+        type: string
+        required: false
+        default: ""
+      dsh_version:
+        type: string
+        required: false
+        default: ""
+      channel_tags:
+        type: string
+        required: false
+        default: ""
+      source_sha:
+        type: string
+        required: false
+        default: ""
+
 concurrency:
-  group: reverse-${{ github.event.pull_request.number || github.ref }}
+  group: reverse-${{ github.event.pull_request.number || github.ref }
   cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }
+
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    outputs:
+      run_reverse: ${{ steps.gate.outputs.run_reverse }
     steps:
       - uses: actions/checkout@v4
-      - name: Test separate image contract
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha || github.sha }
+      - name: Avoid racing a mixed Standard and Reverse push
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }
+          BEFORE_SHA: ${{ github.event.before }
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            run="$(bash ci/reverse-push-gate.sh "$BEFORE_SHA" "$GITHUB_SHA")"
+          else
+            run=true
+          fi
+          echo "run_reverse=$run" >> "$GITHUB_OUTPUT"
+          if [[ "$run" == false ]]; then
+            echo "Mixed Standard + Reverse commit: wait for Standard digest dispatch."
+          fi
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.run_reverse == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }
+      - name: Validate reverse isolation and bundled Skills
         run: |
           set -euo pipefail
           node --check reverse/generate-overlay.mjs
+          node --check reverse/skills-bootstrap.mjs
           node --check reverse/purge-ui/index.js
           bash -n docker/entrypoint.sh
+          bash -n ci/reverse-push-gate.sh
           node --test tests/test-reverse-edition.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
+
+      - name: Resolve image and matching Standard version
+        id: vars
+        shell: bash
+        env:
+          REQUESTED_BASE: ${{ inputs.base_image }
+          REQUESTED_VERSION: ${{ inputs.dsh_version }
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }
+          RAW_IMAGE: ${{ env.IMAGE_NAME }
+        run: |
+          set -euo pipefail
+          image="${RAW_IMAGE,,}"
+          version="$REQUESTED_VERSION"
+          if [[ -z "$version" ]]; then
+            version="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
+          fi
+          base="${REQUESTED_BASE:-$image:$version}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channels=$REQUESTED_CHANNELS" >> "$GITHUB_OUTPUT"
+          echo "Base image: $base"
+
+      - name: Compose Reverse tags, aligned with Standard
+        id: tags
+        shell: bash
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }
+          VERSION: ${{ steps.vars.outputs.version }
+          CHANNELS: ${{ steps.vars.outputs.channels }
+        run: |
+          set -euo pipefail
+          {
+            echo "$IMAGE:reverse"
+            bash ci/image-tags.sh "$IMAGE" "$VERSION" "$CHANNELS" \
+              --prefix reverse- --no-latest
+          } | tee /tmp/reverse-tags
+          {
+            echo "list<<REVERSE_TAGS"
+            cat /tmp/reverse-tags
+            echo "REVERSE_TAGS"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - name: Resolve image names
-        id: names
-        env:
-          REPO_NAME: ${{ github.repository }}
-          SELECTED_BASE: ${{ inputs.base_image }}
-        run: |
-          name="ghcr.io/${REPO_NAME,,}"
-          echo "image=$name:reverse" >> "$GITHUB_OUTPUT"
-          echo "base=${SELECTED_BASE:-$name:latest}" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build independent edition
+          username: ${{ github.actor }
+          password: ${{ secrets.GITHUB_TOKEN }
+
+      - name: Build Reverse image and publish only after Standard
         uses: docker/build-push-action@v6
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: linux/amd64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }
           pull: true
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' }
+          load: ${{ github.event_name == 'pull_request' }
           build-args: |
-            BASE_IMAGE=${{ steps.names.outputs.base }}
-          tags: ${{ steps.names.outputs.image }}
+            BASE_IMAGE=${{ steps.vars.outputs.base }
+          tags: ${{ steps.tags.outputs.list }
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
-      - name: Inspect installed tools and full Cordis overlay
+
+      - name: Audit installed engines, full preset and bundled Skills
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.names.outputs.image }}
+          IMAGE: ${{ steps.vars.outputs.image }:reverse
         run: |
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
             for tool in rea gdb jadx frida apktool; do command -v "$tool"; done
             test -f /opt/ghidra/support/analyzeHeadless
-            test -s /opt/dsh-reverse/purge/client.js
-            test -s /opt/dsh-reverse/purge-ui/client.js
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
+            for skill in binary-triage ghidra-headless android-apk-analysis electron-javascript-analysis reverse-evidence-report; do
+              test -s "/opt/dsh-reverse/skills/$skill/SKILL.md"
+            done
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui; do
+            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui dsh-reverse-skill-bootstrap; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
-            node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs \
-                        /opt/dsh-reverse/purge/tests/reverse-workflow.test.mjs
+            node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs
+            node --input-type=module -e "
+              import(\x27/opt/dsh-reverse/purge/lib/redteam/preset-composition.js\x27).then(m=>{
+                const p=m.readPresetDefinition(\x27reverse-engineering\x27,\x27/opt/dsh-reverse/purge/presets/reverse-engineering\x27);
+                const t=p.plugins.find(x=>x.id===\x27reverse-workflow-tools\x27);
+                if(!t?.name?.endsWith(\x27/opt/dsh-reverse/purge/lib/reverse/tools.js\x27))process.exit(1)
+              })
+            "
           '
-      - name: Boot reverse Web and verify Agent registration
+
+      - name: Boot Web and assert Reverse Agent registration
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.names.outputs.image }}
+          IMAGE: ${{ steps.vars.outputs.image }:reverse
         run: |
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
           trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
           docker run -d --name "$name" "$IMAGE" >/dev/null
-          for i in {1..110}; do
+          for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
             fi
             if docker logs "$name" 2>&1 | grep -Fq "reverse preset ready:"; then
-              echo 'The full dsh-purge reverse Agent registered on the isolated host'
+              docker exec "$name" bash -c '
+                for id in binary-triage ghidra-headless android-apk-analysis electron-javascript-analysis reverse-evidence-report; do
+                  test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
+                done
+              '
+              echo "Reverse Agent registration and Skills bootstrap confirmed"
               exit 0
             fi
             sleep 1
           done
           docker logs "$name"
-          echo "::error::Reverse Agent registration not observed"
+          echo "::error::Reverse preset not confirmed in running DSH"
           exit 1
