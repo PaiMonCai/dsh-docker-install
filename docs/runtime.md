@@ -254,6 +254,10 @@ Token 仅进入 Web 进程环境，未进入 Docker 配置的环境变量列表�
 已有浏览器 Cookie 的签名凭据独立于此 Token，重置首次登录 Token **不等于注销现有浏览器**。
 保存了 DSH_HOME 的备份也可能包含 Token，请保护备份权限。
 
+## Web 原生导航图标化
+
+`dsh-docker-icon-dock` 默认自动接管上游注册到 `sidebar.panellist` 的原生导航（包括「插件」「自动化任务」及其他接入该插槽的页面），通过 `ctx.layout.selectPanel(id)` 打开原生页面。原本位于新会话下方的文字导航由 Icon Dock 统一显示为侧边栏底部小图标，可隐藏、排序和调整大小。兼容不完整时回退到原生文字导航；「插件 → 快捷入口管理 → 接管官方导航」支持手动关闭接管。实现和限制参见 [Icon Dock](icon-dock.md)。
+
 ## Web 会话管理（删除 / 永久删除 / 回收站）
 
 `dsh-docker-session-manager` 是容器内默认启用的 Web 插件；会话管理不再提供
