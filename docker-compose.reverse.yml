@@ -25,6 +25,6 @@ services:
     volumes:
       - dsh-reverse-home:/root/.dsh
       - "${DSH_REVERSE_WORKSPACE:-./reverse-workspace}:/workspace"
-    # Do NOT mount docker.sock, Standard DSH_HOME, or Standard workspace.
+    # Reverse workspace and private volume deliberately separate from Standard.
 volumes:
   dsh-reverse-home:
