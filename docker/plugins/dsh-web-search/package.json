@@ -1,9 +1,9 @@
 {
   "name": "dsh-docker-web-search",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH Docker native web search provider with SearXNG/Brave routing",
+  "description": "DSH Web Search with sidebar shortcut and embedded SearXNG/Brave settings panel",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
