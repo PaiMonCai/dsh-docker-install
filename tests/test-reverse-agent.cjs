@@ -106,7 +106,7 @@ test('native browser client is generated from the pinned reverse workbench sourc
   t.after(()=>fs.rmSync(temp,{recursive:true,force:true}))
   const input=path.join(temp,'reverse.js')
   const output=path.join(temp,'client.js')
-  fs.writeFileSync(input,'/* REA workbench UI */\nconst __dshPurgeReverse = (() => {return {Panel:function Panel(){},CSS:"test{display:block}"};})();\n')
+  fs.writeFileSync(input,'/* REA workbench UI */\nconst __dshPurgeReverse = (() => {const Panel=()=>null;const CSS="test{display:block}";return {Panel,CSS};})();\n')
   const build=path.join(__dirname,'../docker/plugins/dsh-reverse-agent/build-client.cjs')
   child.execFileSync(process.execPath,[build,input,output])
   const built=fs.readFileSync(output,'utf8')
