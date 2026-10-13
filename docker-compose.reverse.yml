@@ -1,5 +1,6 @@
 # Reverse Edition: separate port (3081), named volume and workspace.
 # docker compose -f docker-compose.reverse.yml up -d --build
+name: dsh-reverse
 services:
   dsh-reverse:
     build:
