@@ -59,8 +59,13 @@ for(const [,id,sourceFile] of modules){
     '}',
     'export default { ...(source.default ?? source), inject, apply }',
   ]:id==='redteam' ? [
-    'export const inject = [\'agentPresets\']',
-    'export default { ...(source.default ?? source), inject }',
+    // Redteam's bundled assets still bootstrap, while the 0.2+ preset is
+    // registered declaratively so its relative tools resolve from the image.
+    'export function apply(ctx){',
+    '  source.installPreset({force:false, log:msg=>ctx.logger?.info?.(msg)})',
+    '  source.installSetupScript()',
+    '}',
+    'export default { ...(source.default ?? source), inject:[], apply }',
   ]:[
     'export default source.default ?? { name: source.name, inject: source.inject, apply: source.apply }',
   ]
@@ -116,7 +121,20 @@ const field=(key)=>{
   const value=row.slice(key.length+1).trim()
   return value.replace(/^['"]|['"]$/g,'')
 }
-const pluginLines=presetBody.split('\n')
+// Upstream reverse preset predates required options of the current DSH.
+const resolveRequiredOptions=(body)=>{
+  for(const [row,key,value] of [
+    ["tool-fs-search","sampleOverCapGlobResults","false"],
+    ["tool-todo","allowParallelInProgress","true"],
+  ]){
+    const pattern=new RegExp('(^- id: '+row+'\\n  name: [^\\n]+)(?=\\n|$)','m')
+    if(!pattern.test(body))throw Error('Upstream required config anchor changed: '+row)
+    body=body.replace(pattern,'$1\\n  config:\\n    '+key+': '+value)
+  }
+  return body
+}
+const runtimePreset=resolveRequiredOptions(presetBody)
+const pluginLines=runtimePreset.split('\n')
   .map(line=>line.trim()?'          '+line:'')
   .join('\n')
 const embedded=pluginLines.replace(
@@ -137,6 +155,39 @@ patch+=[
   '        order: '+Number(field('order')),
   '        plugins:',
   embedded,
+  '',
+].join('\n')
+// A separate declarative Redteam row, retaining the complete upstream
+// composition. Resolve package paths against the immutable image, not DSH_HOME.
+const redteamDirectory=join(purge,'presets','redteam')
+const redteamMeta=readFileSync(join(redteamDirectory,'preset.yml'),'utf8')
+const metaLine=(text,key)=>{
+  const row=text.split('\n').find(s=>s.startsWith(key+':'))
+  if(!row)throw Error('Upstream redteam preset metadata lacks '+key)
+  return row.slice(key.length+1).trim().replace(/^['"]|['"]$/g,'')
+}
+let redteamBody=readFileSync(join(redteamDirectory,'agent.cordis.yml'),'utf8').trimEnd()
+const redteamRewrites=[
+  ['name: ../../lib/redteam/tools.js','name: file:///opt/dsh-reverse/purge/lib/redteam/tools.js'],
+  ['name: ./anchor-gate.mjs','name: file:///opt/dsh-reverse/purge/presets/redteam/anchor-gate.mjs'],
+]
+for(const [from,to] of redteamRewrites){
+  if(redteamBody.split(from).length!==2)throw Error('Upstream redteam path drift: '+from)
+  redteamBody=redteamBody.replace(from,to)
+}
+patch+=[
+  '',
+  '# Declarative redteam preset: maintain the original scoped composition.',
+  '- insert:',
+  '    - id: dsh-reverse-redteam-preset-declaration',
+  "      name: '@deepseek-ai/dsh-agent-preset'",
+  '      config:',
+  '        id: redteam',
+  '        name: '+JSON.stringify(metaLine(redteamMeta,'name')),
+  '        description: '+JSON.stringify(metaLine(redteamMeta,'description')),
+  '        order: '+Number(metaLine(redteamMeta,'order')),
+  '        plugins:',
+  redteamBody.split('\n').map(line=>line.trim()?'          '+line:'').join('\n'),
   '',
 ].join('\n')
 writeFileSync(join(root,'cordis.patch.yml'),patch)
