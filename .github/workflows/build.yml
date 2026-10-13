@@ -248,6 +248,7 @@ jobs:
               test -f "/opt/dsh/plugins/$plugin/cordis.patch.yml"
             done
             test -f /usr/local/bin/prepare-dsh-native-web-plugins.js
+            test -f /usr/local/bin/compose-dsh-native-web-patch.js
             test ! -e /usr/local/bin/ensure-dsh-web-search
             test ! -e /usr/local/bin/ensure-dsh-reasoning-editor
             test ! -e /usr/local/bin/ensure-dsh-icon-dock
@@ -260,6 +261,14 @@ jobs:
               --dump-config | grep -Fq "dsh-docker-reasoning-editor"
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --dump-config | grep -Fq "searchProvider: dsh-docker-search"
+            DSH_NATIVE_PATCH_OUTPUT="$native_home/combined.patch.yml" \
+              DSH_SEARCH_ENABLED=true node /usr/local/bin/compose-dsh-native-web-patch.js
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch "$native_home/combined.patch.yml" \
+              --dump-config | grep -Fq "dsh-docker-icon-dock"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch "$native_home/combined.patch.yml" \
               --dump-config | grep -Fq "searchProvider: dsh-docker-search"
             rm -rf "$native_home"
             test ! -e /usr/local/go/doc
@@ -356,13 +365,23 @@ jobs:
           })
           const launch = argSets.find(args =>
             args.includes('web') && args.includes('--patch') &&
-            args.some(arg => arg.endsWith('/dsh-bind.patch.yml')))
-          if (!launch) throw new Error('Cannot locate DSH Web launcher with native patches')
-          for (const name of names) {
-            const patch = '/opt/dsh/plugins/' + name + '/cordis.patch.yml'
-            if (!launch.includes(patch)) throw new Error('Missing DSH-native patch argument: ' + patch)
+            args.some(arg => arg.endsWith('/native-web.patch.yml')))
+          if (!launch) throw new Error('Cannot locate DSH Web launcher with consolidated native patch')
+          if (launch.filter(arg => arg === '--patch').length !== 1) {
+            throw new Error('DSH CLI must receive exactly one --patch flag')
           }
-          console.log('Bundled Web plugins mounted as DSH-native launcher patch layers')
+          const pathArg = launch[launch.indexOf('--patch') + 1]
+          const patchBody = fs.readFileSync(pathArg, 'utf8')
+          if (!patchBody.includes('- id: webserver')) {
+            throw new Error('Composite launcher patch lost Web bind settings')
+          }
+          for (const name of names) {
+            const mod = '/opt/dsh/plugins/' + name + '/index.js'
+            if (!patchBody.includes('name: ' + mod)) {
+              throw new Error('Missing native plugin in composite patch: ' + mod)
+            }
+          }
+          console.log('Bundled Web plugins mounted via one native DSH CLI patch')
           NODE
 
           # A rendered index does NOT prove the Web API route exists.
