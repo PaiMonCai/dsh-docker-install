@@ -167,10 +167,10 @@ test('manager card toggles visibility, moves icons and persists per browser', ()
   const browser = createHarness()
   const a = browser.page([recycle(), search()])
   const settings = a.card()
-  const checkbox = a.walk(settings, item => item.type === 'input' &&
-    item.props['aria-label'] === '显示 回收站')[0]
-  assert.ok(checkbox && checkbox.props.checked)
-  checkbox.props.onChange({ target: { checked: false } })
+  const selector = a.walk(settings, item => item.type === 'select' &&
+    item.props['aria-label'] === '显示位置 回收站')[0]
+  assert.ok(selector && selector.props.value === 'dock')
+  selector.props.onChange({ target: { value: 'hidden' } })
   assert.deepEqual(a.buttons().map(x => x.props['aria-label']), ['网络搜索'])
   const stored = JSON.parse(browser.records.get('dsh-docker-icon-dock:v1'))
   assert.equal(stored.hidden['dsh-docker.session-recycle'], true)
