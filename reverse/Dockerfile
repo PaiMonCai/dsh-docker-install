@@ -4,10 +4,12 @@ ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
 FROM ${BASE_IMAGE}
 ARG PURGE_COMMIT=28c8eaf5b5de70d53795387d01faae9498a83d63
 ARG REA_VERSION=6.4.0
-ARG GHIDRA_VERSION=11.4.2
-ARG GHIDRA_RELEASE_DATE=20250826
-ARG GHIDRA_SHA256=795a02076af16257bd6f3f4736c4fc152ce9ff1f95df35cd47e2adc086e037a6
+ARG GHIDRA_VERSION=12.1.4
+ARG GHIDRA_RELEASE_DATE=20260921
+ARG GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
 ARG JADX_VERSION=1.5.3
+ARG JADX_MCP_VERSION=0.7.1
+ARG JADX_MCP_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75
 ARG JADX_SHA256=8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec
 LABEL io.caicailo.dsh.edition="reverse" \
       org.opencontainers.image.title="DeepSeek Harness Reverse Edition" \
@@ -17,6 +19,8 @@ ENV DSH_REVERSE_PURGE_PATCH=/opt/dsh-reverse/cordis.patch.yml \
     DSH_REVERSE_AGENT_ENABLED=false \
     DSH_REVERSE_EDITION=true \
     GHIDRA_INSTALL_DIR=/opt/ghidra \
+    REA_JADX_MCP_JAR=/opt/jadx-headless-mcp/jadx-headless-mcp.jar \
+    JAVA_HOME=/usr/lib/jvm/java-21-openjdk-${TARGETARCH} \
     PATH=/opt/dsh-reverse/venv/bin:/usr/local/bin:${PATH}
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -59,6 +63,15 @@ RUN set -eux; \
     ln -s /opt/jadx/bin/jadx /usr/local/bin/jadx; \
     rm -f /tmp/jadx.zip; \
     jadx --version
+
+# REA 6.4.0 uses the audited JADX headless MCP fat JAR (separate from CLI).
+RUN set -eux; \
+    mkdir -p /opt/jadx-headless-mcp; \
+    curl -fsSL --retry 4 \
+      "https://github.com/1013503897/jadx-headless-mcp/releases/download/v${JADX_MCP_VERSION}/jadx-headless-mcp-${JADX_MCP_VERSION}-all.jar" \
+      -o /opt/jadx-headless-mcp/jadx-headless-mcp.jar; \
+    echo "${JADX_MCP_SHA256}  /opt/jadx-headless-mcp/jadx-headless-mcp.jar" | sha256sum -c -; \
+    test -s /opt/jadx-headless-mcp/jadx-headless-mcp.jar
 
 # A complete pinned dsh-purge snapshot; no runtime git clone.
 RUN set -eux; \
