@@ -107,5 +107,29 @@ if ( container_exists ) > "$TMP/rejected" 2>&1; then
   echo "legacy default manager adopted named container" >&2; exit 1
 fi
 
+# Uninstalling the default instance must not erase the shared named registry.
+(
+  DSHD_INSTANCE_ID=
+  DSH_NAME=dsh
+  DSH_STORAGE_MODE=bind
+  DSH_DATA_DIR="$TMP/nonexistent-data"
+  DSH_WORKSPACE="$TMP/nonexistent-workspace"
+  load_config() { :; }
+  ensure_docker() { :; }
+  container_exists() { return 1; }
+  dashboard_container_exists() { return 1; }
+  search_remove_sidecar() { :; }
+  search_remove_network() { :; }
+  proxy_remove_sidecar() { :; }
+  proxy_remove_network() { :; }
+  confirm() { printf '%s\n' "$1" >> "$TMP/uninstall-prompts"; return 0; }
+  cmd_uninstall > "$TMP/uninstall.out"
+)
+[[ -f "$DSHD_STATE_DIR/config.env" ]]
+[[ -f "$DSHD_STATE_DIR/instances/study/config.env" ]]
+if grep -Fq '删除 dshd 配置目录' "$TMP/uninstall-prompts" 2>/dev/null; then
+  echo "default uninstall offered to remove the shared registry" >&2; exit 1
+fi
+
 bash -n "$ROOT/dshd"
 printf 'dshd multi-instance tests passed\n'
