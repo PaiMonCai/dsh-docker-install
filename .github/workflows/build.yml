@@ -325,6 +325,24 @@ jobs:
           fi
           echo "DSH Docker healthcheck reports healthy"
 
+          # The Web can be HTTP-healthy while its optional bundled client
+          # plugins failed installation. This happened when pnpm rejected
+          # an unrelated locked package under minimumReleaseAge.
+          docker exec "$name" node - <<'NODE'
+          const fs = require('node:fs')
+          const manifest = '/root/.dsh/profiles/web/package.json'
+          const profile = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+          for (const name of ['dsh-docker-icon-dock', 'dsh-docker-session-manager']) {
+            const installed = Object.hasOwn(profile.dependencies || {}, name)
+            const enabled = profile.dsh?.profile?.bundles?.includes(name)
+            if (!installed || !enabled) {
+              console.error('Required Web client plugin not active:', name,
+                { installed, enabled })
+              process.exitCode = 1
+            }
+          }
+          NODE
+
           # A rendered index does NOT prove the Web API route exists.
           # Built-in Files uses POST /api/workspaceFiles/list; without a browser
           # auth cookie it must be intercepted as 401 by Connection, not 405
