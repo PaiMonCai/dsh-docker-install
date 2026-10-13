@@ -6,6 +6,7 @@ on:
       - 'docker/plugins/dsh-icon-dock/**'
       - 'docker/ensure-icon-dock.sh'
       - 'tests/test-icon-dock.cjs'
+      - 'tests/test-icon-dock-installer.sh'
       - 'docker/ensure-web-search.sh'
       - 'docker/search/**'
       - 'dshd'
@@ -38,6 +39,7 @@ jobs:
           bash tests/test-dshd-search-recovery.sh
           bash -n docker/ensure-web-search.sh
           bash -n docker/ensure-icon-dock.sh
+          bash tests/test-icon-dock-installer.sh
           node --check docker/plugins/dsh-icon-dock/index.js
           node --check docker/plugins/dsh-icon-dock/client.js
           node --test tests/test-icon-dock.cjs
