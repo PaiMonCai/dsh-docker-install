@@ -42,6 +42,10 @@
 
 `tests/test-dshd-interactive.sh` 覆盖以上行为。
 
+## 安全升级和回滚
+
+`dshd update` / `dshd recreate` 会保留旧版容器作为回滚点，新镜像需通过容器健康检查后才确认升级成功；失败时尝试自动恢复旧版。可执行 `dshd rollback status` 查看是否可回滚，执行 `dshd rollback` 切回旧版本，或 `dshd rollback clear` 明确清理旧版容器。**回滚不会覆盖会话、凭据、数据卷与工作区**，新版已修改过的持久数据未必兼容旧程序。完整说明：[安全升级与回滚](safe-upgrade-rollback.md)。
+
 ## 插件市场重启
 
 由 `dshd` 或本仓库的 `docker-compose.yml` 启动时，容器都带有
