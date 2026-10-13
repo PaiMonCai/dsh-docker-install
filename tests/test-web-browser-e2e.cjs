@@ -58,6 +58,26 @@ async function run() {
   await page.waitForFunction(() => Boolean(window.__dshDockerIconDockV1?.getAll),
     null, { timeout })
 
+  // Fresh CI volumes deterministically begin with the upstream blocking
+  // onboarding flow. Await it BEFORE using the dock: React's initial mount
+  // can render the dock briefly before the asynchronous welcome state opens
+  // the modal and makes the main app inert.
+  const welcome = page.getByRole('dialog', { name: '预览版说明' })
+  await welcome.waitFor({ state: 'visible', timeout: 20000 })
+  await welcome.getByRole('button', { name: '继续' }).click()
+  await welcome.waitFor({ state: 'detached', timeout: 15000 })
+  const credential = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
+  await credential.waitFor({ state: 'visible', timeout: 15000 })
+  await credential.getByLabel('API 密钥', { exact: true }).fill(
+    'dsh_ci_only_fake_credential_no_network')
+  await credential.getByRole('button', { name: '保存并继续' }).click()
+  await credential.waitFor({ state: 'detached', timeout: 15000 })
+  await page.waitForFunction(() => {
+    const root = document.querySelector('#root')
+    return root && !root.inert &&
+      !document.querySelector('[role="dialog"][aria-modal="true"]')
+  }, null, { timeout })
+
   const dock = page.getByRole('group', { name: '快捷入口' })
   await dock.waitFor({ state: 'visible', timeout })
   const registered = await page.evaluate(() => window.__dshDockerIconDockV1.getAll()
@@ -104,23 +124,6 @@ async function run() {
   const firstRow = boxes.filter(b => Math.round(b.y) === Math.min(...boxes.map(x => Math.round(x.y))))
   assert.equal(firstRow.length, 5, 'wide dock must fit five icons per row')
 
-  // Fresh DSH Web uses a *blocking*, accessible first-run onboarding
-  // dialog: "预览版说明" → "添加一个 API Key 开始使用". Clicking
-  // its mask is not a valid way through; the modal card intercepts the
-  // event. Complete the official flow using a fake key in the disposable
-  // CI-only volume, never in production.
-  const welcome = page.getByRole('dialog', { name: '预览版说明' })
-  if (await welcome.isVisible().catch(() => false)) {
-    await welcome.getByRole('button', { name: '继续' }).click()
-    await welcome.waitFor({ state: 'detached', timeout: 15000 })
-  }
-  const credential = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
-  if (await credential.isVisible().catch(() => false)) {
-    await credential.getByLabel('API 密钥', { exact: true }).fill(
-      'dsh_ci_only_fake_credential_no_network')
-    await credential.getByRole('button', { name: '保存并继续' }).click()
-    await credential.waitFor({ state: 'detached', timeout: 15000 })
-  }
   await buttons.last().click()
   const menu = page.getByRole('menu', { name: '更多快捷入口' })
   await menu.waitFor({ state: 'visible' })
