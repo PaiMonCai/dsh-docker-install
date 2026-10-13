@@ -41,6 +41,7 @@ sudo dshd instance study restart
 | 配置 | `/etc/dshd/config.env` | `/etc/dshd/instances/study/config.env` |
 | 容器 | 旧容器名，通常 `dsh` | `dsh-study` |
 | Web 宿主机端口 | 原端口，通常 `3080` | 自动寻找 `3082–3199` 可用端口 |
+| Research Dashboard 端口 | 原端口，通常 `8765` | Web 端口 + 6000（可单独修改） |
 | DSH 数据 | 原数据目录/卷 | `/opt/dsh/instances/study/data` |
 | 工作区 | 原工作区 | `/opt/dsh/instances/study/workspace` |
 | 环境变量文件 | 原 `container.env` | 实例私有 `container.env` |
