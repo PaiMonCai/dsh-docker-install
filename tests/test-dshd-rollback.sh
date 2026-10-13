@@ -40,6 +40,11 @@ docker_cmd() {
       mock_image[$2]="${mock_image[$1]}"
       unset 'mock_existing[$1]' 'mock_running[$1]' 'mock_image[$1]'
       ;;
+    run)
+      mock_existing[dsh]=1
+      mock_running[dsh]=1
+      mock_image[dsh]=candidate-sha
+      ;;
     rm)
       if [[ "$1" == -f ]]; then shift; fi
       [[ -n "${mock_existing[$1]:-}" ]] || return 1
@@ -94,4 +99,49 @@ health_state() { printf unhealthy; }
 if wait_upgrade_healthy >"$tmp/out" 2>&1; then
   echo "unhealthy container unexpectedly passed upgrade check" >&2; exit 1
 fi
+
+# Integration-level failure: create_container stages the old Docker container,
+# brings up a mock candidate, then fails its health gate and restores old dsh.
+unset 'mock_existing[dsh-rollback-failed]' 'mock_running[dsh-rollback-failed]' \
+  'mock_image[dsh-rollback-failed]'
+DSH_IMAGE=candidate-sha
+DSH_SHM_SIZE=1g
+DSH_BIND_ADDR=127.0.0.1
+DSH_PORT=3080
+DSH_TRUSTED_HOSTS=''
+DSHW_ADMIN_HOSTS=''
+DSH_TIMEZONE=Asia/Shanghai
+DSH_NPM_CACHE=/tmp/npm-cache
+DSH_SEARCH_ENABLED=false
+DSH_SEARCH_BRAVE_ENABLED=false
+DSH_SEARCH_CACHE_ENABLED=true
+DSH_SEARCH_BRAVE_DAILY_LIMIT=0
+DSH_PROXY_ENABLED=false
+DSH_WORKSPACE="$tmp/workspace"
+DSH_STORAGE_MODE=bind
+DSH_DATA_DIR="$tmp/data"
+DSH_MEMORY_LIMIT=''
+DSH_MEMORY_SWAP=''
+DSH_DOCKER_ACCESS=false
+DEEPSEEK_API_KEY=''
+DEEPSEEK_BASE_URL=''
+mkdir -p "$DSH_WORKSPACE" "$DSH_DATA_DIR"
+touch "$tmp/persistent-session"
+ensure_storage() { :; }
+storage_source() { printf '%s\n' "$DSH_DATA_DIR"; }
+storage_label() { printf 'unmodified-test-volume'; }
+proxy_remove_sidecar() { :; }
+proxy_remove_network() { :; }
+search_remove_sidecar() { :; }
+search_remove_network() { :; }
+wait_ready() { return 0; }
+wait_upgrade_healthy() { return 1; }
+if DSHD_SAFE_UPGRADE=1 create_container >"$tmp/out" 2>&1; then
+  echo 'health-failed candidate was accepted' >&2; exit 1
+fi
+[[ "${mock_image[dsh]}" == first-sha ]]
+[[ "${mock_running[dsh]}" == 1 ]]
+[[ -z "${mock_existing[dsh-rollback]:-}" ]]
+[[ -f "$tmp/persistent-session" ]]
+! grep -Eq 'volume rm|rm .* -v' "$calls"
 echo "Transactional update and non-destructive rollback tests passed"
