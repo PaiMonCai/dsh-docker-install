@@ -59,7 +59,11 @@ function createHarness(initial = new Map()) {
         register(meta, component) { slots.set(meta.name, { meta, component }) },
         entriesOfSlot(name) {
           assert.equal(name, 'sidebar.panellist')
-          return panels.map(options => ({ options }))
+          return panels.map(item => ({
+            options: { id: item.id, label: item.label, order: item.order },
+            component: item.component, inject: item.inject, store: item.store,
+            locale: item.locale, children: item.children,
+          }))
         },
         subscribe(name, cb) {
           assert.equal(name, 'sidebar.panellist')
@@ -253,4 +257,80 @@ test('unsafe or unsupported native panel id never hides original navigation', ()
   assert.deepEqual(app.buttons().map(x => x.props['aria-label']), ['插件', '回收站'])
   assert.doesNotMatch(app.css(), /nav\[class\*="panelList"\]/)
   assert.equal(app.dock.getNativeCaptured(), false)
+})
+
+
+test('official icons inherit the exact upstream React component and forwarded size', () => {
+  function OfficialPluginIcon(props) { return { source: 'official', ...props } }
+  function OfficialClockIcon(props) { return { source: 'clock', ...props } }
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', order: 0, component: OfficialPluginIcon },
+    { id: 'schedules', label: '自动化任务', order: 10, component: OfficialClockIcon },
+  ])
+  const buttons = app.buttons()
+  assert.equal(buttons.length, 2)
+  const nativePlugin = buttons[0].props.children[0]
+  const nativeSchedule = buttons[1].props.children[0]
+  assert.equal(nativePlugin.type.name, 'SvgIcon')
+  // Calling this pure wrapper simulates React rendering its child;
+  // official components themselves must remain uncalled by the manager.
+  const pluginNode = nativePlugin.type(nativePlugin.props)
+  const scheduleNode = nativeSchedule.type(nativeSchedule.props)
+  assert.strictEqual(pluginNode.type, OfficialPluginIcon)
+  assert.strictEqual(scheduleNode.type, OfficialClockIcon)
+  assert.equal(pluginNode.props.size, 20)
+  assert.equal(pluginNode.props.active, false)
+  assert.equal(scheduleNode.props.size, 20)
+  buttons[0].props.onClick()
+  const current = app.buttons()[0]
+  const selectedNode = current.props.children[0].type(current.props.children[0].props)
+  assert.strictEqual(selectedNode.type, OfficialPluginIcon)
+  assert.equal(selectedNode.props.active, true)
+  assert.equal(current.props['aria-current'], 'page')
+})
+
+test('hot-swapped native icon is reflected by the dock without cloning SVG', () => {
+  const OldIcon = () => null
+  const NewIcon = () => null
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', order: 0, component: OldIcon },
+  ])
+  let icon = app.buttons()[0].props.children[0]
+  assert.strictEqual(icon.type(icon.props).type, OldIcon)
+  app.updatePanels([
+    { id: 'plugins', label: '插件', order: 0, component: NewIcon },
+  ])
+  icon = app.buttons()[0].props.children[0]
+  assert.strictEqual(icon.type(icon.props).type, NewIcon)
+})
+
+test('native icon with framework-injected props uses fallback, preserving navigation', () => {
+  function NeedsFrameworkProps() { throw Error('must not run without injected props') }
+  const app = createHarness().page([], [
+    { id: 'plugins', label: '插件', order: 0, component: NeedsFrameworkProps,
+      inject: () => ({ special: true }) },
+  ])
+  const button = app.buttons()[0]
+  const wrapper = button.props.children[0]
+  const rendered = wrapper.type(wrapper.props)
+  assert.equal(rendered.type, 'svg')
+  assert.equal(rendered.props.children.length, 4, 'grid fallback instead of plugin icon')
+  button.props.onClick()
+  assert.deepEqual(app.selectedPanels, ['plugins'])
+  assert.equal(app.dock.getNativeCaptured(), true)
+})
+
+test('future extension renderIcon overrides default glyph without losing dock controls', () => {
+  const app = createHarness().page()
+  const custom = ({ size, h }) => h('svg', { id: 'provider-native', width: size, height: size })
+  app.dock.register({ id: 'custom.tool', label: '自带图标', order: 100,
+    icon: 'grid', renderIcon: custom, onClick() {} })
+  const button = app.buttons()[0]
+  const icon = button.props.children[0].type(button.props.children[0].props)
+  assert.equal(icon.type, 'svg')
+  assert.equal(icon.props.id, 'provider-native')
+  assert.equal(icon.props.width, 20)
+  app.dock.setSize(24)
+  const changed = app.buttons()[0].props.children[0].type(app.buttons()[0].props.children[0].props)
+  assert.equal(changed.props.width, 24)
 })
