@@ -41,6 +41,7 @@ function inspectStatic(options = {}) {
   const argv = processArgs.find(args => Array.isArray(args) && args.includes('web')
     && args.includes('--patch'))
   let patch = ''
+  let activePatches = []
   if (!argv) {
     records.push(row('launcher', 'error', 'DSH Web process and native launcher patches not found'))
   } else {
@@ -56,6 +57,7 @@ function inspectStatic(options = {}) {
     } else {
       try {
         patch = patches.map(file => source.readFileSync(file, 'utf8')).join('\n')
+        activePatches = patches
         if (!patch.includes('- id: webserver')) throw Error('webserver overlay missing')
         records.push(row('launcher', 'ok',
           patches.length + ' official native patch layers loaded'))
@@ -68,7 +70,12 @@ function inspectStatic(options = {}) {
   for (const plugin of PLUGINS) {
     const base = path.join(root, plugin.dir)
     const sourcePath = path.join(base, 'index.js')
-    const registered = patch.includes('name: ' + sourcePath)
+    // Native DSH YAML resolves name: ./index.js relative to the patch
+    // file location; the CLI retains the original absolute patch filename.
+    // Look for that official registered patch instead of requiring DSH to
+    // rewrite every name to an absolute module path on disk.
+    const registered = activePatches.includes(path.join(base, 'cordis.patch.yml'))
+      || patch.includes('name: ' + sourcePath)
     const files = ['index.js', 'client.js', 'package.json', 'cordis.patch.yml']
     const present = files.every(f => source.existsSync(path.join(base, f)))
     let correctManifest = false
