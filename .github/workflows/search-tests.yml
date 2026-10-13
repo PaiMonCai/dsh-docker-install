@@ -41,7 +41,7 @@ jobs:
           bash tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-recovery.sh
           bash tests/test-dshd-rollback.sh
-          bash tests/test-dshd-instances.sh
+          bash -x tests/test-dshd-instances.sh
           bash tests/test-native-web-plugins.sh
           node --check docker/plugins/dsh-icon-dock/index.js
           node --check docker/plugins/dsh-icon-dock/client.js
