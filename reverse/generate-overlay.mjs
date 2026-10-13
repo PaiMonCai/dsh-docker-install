@@ -123,7 +123,7 @@ console.log('Full dsh-purge composition and browser UI embedded')
   if(!match)throw Error('Upstream reverse preset metadata lacks '+key)
   return match[1].trim().replace(/^['"]|['"]$/g,'')
 }
-const pluginLines=presetBody.split('\n').map(x=>x.trim()? '        '+x : '').join('\n')
+const pluginLines=presetBody.split('\n').map(x=>x.trim()? '          '+x : '').join('\n')
 const embedded=pluginLines.replace(
   'name: ../../lib/reverse/tools.js',
   'name: file:///opt/dsh-reverse/purge/lib/reverse/tools.js'
