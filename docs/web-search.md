@@ -29,7 +29,7 @@ dshd search test
 
 `dshd` 主菜单 **28：Web Search / SearXNG** 可以查看状态、测试、诊断、日志、重启和更新 DSH 镜像。
 
-首次启用仍由 `dshd search enable` 完成，因为安装 Search Provider 的 profile patch 会改变 DSH Web 的路由配置并重建主容器；不能在未装插件时通过其 Web 页面直接操作。启用后，进入 **DSH Web → 插件 → DSH Web Search**，可在浏览器里修改运行开关、缓存、Brave 回退和每日额度，执行测试/重启搜索。Web 插件的“关闭内置搜索”停止子进程但保留 Provider；想恢复 DSH 原生搜索 Provider 请执行 `dshd search disable`。
+首次启用仍由 `dshd search enable` 完成，因为安装 Search Provider 的 profile patch 会改变 DSH Web 的路由配置并重建主容器；不能在未装插件时通过其 Web 页面直接操作。启用后，**DSH Web 由独立「快捷入口管理」插件统一渲染的侧边栏纯图标栏**中，默认与「回收站」图标并排显示放大镜「网络搜索」；展开、收起侧边栏时均无可见中文文字，悬停可见中文提示，并可在「插件 → 快捷入口管理」随时隐藏、排序或调整图标大小。点击打开宽屏响应式搜索设置面板，可直接修改运行开关、缓存、Brave 回退、每日额度，并执行测试/重启搜索；也保留 **DSH Web → 插件 → DSH Web Search** 入口。搜索设置面板可通过关闭按钮、Escape 键或点击遮罩关闭，密钥仍保存在 DSH 官方凭据存储。Web 插件的“关闭内置搜索”停止子进程但保留 Provider；想恢复 DSH 原生搜索 Provider 请执行 `dshd search disable`。
 
 Web 插件通过 DSH 受认证的 connection/request 接口保存设置，**不接触 Docker Socket**。Brave API Key 继续使用官方 `remote.credentials` 的只写存储。
 

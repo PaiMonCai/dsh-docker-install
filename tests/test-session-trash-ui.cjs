@@ -11,6 +11,8 @@ const path = require('node:path')
 const vm = require('node:vm')
 const source = fs.readFileSync(path.join(__dirname,
   '../docker/plugins/dsh-session-manager-web/client.js'), 'utf8')
+const dockSource = fs.readFileSync(path.join(__dirname,
+  '../docker/plugins/dsh-icon-dock/client.js'), 'utf8')
 
 const daysAgo = days => new Date(Date.now() - days * 86400000).toISOString()
 const seeds = () => [
@@ -21,6 +23,7 @@ const seeds = () => [
 
 function harness(input = seeds(), reject = new Set()) {
   let definition
+  let dockDefinition
   const slots = new Map()
   let items = structuredClone(input)
   const mutations = []
@@ -82,11 +85,15 @@ function harness(input = seeds(), reject = new Set()) {
     return { ok: true, async json() { return { success: true } } }
   }
   const sandbox = {
-    window: { __ModuleLoader__: { load: plugin => { definition = plugin } } },
+    window: { __ModuleLoader__: { load: plugin => {
+      if (plugin.id === 'dsh-docker-icon-dock') dockDefinition = plugin
+      else definition = plugin
+    } } },
     document, fetch, console,
     setTimeout() { return 1 }, clearTimeout() {},
   }
   vm.runInNewContext(source, sandbox, { filename: 'session-manager-client.js' })
+  vm.runInNewContext(dockSource, sandbox, { filename: 'icon-dock-client.js' })
   assert.equal(definition.id, 'dsh-docker-session-manager')
   function Modal() {}
   function MenuItemButton() {}
@@ -95,13 +102,21 @@ function harness(input = seeds(), reject = new Set()) {
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Modal, MenuItemButton }
     throw Error('unexpected require ' + name)
   })
-  plugin.apply({ slots: {
+  const registry = { slots: {
     inject(name, factory) {
       const values = factory()
       if (values && typeof values.next === 'function') for (const _ of values) {}
     },
     register(props, component) { slots.set(props.name, component) },
-  } })
+  } }
+  // Register the contributor first to verify descriptor queuing and
+  // independent dock ownership when startup order varies.
+  plugin.apply(registry)
+  const dock = dockDefinition.factory(name => {
+    assert.equal(name, 'react')
+    return React
+  })
+  dock.apply(registry)
   const Footer = slots.get('sidebar.footer.action')
   const Dialog = slots.get('shell.overlay')
   assert.equal(typeof Footer, 'function')
@@ -143,7 +158,10 @@ function harness(input = seeds(), reject = new Set()) {
     return matches[0]
   }
   async function open() {
-    Footer({ wide: true }).props.onClick()
+    const buttons = nodes(Footer({ wide: true }), node =>
+      node.type === 'button' && node.props?.['aria-label'] === '回收站')
+    assert.equal(buttons.length, 1)
+    buttons[0].props.onClick()
     render()
     return settle()
   }
@@ -236,4 +254,16 @@ test('failed batch restore leaves failures in trash and still restores remaining
   assert.equal(ui.items[0].sessionId, 'session-alpha')
   assert.equal(ui.label(tree, 'input', '选择会话 session-alpha').props.checked, true)
   assert.ok(ui.nodes(tree, x => x.props?.role === 'alert').length > 0)
+})
+
+test('recycle bin remains icon-only and functional when search plugin is disabled', async () => {
+  const ui = harness()
+  const tree = await ui.open()
+  assert.equal(tree.props.className, 'dsh-trash-overlay')
+  // Search plugin is intentionally absent from this test sandbox.
+  const source = fs.readFileSync(path.join(__dirname,
+    '../docker/plugins/dsh-session-manager-web/client.js'), 'utf8')
+  assert.match(source, /id: 'dsh-docker.session-recycle'/)
+  assert.doesNotMatch(source, /sidebar\.footer\.action/)
+  assert.match(dockSource, /className: 'dsh-icon-dock'/)
 })

@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - docker/plugins/dsh-session-manager-web/**
+      - docker/plugins/dsh-icon-dock/**
+      - docker/ensure-icon-dock.sh
+      - tests/test-icon-dock.cjs
       - tests/test-session-manager-web.mjs
       - tests/test-session-trash-ui.cjs
       - .github/workflows/session-trash-tests.yml
@@ -30,9 +33,14 @@ jobs:
       - name: Validate Web client and server
         run: |
           node --check docker/plugins/dsh-session-manager-web/client.js
+          node --check docker/plugins/dsh-icon-dock/client.js
+          node --check docker/plugins/dsh-icon-dock/index.js
+          bash -n docker/ensure-icon-dock.sh
           node --check docker/plugins/dsh-session-manager-web/index.js
           node --check tests/test-session-trash-ui.cjs
       - name: Exercise recycle bin API
         run: node tests/test-session-manager-web.mjs
       - name: Exercise real UI event handlers
         run: node --test tests/test-session-trash-ui.cjs
+      - name: Exercise independent icon dock
+        run: node --test tests/test-icon-dock.cjs

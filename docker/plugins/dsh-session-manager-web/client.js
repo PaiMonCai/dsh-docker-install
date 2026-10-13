@@ -85,20 +85,6 @@ window.__ModuleLoader__.load({
     function TrashMenu(props) {
       return menu(t.trash, () => move(props.sessionId, props.displayTitle), props, false, true)
     }
-    function RecycleFooter({ wide }) {
-      return h('button', {
-        type: 'button', title: t.recycle, 'aria-label': t.recycle,
-        onClick: () => show({ type: 'recycle' }),
-        style: {
-          width: '100%', display: 'flex', gap: '10px', alignItems: 'center',
-          justifyContent: wide ? 'flex-start' : 'center',
-          border: 'none', borderRadius: '8px', cursor: 'pointer',
-          background: 'transparent', color: 'inherit', padding: '9px 12px',
-          fontSize: '13px',
-        },
-      }, h('span', { 'aria-hidden': 'true', style: { fontSize: '17px' } }, '♻'),
-      wide ? h('span', null, t.recycle) : null)
-    }
     const ui = {
       edge: 'var(--dsw-alias-separator-primary, rgba(125,135,155,.24))',
       surface: 'var(--dsw-alias-bg-primary, var(--surface-primary, #fff))',
@@ -479,16 +465,24 @@ window.__ModuleLoader__.load({
       ))
     }
 
+    function registerDockShortcut() {
+      const entry = {
+        id: 'dsh-docker.session-recycle', label: '回收站',
+        icon: 'trash', order: 100,
+        onClick: () => show({ type: 'recycle' }),
+      }
+      const dock = window.__dshDockerIconDockV1
+      if (dock) dock.register(entry)
+      else (window.__dshDockerIconDockPendingV1 ||= []).push(entry)
+    }
     return {
       inject: ['slots'],
       apply(ctx) {
+        registerDockShortcut()
         ctx.slots.inject('sidebar.workspaces.session.menu.item', function* () {
           yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item',
             id: 'dsh-docker.trash', order: 700 }, TrashMenu)
         })
-        ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-          name: 'sidebar.footer.action', id: 'dsh-docker.recycle-footer', order: 450,
-        }, RecycleFooter))
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'dsh-docker.session-lifecycle',
         }, Dialog))

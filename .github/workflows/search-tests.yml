@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'docker/plugins/dsh-web-search/**'
+      - 'docker/plugins/dsh-icon-dock/**'
+      - 'docker/ensure-icon-dock.sh'
+      - 'tests/test-icon-dock.cjs'
       - 'docker/ensure-web-search.sh'
       - 'docker/search/**'
       - 'dshd'
@@ -14,6 +17,7 @@ on:
       - 'tests/test-dshd-search-menu.sh'
       - 'tests/test-dshd-search-recovery.sh'
       - 'tests/test-web-search-plugin.sh'
+      - 'tests/test-web-search-sidebar.cjs'
       - '.github/workflows/search-tests.yml'
   workflow_dispatch:
 permissions:
@@ -33,6 +37,10 @@ jobs:
           bash tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-recovery.sh
           bash -n docker/ensure-web-search.sh
+          bash -n docker/ensure-icon-dock.sh
+          node --check docker/plugins/dsh-icon-dock/index.js
+          node --check docker/plugins/dsh-icon-dock/client.js
+          node --test tests/test-icon-dock.cjs
           bash -n docker/entrypoint.sh
           node --check docker/plugins/dsh-web-search/index.js
           node --check docker/plugins/dsh-web-search/client.js

@@ -46,5 +46,9 @@ grep -Fq 'COPY docker/plugins/dsh-session-manager/dsh-session-manager' Dockerfil
 # The Web plugin is the only user-facing session manager.
 ! grep -Fq '28) run_action cmd_sessions menu ;;' dshd
 ! grep -Fq 'sessions|session)' dshd
-grep -Fq 'sidebar.footer.action' docker/plugins/dsh-session-manager-web/client.js
+# A single standalone icon-dock plugin now owns the sidebar slot; session
+# manager only contributes the recycle action via the public dock registry.
+grep -Fq 'sidebar.footer.action' docker/plugins/dsh-icon-dock/client.js
+grep -Fq 'dsh-docker.session-recycle' docker/plugins/dsh-session-manager-web/client.js
+! grep -Fq 'sidebar.footer.action' docker/plugins/dsh-session-manager-web/client.js
 echo 'offline session management checks passed'
