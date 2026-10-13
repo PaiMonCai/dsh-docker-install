@@ -121,7 +121,8 @@ window.__ModuleLoader__.load({
         className: 'dsh-dock-icon-button',
         onClick: click,
         style: {
-          flex: '1 1 0', minWidth: 0, width: '100%', minHeight: '36px',
+          flex: wide ? '0 0 38px' : '1 1 0', minWidth: 0,
+          width: wide ? '38px' : '100%', minHeight: '36px',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           border: 'none', borderRadius: '9px',
           background: 'transparent', color: 'inherit',
