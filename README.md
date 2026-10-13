@@ -76,6 +76,21 @@ dshd edition standard
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
+## 同时运行多份 DSH（多实例管理）
+
+`dshd` 现支持独立的命名实例：同一台机器上可同时部署 Standard、Research Economics、Reverse 或多个指定版本镜像，分别配置容器名、端口、持久数据、工作区、备份、更新与回滚。**原有 `dshd` 命令继续管理默认实例，旧数据不需要迁移。**
+
+```bash
+dshd instance add study research
+dshd instance add econ research-economics
+dshd instances
+dshd -i study status
+dshd -i study update
+dshd -i econ logs
+```
+
+交互菜单选 **[29] 多实例管理**，可新建或选择实例，再使用原运维菜单。历史 `dshd reverse ...` 仍兼容。完整隔离规则、安全边界及测试见 [多实例部署与运维](docs/multi-instance.md)。
+
 ## 固定 Web 登录 Token
 
 首次启动会自动生成高强度 Token 并保存在 DSH 的持久卷中，后续镜像更新、
