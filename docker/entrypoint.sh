@@ -70,27 +70,16 @@ repair_stale_workspace_cwd() {
 # Built-in Web extensions ship with the image. They are mounted as DSH
 # launcher patch layers directly from their absolute paths, like app glue.
 # None invokes the external Profile Plugin Manager or pnpm.
-native_plugin_enabled() {
-    local value="${1:-true}"
-    case "${value,,}" in
-        0|false|no|off|disabled) return 1 ;;
-        1|true|yes|on|enabled) return 0 ;;
-        *) log "无效的内置插件开关：$value"; return 2 ;;
-    esac
-}
-
 prepare_native_web_plugins() {
     local migrator="/usr/local/bin/prepare-dsh-native-web-plugins.js"
     [[ -f "$migrator" ]] || { log "缺少内置插件迁移工具：$migrator"; return 1; }
     node "$migrator"
 }
 
-append_native_web_patch() {
-    local filename="$1" flag="$2"
-    if native_plugin_enabled "$flag"; then
-        [[ -f "$filename" ]] || { log "缺少内置插件补丁：$filename"; return 1; }
-        args+=(--patch "$filename")
-    fi
+compose_native_web_patch() {
+    local composer="/usr/local/bin/compose-dsh-native-web-patch.js"
+    [[ -f "$composer" ]] || { log "缺少内置插件补丁组合器：$composer"; return 1; }
+    node "$composer"
 }
 
 apply_pending_session_deletions() {
@@ -102,7 +91,7 @@ apply_pending_session_deletions() {
 }
 
 run_web() {
-    local args=(web --patch "$BIND_PATCH" --no-open)
+    local args=(web --no-open)
 
     # Upstream DSH forbids 0.0.0.0 from 0.2.1-alpha.2 onward. Resolve the
     # container's concrete network address so published Docker ports still work.
@@ -122,10 +111,11 @@ run_web() {
     # not invoke the third-party installer or impact unrelated plugins.
     prepare_native_web_plugins
 
-    append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml" "${DSH_REASONING_EDITOR:-true}"
-    append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}"
-    append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}"
-    append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}"
+    # Upstream DSH accepts one --patch flag. Consolidate the bind fix and
+    # enabled built-in overlays into a single native patch file.
+    local merged_patch
+    merged_patch="$(compose_native_web_patch)"
+    args+=(--patch "$merged_patch")
 
     # DSH_PORT 是便捷写法；命令行里的 --port 由 "$@" 透传，二者同时给出时命令行在后。
     if [[ -n "${DSH_PORT:-}" ]]; then
