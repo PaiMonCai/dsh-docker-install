@@ -9,12 +9,19 @@ JSDELIVR_URL="https://cdn.jsdelivr.net/gh/${REPO}@main/dshd"
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Optional independent Reverse installer; Standard remains the default.
+INSTALL_ACTION=install
+if [[ "${1:-}" == reverse || "${1:-}" == reverse-install ]]; then
+  INSTALL_ACTION=reverse
+  shift
+  set -- install "$@"
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/dshd" ]]; then
   if [[ -r /dev/tty ]]; then
-    exec bash "$SCRIPT_DIR/dshd" install "$@" </dev/tty
+    exec bash "$SCRIPT_DIR/dshd" "$INSTALL_ACTION" "$@" </dev/tty
   else
-    exec bash "$SCRIPT_DIR/dshd" install "$@"
+    exec bash "$SCRIPT_DIR/dshd" "$INSTALL_ACTION" "$@"
   fi
 fi
 
@@ -45,7 +52,7 @@ fi
 [[ -s "$TMP" ]] || die "下载到的 dshd 文件为空。"
 chmod +x "$TMP"
 if [[ -r /dev/tty ]]; then
-  exec bash "$TMP" install "$@" </dev/tty
+  exec bash "$TMP" "$INSTALL_ACTION" "$@" </dev/tty
 else
-  exec bash "$TMP" install "$@"
+  exec bash "$TMP" "$INSTALL_ACTION" "$@"
 fi

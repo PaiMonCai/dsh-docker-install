@@ -1,0 +1,30 @@
+# Reverse Edition: separate port (3081), named volume and workspace.
+# docker compose -f docker-compose.reverse.yml up -d --build
+name: dsh-reverse
+services:
+  dsh-reverse:
+    build:
+      context: .
+      dockerfile: reverse/Dockerfile
+      args:
+        BASE_IMAGE: "${DSH_REVERSE_BASE_IMAGE:-ghcr.io/paimoncai/dsh-docker-install:latest}"
+    image: "${DSH_REVERSE_IMAGE:-dsh:reverse}"
+    container_name: dsh-reverse
+    restart: unless-stopped
+    shm_size: "${DSH_REVERSE_SHM_SIZE:-1g}"
+    ports:
+      - "127.0.0.1:${DSH_REVERSE_PORT:-3081}:3080"
+    environment:
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      DSH_TRUSTED_HOSTS: "${DSH_REVERSE_TRUSTED_HOSTS:-}"
+      DSH_REVERSE_PURGE_PATCH: /opt/dsh-reverse/cordis.patch.yml
+      DSH_REVERSE_AGENT_ENABLED: "false"
+      DSH_DOCKER_RESTART: container
+      NPM_CONFIG_CACHE: /tmp/npm-cache
+      TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"
+    volumes:
+      - dsh-reverse-home:/root/.dsh
+      - "${DSH_REVERSE_WORKSPACE:-./reverse-workspace}:/workspace"
+    # Reverse workspace and private volume deliberately separate from Standard.
+volumes:
+  dsh-reverse-home:

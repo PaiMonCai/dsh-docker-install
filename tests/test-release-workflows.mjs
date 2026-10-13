@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const base = readFileSync('.github/workflows/build.yml', 'utf8')
 const research = readFileSync('.github/workflows/build-research.yml', 'utf8')
+const reverse = readFileSync('.github/workflows/build-reverse.yml', 'utf8')
 const update = readFileSync('.github/workflows/check-update.yml', 'utf8')
 
 assert.doesNotMatch(base, /^  research:/m, 'Research must not be nested in Standard CI')
@@ -30,6 +31,28 @@ for (const token of [
   "- target: research-final",
   "- target: research-economics",
 ]) assert.ok(research.includes(token), 'Research workflow missing ' + token)
+
+
+assert.doesNotMatch(base, /^  reverse:/m, 'Reverse must not run as a nested Standard job')
+for (const token of [
+  'name: Queue independent Reverse release',
+  'gh workflow run build-reverse.yml',
+  '--field "base_image=$RELEASE_IMAGE"',
+  '--field "source_sha=$SOURCE_SHA"',
+  '--field "dsh_version=$RELEASE_VERSION"',
+  '--field "channel_tags=$RELEASE_CHANNELS"',
+]) assert.ok(base.includes(token), 'Standard missing Reverse dispatch contract: ' + token)
+for (const token of [
+  'name: Build & Publish Reverse Edition',
+  'name: Avoid racing a mixed Standard and Reverse push',
+  'bash ci/reverse-push-gate.sh',
+  "needs.prepare.outputs.run_reverse == 'true'",
+  'inputs.source_sha || github.sha',
+  'BASE_IMAGE=',
+  '--prefix reverse- --no-latest',
+  'linux/amd64,linux/arm64',
+  'source_sha:',
+]) assert.ok(reverse.includes(token), 'Reverse release missing: ' + token)
 
 assert.ok(update.includes('uses: ./.github/workflows/build.yml'))
 assert.ok(update.includes('actions: write # called Standard workflow dispatches independent Research'))
