@@ -122,6 +122,8 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}" "Icon Dock"
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
     append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}" "Web Search"
+    # The Agent and REA CLI are baked into this image; no profile installer.
+    append_native_web_patch "/opt/dsh/plugins/dsh-reverse-agent/cordis.patch.yml" "${DSH_REVERSE_AGENT_ENABLED:-true}" "逆向工程 Agent"
 
     # Migrate only legacy bundled plugin selections; dependencies, third-party
     # selection and pnpm-lock.yaml stay untouched, with a manifest backup.
