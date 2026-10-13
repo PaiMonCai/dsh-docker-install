@@ -54,7 +54,7 @@ on:
         default: ""
 
 concurrency:
-  group: reverse-${{ github.event.pull_request.number || github.ref }
+  group: reverse-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -62,24 +62,24 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      run_reverse: ${{ steps.gate.outputs.run_reverse }
+      run_reverse: ${{ steps.gate.outputs.run_reverse }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_sha || github.sha }
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Avoid racing a mixed Standard and Reverse push
         id: gate
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }
-          BEFORE_SHA: ${{ github.event.before }
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "push" ]]; then
@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_sha || github.sha }
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Validate reverse isolation and bundled Skills
         run: |
           set -euo pipefail
@@ -117,10 +117,10 @@ jobs:
         id: vars
         shell: bash
         env:
-          REQUESTED_BASE: ${{ inputs.base_image }
-          REQUESTED_VERSION: ${{ inputs.dsh_version }
-          REQUESTED_CHANNELS: ${{ inputs.channel_tags }
-          RAW_IMAGE: ${{ env.IMAGE_NAME }
+          REQUESTED_BASE: ${{ inputs.base_image }}
+          REQUESTED_VERSION: ${{ inputs.dsh_version }}
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
+          RAW_IMAGE: ${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
           image="${RAW_IMAGE,,}"
@@ -139,9 +139,9 @@ jobs:
         id: tags
         shell: bash
         env:
-          IMAGE: ${{ steps.vars.outputs.image }
-          VERSION: ${{ steps.vars.outputs.version }
-          CHANNELS: ${{ steps.vars.outputs.channels }
+          IMAGE: ${{ steps.vars.outputs.image }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          CHANNELS: ${{ steps.vars.outputs.channels }}
         run: |
           set -euo pipefail
           {
@@ -161,28 +161,28 @@ jobs:
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
-          username: ${{ github.actor }
-          password: ${{ secrets.GITHUB_TOKEN }
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Reverse image and publish only after Standard
         uses: docker/build-push-action@v6
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           pull: true
-          push: ${{ github.event_name != 'pull_request' }
-          load: ${{ github.event_name == 'pull_request' }
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.base }
-          tags: ${{ steps.tags.outputs.list }
+            BASE_IMAGE=${{ steps.vars.outputs.base }}
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
       - name: Audit installed engines, full preset and bundled Skills
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.vars.outputs.image }:reverse
+          IMAGE: ${{ steps.vars.outputs.image }}:reverse
         run: |
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
@@ -211,7 +211,7 @@ jobs:
       - name: Boot Web and assert Reverse Agent registration
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.vars.outputs.image }:reverse
+          IMAGE: ${{ steps.vars.outputs.image }}:reverse
         run: |
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
