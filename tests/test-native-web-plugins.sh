@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 node --check docker/prepare-native-web-plugins.js
+node --check docker/compose-native-web-patch.js
 bash -n docker/entrypoint.sh
 ! grep -Eq 'ensure_(icon_dock|web_search|session_manager_web|reasoning_editor)' docker/entrypoint.sh
 ! grep -Eq 'dsh plugin --profile web add' docker/entrypoint.sh
@@ -9,6 +10,31 @@ bash -n docker/entrypoint.sh
 for bundle in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
   grep -Eq '^[[:space:]]+name: \./index\.js$' "docker/plugins/$bundle/cordis.patch.yml"
 done
+
+# The DSH CLI only accepts a single --patch. Verify the startup composer
+# keeps all enabled patch rows and uses absolute paths to built-in modules.
+tmp_patch_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_patch_dir"' EXIT
+export DSH_NATIVE_PLUGIN_ROOT="$PWD/docker/plugins"
+export DSH_BIND_PATCH="$PWD/docker/dsh-bind.patch.yml"
+export DSH_NATIVE_PATCH_OUTPUT="$tmp_patch_dir/native-web.patch.yml"
+node docker/compose-native-web-patch.js >"$tmp_patch_dir/out"
+[[ "$(cat "$tmp_patch_dir/out")" == "$DSH_NATIVE_PATCH_OUTPUT" ]]
+grep -Fq -- "- id: webserver" "$DSH_NATIVE_PATCH_OUTPUT"
+grep -Fq -- "name: $DSH_NATIVE_PLUGIN_ROOT/dsh-icon-dock/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+grep -Fq -- "name: $DSH_NATIVE_PLUGIN_ROOT/dsh-session-manager-web/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+grep -Fq -- "name: $DSH_NATIVE_PLUGIN_ROOT/dsh-reasoning-editor/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+! grep -Fq -- "dsh-web-search/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+DSH_SEARCH_ENABLED=true node docker/compose-native-web-patch.js >/dev/null
+grep -Fq -- "name: $DSH_NATIVE_PLUGIN_ROOT/dsh-web-search/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+grep -Fq -- "searchProvider: dsh-docker-search" "$DSH_NATIVE_PATCH_OUTPUT"
+DSH_ICON_DOCK_ENABLED=false node docker/compose-native-web-patch.js >/dev/null
+! grep -Fq -- "dsh-icon-dock/index.js" "$DSH_NATIVE_PATCH_OUTPUT"
+if DSH_SEARCH_ENABLED=garbled node docker/compose-native-web-patch.js >/dev/null 2>&1; then
+  echo "expected invalid opt-in to fail" >&2
+  exit 1
+fi
+grep -Fq 'args+=(--patch "$merged_patch")' docker/entrypoint.sh
 
 node - <<'NODE'
 const assert = require('node:assert/strict')
