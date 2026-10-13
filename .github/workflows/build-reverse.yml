@@ -1,0 +1,108 @@
+name: Build & Publish Reverse Edition
+on:
+  push:
+    branches: [main]
+    paths: [reverse/**, docker-compose.reverse.yml, docker/entrypoint.sh, tests/test-reverse-edition.cjs, .github/workflows/build-reverse.yml]
+  pull_request:
+    branches: [main]
+    paths: [reverse/**, docker-compose.reverse.yml, docker/entrypoint.sh, tests/test-reverse-edition.cjs, .github/workflows/build-reverse.yml]
+  workflow_dispatch:
+    inputs:
+      base_image:
+        description: Optional immutable Standard base image
+        required: false
+        type: string
+concurrency:
+  group: reverse-${ github.event.pull_request.number || github.ref }
+  cancel-in-progress: true
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test separate image contract
+        run: |
+          set -euo pipefail
+          node --check reverse/generate-overlay.mjs
+          node --check reverse/purge-ui/index.js
+          bash -n docker/entrypoint.sh
+          node --test tests/test-reverse-edition.cjs
+          docker compose -f docker-compose.reverse.yml config --quiet
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve image names
+        id: names
+        env:
+          REPO_NAME: ${ github.repository }
+          SELECTED_BASE: ${ inputs.base_image }
+        run: |
+          name="ghcr.io/${REPO_NAME,,}"
+          echo "image=$name:reverse" >> "$GITHUB_OUTPUT"
+          echo "base=${SELECTED_BASE:-$name:latest}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${ github.actor }
+          password: ${ secrets.GITHUB_TOKEN }
+      - name: Build independent edition
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: ${ github.event_name != 'pull_request' }
+          load: ${ github.event_name == 'pull_request' }
+          build-args: |
+            BASE_IMAGE=${ steps.names.outputs.base }
+          tags: ${ steps.names.outputs.image }
+          cache-from: type=gha,scope=dsh-reverse
+          cache-to: type=gha,mode=max,scope=dsh-reverse
+      - name: Inspect installed tools and full Cordis overlay
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${ steps.names.outputs.image }
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint bash "$IMAGE" -c '
+            set -euo pipefail
+            for tool in rea gdb jadx frida apktool; do command -v "$tool"; done
+            test -f /opt/ghidra/support/analyzeHeadless
+            test -s /opt/dsh-reverse/purge/client.js
+            test -s /opt/dsh-reverse/purge-ui/client.js
+            npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
+            DSH_HOME="$(mktemp -d)" dsh --profile web \
+              --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
+            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui; do
+              grep -Fq "$name" /tmp/reverse-config.yml
+            done
+            node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs \
+                        /opt/dsh-reverse/purge/tests/reverse-workflow.test.mjs
+          '
+      - name: Boot reverse Web and verify Agent registration
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${ steps.names.outputs.image }
+        run: |
+          set -euo pipefail
+          name="dsh-reverse-smoke-$GITHUB_RUN_ID"
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$name" "$IMAGE" >/dev/null
+          for i in {1..110}; do
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
+              docker logs "$name"; exit 1
+            fi
+            if docker logs "$name" 2>&1 | grep -Fq "reverse preset ready:"; then
+              echo 'The full dsh-purge reverse Agent registered on the isolated host'
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$name"
+          echo "::error::Reverse Agent registration not observed"
+          exit 1
