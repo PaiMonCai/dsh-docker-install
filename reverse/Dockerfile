@@ -2,6 +2,7 @@
 # Independent container/volume: the full host-level purge patch NEVER runs in Standard.
 ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
 FROM ${BASE_IMAGE}
+ARG TARGETARCH
 ARG PURGE_COMMIT=28c8eaf5b5de70d53795387d01faae9498a83d63
 ARG REA_VERSION=6.4.0
 ARG GHIDRA_VERSION=12.1.4
