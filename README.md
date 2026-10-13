@@ -203,7 +203,7 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 
 ## 自部署网页搜索（可选）
 
-内置 Search Router 使用 SearXNG 作为免费主搜索源，并提供用户授权的 Brave API 备用；保留官方 `web_search` / `web_fetch` 工具与现有插件系统，默认关闭，不改变已有安装。通过 `dshd search enable`、`dshd search test` 开启和测试。 开启后，Web 左侧边栏底部的「回收站」与「网络搜索」图标并排显示；两者均为纯图标，悬停显示中文提示，点击打开对应面板。未启用搜索时仅显示回收站图标；搜索的原插件页入口仍保留。详见 [Web Search 使用与架构](docs/web-search.md)。
+内置 Search Router 使用 SearXNG 作为免费主搜索源，并提供用户授权的 Brave API 备用；保留官方 `web_search` / `web_fetch` 工具与现有插件系统，默认关闭，不改变已有安装。通过 `dshd search enable`、`dshd search test` 开启和测试。 开启后，Web 左侧边栏底部的「回收站」与「网络搜索」图标并排显示，均为纯图标、悬停显示中文提示。图标由独立的 **快捷入口管理插件** 统一渲染；进入 **插件 → 快捷入口管理** 可选择显示/隐藏、调整顺序和尺寸，未来插件也可接入。搜索未启用时只显示回收站；原搜索插件页入口仍保留。详见 [图标管理与接入规范](docs/icon-dock.md)。详见 [Web Search 使用与架构](docs/web-search.md)。
 
 ## 文档
 
