@@ -50,8 +50,8 @@ fi
 # Bundled reasoning editor runs from the DSH launcher overlay; it does not
 # install through the Profile package manager or pnpm.
 grep -Fq 'name: ./index.js' "$NATIVE_PATCH"
-grep -Fq "'dsh-reasoning-editor', 'DSH_REASONING_EDITOR', true" docker/compose-native-web-patch.js
-grep -Fq 'args+=(--patch "$merged_patch")' docker/entrypoint.sh
+grep -Fq 'append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml"' docker/entrypoint.sh
+grep -Fq 'args+=(--patch "$file")' docker/entrypoint.sh
 ! grep -Fq 'dsh plugin --profile web add' docker/entrypoint.sh
 
 echo "reasoning editor architecture checks passed"
