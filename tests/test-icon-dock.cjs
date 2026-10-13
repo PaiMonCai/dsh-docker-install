@@ -505,3 +505,24 @@ test('up/down accessible controls reorder the full list without dragging', () =>
     ['测试02', '测试01'])
   assert.equal(app.dock.getSettings().order[0], 'fake.item-02')
 })
+
+
+test('hiding the official Plugins icon keeps a recovery path through More', () => {
+  const app = createHarness().page([recycle()], [
+    { id: 'plugins', label: '插件', order: 0 },
+    { id: 'schedules', label: '自动化任务', order: 10 },
+  ])
+  app.dock.setLocation('native-panel.plugins', 'hidden')
+  app.dock.setLocation('native-panel.schedules', 'hidden')
+  app.dock.setLocation('dsh-docker.session-recycle', 'hidden')
+  const buttons = app.buttons()
+  assert.deepEqual(buttons.map(button => button.props['aria-label']), ['更多'])
+  buttons[0].props.onClick()
+  const tree = app.render('sidebar.footer.action', { wide: true })
+  const recovery = app.walk(tree, n => n.props?.role === 'menuitem')[0]
+  assert.equal(recovery.props.title, '插件设置（恢复入口）')
+  recovery.props.onClick()
+  assert.deepEqual(app.selectedPanels, ['plugins'])
+  app.dock.setLocation('native-panel.plugins', 'dock')
+  assert.deepEqual(app.buttons().map(button => button.props['aria-label']), ['插件'])
+})
