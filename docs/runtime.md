@@ -256,7 +256,7 @@ Token 仅进入 Web 进程环境，未进入 Docker 配置的环境变量列表�
 
 ## Web 原生导航图标化
 
-内置 Web 插件（Icon Dock、Web Search、回收站管理、推理等级编辑器）的 `cordis.patch.yml` 与 Docker Web bind 补丁在启动时**合成为一份原生 `--patch` 配置**，然后由 DSH 原生加载器加载，**不经 pnpm / `dsh plugin add` 安装流程**；首次启动会备份持久 Web Profile 的原配置，仅退出内置插件旧版 bundle 选中项，保留其它依赖、第三方插件和锁文件。
+内置 Web 插件（Icon Dock、Web Search、回收站管理、推理等级编辑器）的 `cordis.patch.yml` 与 Docker Web bind 补丁通过 DSH CLI 可重复的 `--patch` 参数原生加载（所有 `--patch` 必须放在 `--no-open`、`--port` 等 Web 应用参数之前），**不经 pnpm / `dsh plugin add` 安装流程**；首次启动会备份持久 Web Profile 的原配置，仅退出内置插件旧版 bundle 选中项，保留其它依赖、第三方插件和锁文件。
 
 `dsh-docker-icon-dock` 默认自动接管上游注册到 `sidebar.panellist` 的原生导航（包括「插件」「自动化任务」及其他接入该插槽的页面），从同一注册项**复用官方原始 React Icon 组件**并通过 `ctx.layout.selectPanel(id)` 打开原生页面；仅无法安全渲染的组件使用后备图标。原本位于新会话下方的文字导航由 Icon Dock 统一显示为侧边栏底部小图标，可隐藏、排序和调整大小。兼容不完整时回退到原生文字导航；「插件 → 快捷入口管理 → 接管官方导航」支持手动关闭接管。实现和限制参见 [Icon Dock](icon-dock.md)。
 
