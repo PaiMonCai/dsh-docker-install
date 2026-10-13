@@ -88,6 +88,14 @@ ensure_web_search() {
     fi
 }
 
+ensure_icon_dock() {
+    local reconciler="/usr/local/bin/ensure-dsh-icon-dock"
+    [[ -x "$reconciler" ]] || return 0
+    if ! "$reconciler"; then
+        log "警告：快捷入口管理插件对账失败；DSH 继续启动。"
+    fi
+}
+
 ensure_session_manager_web() {
     local reconciler="/usr/local/bin/ensure-dsh-session-manager-web"
     [[ -x "$reconciler" ]] || return 0
@@ -121,6 +129,7 @@ run_web() {
     export DSH_WEB_LOGIN_TOKEN
 
     ensure_reasoning_editor
+    ensure_icon_dock
     ensure_session_manager_web
     ensure_web_search
 
