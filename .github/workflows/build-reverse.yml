@@ -13,7 +13,7 @@ on:
         required: false
         type: string
 concurrency:
-  group: reverse-${ github.event.pull_request.number || github.ref }
+  group: reverse-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -37,8 +37,8 @@ jobs:
       - name: Resolve image names
         id: names
         env:
-          REPO_NAME: ${ github.repository }
-          SELECTED_BASE: ${ inputs.base_image }
+          REPO_NAME: ${{ github.repository }}
+          SELECTED_BASE: ${{ inputs.base_image }}
         run: |
           name="ghcr.io/${REPO_NAME,,}"
           echo "image=$name:reverse" >> "$GITHUB_OUTPUT"
@@ -47,8 +47,8 @@ jobs:
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
-          username: ${ github.actor }
-          password: ${ secrets.GITHUB_TOKEN }
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build independent edition
         uses: docker/build-push-action@v6
         with:
@@ -56,17 +56,17 @@ jobs:
           file: reverse/Dockerfile
           platforms: linux/amd64
           pull: true
-          push: ${ github.event_name != 'pull_request' }
-          load: ${ github.event_name == 'pull_request' }
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           build-args: |
-            BASE_IMAGE=${ steps.names.outputs.base }
-          tags: ${ steps.names.outputs.image }
+            BASE_IMAGE=${{ steps.names.outputs.base }}
+          tags: ${{ steps.names.outputs.image }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
       - name: Inspect installed tools and full Cordis overlay
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${ steps.names.outputs.image }
+          IMAGE: ${{ steps.names.outputs.image }}
         run: |
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
@@ -87,7 +87,7 @@ jobs:
       - name: Boot reverse Web and verify Agent registration
         if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${ steps.names.outputs.image }
+          IMAGE: ${{ steps.names.outputs.image }}
         run: |
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
