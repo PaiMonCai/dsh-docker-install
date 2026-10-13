@@ -60,9 +60,10 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
  write('purge/cordis.patch.yml',original)
  write('purge/presets/reverse-engineering/preset.yml','name: 逆向工程\ndescription: Reverse analysis\norder: 20\n')
  write('purge/presets/reverse-engineering/agent.cordis.yml',
-  'name: dsh-purge/reverse/tools\n')
+  "- id: tool-fs-search\n  name: '@deepseek-ai/dsh-tool-fs-search'\n- id: tool-todo\n  name: '@deepseek-ai/dsh-tool-todo'\n- id: reverse-workflow-tools\n  name: dsh-purge/reverse/tools\n")
+ write('purge/presets/redteam/preset.yml','name: 红队演练\ndescription: Team analysis\norder: 19\n')
  write('purge/presets/redteam/agent.cordis.yml',
-  'name: dsh-purge/redteam/tools\n')
+  '- id: anchor-gate\n  name: ./anchor-gate.mjs\n- id: redteam-tools\n  name: dsh-purge/redteam/tools\n')
  write('purge/client.js','window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => ({}) });\n')
  write('purge-ui/index.js','export function apply(){}\n')
  const hostModules=[
@@ -95,6 +96,10 @@ test('Full purge patch is preserved in generated overlay, without replacing its 
  assert.match(made,/dsh-reverse-purge-ui/)
  assert.match(made,/dsh-reverse-skill-bootstrap/)
  assert.match(made,/dsh-reverse-preset-declaration/)
+ assert.match(made,/dsh-reverse-redteam-preset-declaration/)
+ assert.match(made,/sampleOverCapGlobResults: false/)
+ assert.match(made,/allowParallelInProgress: true/)
+ assert.match(made,/name: file:\/\/\/opt\/dsh-reverse\/purge\/lib\/redteam\/tools\.js/)
  assert.match(made,/@deepseek-ai\/dsh-agent-preset/)
  assert.match(made,/id: reverse-engineering/)
  assert.match(made,/name: file:\/\/\/opt\/dsh-reverse\/purge\/lib\/reverse\/tools\.js/)
