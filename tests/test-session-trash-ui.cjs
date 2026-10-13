@@ -143,7 +143,10 @@ function harness(input = seeds(), reject = new Set()) {
     return matches[0]
   }
   async function open() {
-    Footer({ wide: true }).props.onClick()
+    const buttons = nodes(Footer({ wide: true }), node =>
+      node.type === 'button' && node.props?.['aria-label'] === '回收站')
+    assert.equal(buttons.length, 1)
+    buttons[0].props.onClick()
     render()
     return settle()
   }
@@ -236,4 +239,17 @@ test('failed batch restore leaves failures in trash and still restores remaining
   assert.equal(ui.items[0].sessionId, 'session-alpha')
   assert.equal(ui.label(tree, 'input', '选择会话 session-alpha').props.checked, true)
   assert.ok(ui.nodes(tree, x => x.props?.role === 'alert').length > 0)
+})
+
+test('recycle bin remains icon-only and functional when search plugin is disabled', async () => {
+  const ui = harness()
+  const tree = await ui.open()
+  assert.equal(tree.props.className, 'dsh-trash-overlay')
+  // Search plugin is intentionally absent from this test sandbox.
+  const source = fs.readFileSync(path.join(__dirname,
+    '../docker/plugins/dsh-session-manager-web/client.js'), 'utf8')
+  assert.match(source, /className: 'dsh-dock-icon-row'/)
+  assert.match(source, /'aria-label': name/)
+  assert.match(source, /openSearch \? iconButton\('网络搜索', openSearch, 'search'\) : null/)
+  assert.doesNotMatch(source, /wide \? h\('span', null, t\.recycle\)/)
 })
