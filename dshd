@@ -4818,6 +4818,20 @@ cmd_restore() {
   ok "持久化数据恢复完成"
   cmd_start
 }
+cmd_doctor_plugins() {
+  load_config
+  ensure_docker
+  if ! container_running; then
+    err "DSH 容器未运行，无法验证客户端模块和插件 API。"
+    return 1
+  fi
+  if ! docker_cmd exec "$DSH_NAME" test -f /usr/local/bin/dsh-plugin-doctor.js 2>/dev/null; then
+    err "当前镜像未包含插件诊断器，请更新至支持 dshd doctor plugins 的版本。"
+    return 1
+  fi
+  docker_cmd exec "$DSH_NAME" node /usr/local/bin/dsh-plugin-doctor.js "$@"
+}
+
 cmd_doctor() {
   load_config
   heading "dshd 诊断"
@@ -5154,6 +5168,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复持久化数据备份
   dshd doctor              环境/网络/容器诊断
+  dshd doctor plugins      内置插件/浏览器模块/插件 API 诊断（--json 输出）
   dshd self-update         立即检查并更新 dshd 脚本自身
   dshd uninstall           交互卸载
   dshd version             显示版本
@@ -5388,7 +5403,18 @@ main() {
     token|url) shift; cmd_token "$@" ;;
     backup) cmd_backup ;;
     restore) shift; cmd_restore "${1:-}" ;;
-    doctor|check) cmd_doctor ;;
+    doctor|check)
+      shift
+      if [[ "${1:-}" == plugins ]]; then
+        shift
+        cmd_doctor_plugins "$@"
+      elif [[ $# -eq 0 ]]; then
+        cmd_doctor
+      else
+        err "未知 doctor 子命令：$1（支持 doctor plugins [--json]）"
+        return 2
+      fi
+      ;;
     self-update|selfupdate) cmd_self_update ;;
     uninstall|remove) cmd_uninstall ;;
     version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;;
