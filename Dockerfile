@@ -215,7 +215,6 @@ COPY docker/resolve-bind-host.js /usr/local/bin/resolve-bind-host.js
 COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
-COPY docker/compose-native-web-patch.js /usr/local/bin/compose-dsh-native-web-patch.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
@@ -234,7 +233,6 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
- && node --check /usr/local/bin/compose-dsh-native-web-patch.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
