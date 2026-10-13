@@ -72,7 +72,13 @@ RUN set -eux; \
     test -f /opt/dsh-reverse/purge/client.js; \
     rm -rf /tmp/dsh-purge
 
+# Run upstream's unchanged source tests BEFORE adapting module resolution.
+RUN node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs \
+       /opt/dsh-reverse/purge/tests/reverse-workflow.test.mjs
+
 COPY reverse/generate-overlay.mjs /opt/dsh-reverse/generate-overlay.mjs
+COPY reverse/skills/ /opt/dsh-reverse/skills/
+COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
 COPY reverse/purge-ui/ /opt/dsh-reverse/purge-ui/
 # Reverse only: install the edition-aware entrypoint from this tree. The
 # Standard published image and its persistent DSH_HOME remain untouched.
@@ -80,6 +86,8 @@ COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node /opt/dsh-reverse/generate-overlay.mjs \
  && node --check /opt/dsh-reverse/purge/lib/index.js \
  && node --check /opt/dsh-reverse/purge-ui/client.js \
+ && node --check /opt/dsh-reverse/skills-bootstrap.mjs \
+ && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);for(const n of m.SKILLS){if(!fs.existsSync(home+'/reverse-engineering/skills/'+n+'/SKILL.md'))process.exit(1)}})" \
  && node --check /opt/dsh-reverse/purge/lib/redteam/index.js \
  && node --check /opt/dsh-reverse/purge/lib/reverse/index.js \
  && bash -n /usr/local/bin/dsh-entrypoint \
