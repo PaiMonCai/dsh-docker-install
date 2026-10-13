@@ -107,7 +107,8 @@ jobs:
           node --check docker/patch-web-launch-token.js
           node tests/test-web-token.js
           bash -n docker/entrypoint.sh
-          bash -n docker/ensure-reasoning-editor.sh
+          node --check docker/prepare-native-web-plugins.js
+          bash tests/test-native-web-plugins.sh
           sh -n docker/cn-mirror.sh
           node --check docker/plugins/dsh-reasoning-editor/index.js
           node --check docker/plugins/dsh-reasoning-editor/client.js
@@ -238,32 +239,38 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
-            test -f /opt/dsh/plugins/dsh-web-search/package.json
-            test -x /usr/local/bin/ensure-dsh-web-search
-            search_home="$(mktemp -d)"
-            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=true /usr/local/bin/ensure-dsh-web-search
-            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "searchProvider: dsh-docker-search"
-            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "fetchProvider: http"
-            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=false /usr/local/bin/ensure-dsh-web-search
-            rm -rf "$search_home"
-            test -f /opt/dsh/plugins/dsh-reasoning-editor/package.json
-            test -x /usr/local/bin/ensure-dsh-reasoning-editor
-            reasoning_home="$(mktemp -d)"
-            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=true /usr/local/bin/ensure-dsh-reasoning-editor
-            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
-          const fs = require("fs")
-          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
-          if (!p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
-          if (!p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
-          NODE
-            DSH_HOME="$reasoning_home" dsh --profile web --dump-config | grep -q "dsh-docker-reasoning-editor"
-            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=false /usr/local/bin/ensure-dsh-reasoning-editor
-            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
-          const fs = require("fs")
-          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
-          if (p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
-          if (p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
-          NODE
+            # Built-in Web plugins load from native launcher patch paths
+            # and never run dsh plugin add, pnpm or web Profile installers.
+            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
+              test -f "/opt/dsh/plugins/$plugin/package.json"
+              test -f "/opt/dsh/plugins/$plugin/index.js"
+              test -f "/opt/dsh/plugins/$plugin/client.js"
+              test -f "/opt/dsh/plugins/$plugin/cordis.patch.yml"
+            done
+            test -f /usr/local/bin/prepare-dsh-native-web-plugins.js
+            test ! -e /usr/local/bin/compose-dsh-native-web-patch.js
+            test ! -e /usr/local/bin/ensure-dsh-web-search
+            test ! -e /usr/local/bin/ensure-dsh-reasoning-editor
+            test ! -e /usr/local/bin/ensure-dsh-icon-dock
+            native_home="$(mktemp -d)"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-icon-dock"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-reasoning-editor"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --dump-config | grep -Fq "searchProvider: dsh-docker-search"
+            # DSH launcher supports multiple --patch flags BEFORE app args.
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/dsh-bind.patch.yml \
+              --patch /opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml \
+              --patch /opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml \
+              --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
+              --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-icon-dock"
+            rm -rf "$native_home"
             test ! -e /usr/local/go/doc
             test ! -e /usr/local/go/test
             test ! -e /usr/local/bin/cn-mirror
@@ -325,6 +332,61 @@ jobs:
           fi
           echo "DSH Docker healthcheck reports healthy"
 
+          # Native bundled Web plugins must be loaded from the immutable
+          # image patch files, not Profile dependencies or pnpm state.
+          docker exec -i "$name" node - <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const names = [
+            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web'
+          ]
+          for (const name of names) {
+            const base = '/opt/dsh/plugins/' + name
+            for (const file of ['package.json', 'client.js', 'index.js', 'cordis.patch.yml']) {
+              if (!fs.existsSync(path.join(base, file))) {
+                throw new Error('Missing native Web plugin file: ' + name + '/' + file)
+              }
+            }
+          }
+          const profile = JSON.parse(fs.readFileSync('/root/.dsh/profiles/web/package.json', 'utf8'))
+          const selected = profile.dsh?.profile?.bundles || []
+          for (const name of [
+            'dsh-docker-reasoning-editor',
+            'dsh-docker-icon-dock',
+            'dsh-docker-session-manager',
+            'dsh-docker-web-search',
+          ]) {
+            if (selected.includes(name)) throw new Error('Legacy profile bundle still active: ' + name)
+          }
+          const processes = fs.readdirSync('/proc').filter(name => /^[0-9]+$/.test(name))
+          const argSets = processes.map(pid => {
+            try { return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').split('\0') }
+            catch { return [] }
+          })
+          const launch = argSets.find(args =>
+            args.includes('web') && args.includes('--patch') &&
+            args.some(arg => arg.endsWith('/dsh-bind.patch.yml')))
+          if (!launch) throw new Error('Cannot locate DSH Web launcher with native overlays')
+          const webStart = launch.indexOf('web')
+          const appFlags = launch.indexOf('--no-open')
+          if (webStart === -1 || appFlags === -1) throw new Error('Missing Web app flags')
+          const actual = []
+          for (let i = webStart + 1; i < appFlags; i++) {
+            if (launch[i] === '--patch') actual.push(launch[++i])
+          }
+          const required = [
+            '/opt/dsh/dsh-bind.patch.yml',
+            ...names.map(name => '/opt/dsh/plugins/' + name + '/cordis.patch.yml'),
+          ]
+          for (const patch of required) {
+            if (!actual.includes(patch)) throw new Error('Missing native launcher patch: ' + patch)
+          }
+          if (launch.slice(appFlags).includes('--patch')) {
+            throw new Error('Launcher flags incorrectly placed after Web app flags')
+          }
+          console.log('Bundled Web plugins mounted as official repeatable --patch overlays')
+          NODE
+
           # A rendered index does NOT prove the Web API route exists.
           # Built-in Files uses POST /api/workspaceFiles/list; without a browser
           # auth cookie it must be intercepted as 401 by Connection, not 405
@@ -355,6 +417,22 @@ jobs:
           response_file="$(mktemp)"
           curl -sS --max-time 8 -c "$cookie_file" -o /dev/null \
             "http://127.0.0.1:${mapped_port}/?token=${token}"
+          # Crucial browser-facing check: a running DSH Host and an active
+          # backend API are insufficient if the Web boot module graph omits
+          # an image-owned UI plugin. Verify the actual authenticated HTML.
+          curl -fsS --max-time 10 -b "$cookie_file" \
+            "http://127.0.0.1:${mapped_port}/" -o "$response_file"
+          grep -Fq '__DSH_BOOT__' "$response_file" || {
+            echo "::error::Web page lacks the DSH client module graph"
+            exit 1
+          }
+          for plugin in dsh-docker-icon-dock dsh-docker-session-manager dsh-docker-reasoning-editor; do
+            if ! grep -Fq "$plugin" "$response_file"; then
+              echo "::error::Native Web client plugin missing from the actual browser boot manifest: $plugin"
+              exit 1
+            fi
+          done
+          echo "DSH browser boot manifest contains all mandatory native client plugins"
           status="$(curl -sS --max-time 8 -b "$cookie_file" \
             -o "$response_file" -w '%{http_code}' \
             "http://127.0.0.1:${mapped_port}/api/dsh-docker-session-manager")"

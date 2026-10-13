@@ -13,7 +13,7 @@ DSH Docker container (one network namespace)
 ```
 
 - 默认 `DSH_SEARCH_ENABLED=false`：不安装 Search Provider、不启动 Python/Granian 搜索进程，保留 DSH 原有搜索配置。镜像体积会增加（包含上游 SearXNG）。
-- 显式启用后：安装插件至 Web Profile；插件在 Host 中启动 Granian/SearXNG，并在启动后按需重试。搜索请求也可按需拉起异常退出的子进程。
+- 显式启用后：启动脚本将镜像自带的搜索插件补丁作为 DSH 原生 `--patch` 层加载，**不通过 Profile 插件安装器和 pnpm**；插件在 Host 中启动 Granian/SearXNG，并在启动后按需重试。搜索请求也可按需拉起异常退出的子进程。
 - 本地搜索只监听 **127.0.0.1:18788**；不映射宿主机端口、不开 Docker Socket、也没有搜索专用网络。
 - 进程继承 DSH 的 HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量。若 `dshd proxy` 使用 sing-box，搜索自然使用同一个出口；如无代理，则走 DSH 的默认 Docker 网络直连。
 - SearXNG 版本在镜像构建时固定到 `Dockerfile` 的 `SEARXNG_REF`，与 DSH 镜像一起发布。构建前需要连接 PyPI 和 GitHub。

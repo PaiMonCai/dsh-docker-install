@@ -3,7 +3,7 @@
 # The overlay replaces each row's WHOLE config, so restate required defaults.
 - insert:
     - id: dsh-docker-web-search
-      name: dsh-docker-web-search
+      name: ./index.js
 
 - id: web
   config:

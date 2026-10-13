@@ -4,12 +4,13 @@ set -euo pipefail
 PLUGIN_DIR="docker/plugins/dsh-reasoning-editor"
 CLIENT="$PLUGIN_DIR/client.js"
 PACKAGE="$PLUGIN_DIR/package.json"
-RECONCILER="docker/ensure-reasoning-editor.sh"
+NATIVE_PATCH="$PLUGIN_DIR/cordis.patch.yml"
 
 node --check "$PLUGIN_DIR/index.js"
 node --check "$CLIENT"
 node tests/test-reasoning-editor-bulk.cjs
-bash -n "$RECONCILER"
+bash -n docker/entrypoint.sh
+node --check docker/prepare-native-web-plugins.js
 
 node - "$PACKAGE" <<'NODE'
 const fs = require('fs')
@@ -46,13 +47,11 @@ if grep -Eq "MutationObserver|querySelector|localStorage|indexedDB|fetch\(" "$CL
   exit 1
 fi
 
-# Lifecycle belongs to DSH Plugin Manager. The reconciler may inspect the
-# manifest for idempotency, but must never write it itself.
-grep -Fq 'dsh plugin --profile "$PROFILE" add' "$RECONCILER"
-grep -Fq 'dsh plugin --profile "$PROFILE" remove' "$RECONCILER"
-if grep -Eq 'writeFile|sed .*package\.json|>.*package\.json|mv .*package\.json|cp .*package\.json' "$RECONCILER"; then
-  echo "reasoning editor reconciler must not mutate the profile manifest directly" >&2
-  exit 1
-fi
+# Bundled reasoning editor runs from the DSH launcher overlay; it does not
+# install through the Profile package manager or pnpm.
+grep -Fq 'name: ./index.js' "$NATIVE_PATCH"
+grep -Fq 'append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml"' docker/entrypoint.sh
+grep -Fq 'args+=(--patch "$file")' docker/entrypoint.sh
+! grep -Fq 'dsh plugin --profile web add' docker/entrypoint.sh
 
 echo "reasoning editor architecture checks passed"
