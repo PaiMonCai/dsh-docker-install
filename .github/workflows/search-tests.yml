@@ -4,10 +4,11 @@ on:
     paths:
       - 'docker/plugins/dsh-web-search/**'
       - 'docker/plugins/dsh-icon-dock/**'
-      - 'docker/ensure-icon-dock.sh'
+      - 'docker/prepare-native-web-plugins.js'
+      - 'docker/plugins/dsh-reasoning-editor/**'
+      - 'docker/plugins/dsh-session-manager-web/**'
       - 'tests/test-icon-dock.cjs'
-      - 'tests/test-icon-dock-installer.sh'
-      - 'docker/ensure-web-search.sh'
+      - 'tests/test-native-web-plugins.sh'
       - 'docker/search/**'
       - 'dshd'
       - 'Dockerfile'
@@ -37,9 +38,7 @@ jobs:
           bash -n dshd
           bash tests/test-dshd-search-menu.sh
           bash tests/test-dshd-search-recovery.sh
-          bash -n docker/ensure-web-search.sh
-          bash -n docker/ensure-icon-dock.sh
-          bash tests/test-icon-dock-installer.sh
+          bash tests/test-native-web-plugins.sh
           node --check docker/plugins/dsh-icon-dock/index.js
           node --check docker/plugins/dsh-icon-dock/client.js
           node --test tests/test-icon-dock.cjs
@@ -64,8 +63,8 @@ jobs:
           for(const value of ['searchProvider: dsh-docker-search','fetchProvider: http','searchTimeoutMs: 12000']) {
             if (!patch.includes(value)) throw Error('missing '+value)
           }
-          const sh = fs.readFileSync('docker/ensure-web-search.sh','utf8')
-          if (!sh.includes('dsh plugin --profile web add') || !sh.includes('dsh plugin --profile web remove')) throw Error('must use DSH Plugin Manager')
+          const sh = fs.readFileSync('docker/entrypoint.sh','utf8')
+          if (!sh.includes('append_native_web_patch') || sh.includes('dsh plugin --profile web add')) throw Error('must use native launcher patches')
           NODE
       - name: Compose syntax validation
         run: docker compose config --quiet
