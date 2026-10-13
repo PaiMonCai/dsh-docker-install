@@ -107,7 +107,8 @@ jobs:
           node --check docker/patch-web-launch-token.js
           node tests/test-web-token.js
           bash -n docker/entrypoint.sh
-          bash -n docker/ensure-reasoning-editor.sh
+          node --check docker/prepare-native-web-plugins.js
+          bash tests/test-native-web-plugins.sh
           sh -n docker/cn-mirror.sh
           node --check docker/plugins/dsh-reasoning-editor/index.js
           node --check docker/plugins/dsh-reasoning-editor/client.js
@@ -238,32 +239,29 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
-            test -f /opt/dsh/plugins/dsh-web-search/package.json
-            test -x /usr/local/bin/ensure-dsh-web-search
-            search_home="$(mktemp -d)"
-            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=true /usr/local/bin/ensure-dsh-web-search
-            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "searchProvider: dsh-docker-search"
-            DSH_HOME="$search_home" dsh --profile web --dump-config | grep -q "fetchProvider: http"
-            DSH_HOME="$search_home" DSH_SEARCH_ENABLED=false /usr/local/bin/ensure-dsh-web-search
-            rm -rf "$search_home"
-            test -f /opt/dsh/plugins/dsh-reasoning-editor/package.json
-            test -x /usr/local/bin/ensure-dsh-reasoning-editor
-            reasoning_home="$(mktemp -d)"
-            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=true /usr/local/bin/ensure-dsh-reasoning-editor
-            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
-          const fs = require("fs")
-          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
-          if (!p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
-          if (!p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
-          NODE
-            DSH_HOME="$reasoning_home" dsh --profile web --dump-config | grep -q "dsh-docker-reasoning-editor"
-            DSH_HOME="$reasoning_home" DSH_REASONING_EDITOR=false /usr/local/bin/ensure-dsh-reasoning-editor
-            node - "$reasoning_home/profiles/web/package.json" <<'"'"'NODE'"'"'
-          const fs = require("fs")
-          const p = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))
-          if (p.dependencies?.["dsh-docker-reasoning-editor"]) process.exit(1)
-          if (p.dsh?.profile?.bundles?.includes("dsh-docker-reasoning-editor")) process.exit(1)
-          NODE
+            # Built-in Web plugins load from native launcher patch paths
+            # and never run dsh plugin add, pnpm or web Profile installers.
+            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
+              test -f "/opt/dsh/plugins/$plugin/package.json"
+              test -f "/opt/dsh/plugins/$plugin/index.js"
+              test -f "/opt/dsh/plugins/$plugin/client.js"
+              test -f "/opt/dsh/plugins/$plugin/cordis.patch.yml"
+            done
+            test -f /usr/local/bin/prepare-dsh-native-web-plugins.js
+            test ! -e /usr/local/bin/ensure-dsh-web-search
+            test ! -e /usr/local/bin/ensure-dsh-reasoning-editor
+            test ! -e /usr/local/bin/ensure-dsh-icon-dock
+            native_home="$(mktemp -d)"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-icon-dock"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-reasoning-editor"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --dump-config | grep -Fq "searchProvider: dsh-docker-search"
+            rm -rf "$native_home"
             test ! -e /usr/local/go/doc
             test ! -e /usr/local/go/test
             test ! -e /usr/local/bin/cn-mirror
