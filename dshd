@@ -2714,12 +2714,6 @@ create_container() {
     docker_cmd rm -f "$DSH_NAME" >/dev/null
   fi
 
-  # The old sidecar is retired only AFTER replacement is healthy.
-  if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
-    proxy_remove_sidecar
-    proxy_remove_network
-  fi
-
   local args=(
     run -d
     --name "$DSH_NAME"
@@ -2820,6 +2814,12 @@ create_container() {
       return 1
     fi
     ok "新版健康检查通过。旧版容器保留在 $rollback_name，可执行 dshd rollback。"
+  fi
+  # Retire previous proxy networking only AFTER replacement was accepted:
+  # a failed image update must not destroy the old app's network dependencies.
+  if [[ "$DSH_PROXY_ENABLED" != "true" ]]; then
+    proxy_remove_sidecar
+    proxy_remove_network
   fi
   # Opt-in migrations only. The disabled path must not query or mutate old
   # search resources during unrelated DSH container operations.
