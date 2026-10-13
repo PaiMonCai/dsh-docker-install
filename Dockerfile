@@ -232,6 +232,8 @@ COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manage
 # Reverse preset adapts a pinned, build-time copy of the DSH-purge source.
 COPY docker/plugins/dsh-reverse-agent/ /opt/dsh/plugins/dsh-reverse-agent/
 COPY --from=reverse-agent-source /opt/dsh-reverse-snapshot/ /opt/dsh/plugins/dsh-reverse-agent/vendor/
+RUN node /opt/dsh/plugins/dsh-reverse-agent/build-client.cjs \
+ && node --check /opt/dsh/plugins/dsh-reverse-agent/client.js
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
