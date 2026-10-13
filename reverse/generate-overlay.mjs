@@ -129,7 +129,7 @@ const resolveRequiredOptions=(body)=>{
   ]){
     const pattern=new RegExp('(^- id: '+row+'\\n  name: [^\\n]+)(?=\\n|$)','m')
     if(!pattern.test(body))throw Error('Upstream required config anchor changed: '+row)
-    body=body.replace(pattern,'$1\\n  config:\\n    '+key+': '+value)
+    body=body.replace(pattern,'$1\n  config:\n    '+key+': '+value)
   }
   return body
 }
