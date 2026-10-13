@@ -5297,9 +5297,15 @@ dshd - DeepSeek Harness Docker 管理器
   dshd update              拉取最新镜像并重建
   dshd recreate            按当前配置重建
   dshd config              修改完整配置
-  dshd edition             查看当前 Standard / Research 版本
+  dshd edition             查看当前 Standard / Research 配置（主实例）
   dshd edition research    切换到一般科研版
   dshd edition standard    切换回通用开发版
+  dshd edition reverse     另行安装独立 Reverse 实例（不覆盖 Standard）
+  dshd reverse install     安装独立逆向版（默认 dsh-reverse / 3081）
+  dshd reverse status      查看独立逆向版的状态
+  dshd reverse update      更新独立逆向版镜像并安全重建
+  dshd reverse logs        查看独立逆向版日志
+  dshd reverse menu        打开独立逆向版管理菜单
   dshd research-pack       查看当前科研扩展包
   dshd research-pack economics  切换到 Economics Research Pack
   dshd research-pack none       切回通用 Research
