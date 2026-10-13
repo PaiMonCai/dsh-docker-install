@@ -9,6 +9,8 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const KEY = 'dsh-docker-icon-dock:v1'
     const entries = new Map()
+    const nativePanels = new Map()
+    let nativeComplete = false
     const listeners = new Set()
     const emit = () => {
       revision++
@@ -31,7 +33,8 @@ window.__ModuleLoader__.load({
           typeof id === 'string' && /^[a-z0-9][a-z0-9._-]{1,100}$/i.test(id)))].slice(0, 100)
         : []
       const size = [18, 20, 22, 24].includes(input.size) ? input.size : 20
-      return { hidden, order, size }
+      const captureNative = input.captureNative !== false
+      return { hidden, order, size, captureNative }
     }
     function readSaved() {
       try { return normalize(JSON.parse(window.localStorage?.getItem(KEY) || '{}')) }
@@ -45,7 +48,7 @@ window.__ModuleLoader__.load({
       emit()
     }
     function getAll() {
-      const sorted = [...entries.values()].sort((a, b) =>
+      const sorted = [...entries.values(), ...(settings.captureNative ? nativePanels.values() : [])].sort((a, b) =>
         a.order - b.order || a.label.localeCompare(b.label, 'zh-CN') || a.id.localeCompare(b.id))
       const place = new Map(settings.order.map((id, i) => [id, i]))
       return sorted.sort((a, b) => (place.has(a.id) ? place.get(a.id) : 1000) -
@@ -55,6 +58,41 @@ window.__ModuleLoader__.load({
     const registry = {
       version: 1, subscribe, snapshot, getAll,
       getSettings: () => settings,
+      getNativeCount: () => nativePanels.size,
+      getNativeCaptured: () => nativeComplete && settings.captureNative && nativePanels.size > 0,
+      syncNative(rows, navigate) {
+        if (!Array.isArray(rows) || typeof navigate !== 'function') return
+        const next = new Map()
+        let complete = true
+        for (const panel of rows) {
+          const id = panel?.id
+          const label = panel?.label
+          if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,100}$/i.test(id)
+            || typeof label !== 'string' || !label.trim()) {
+            complete = false
+            continue
+          }
+          const dockId = 'native-panel.' + id
+          const icon = id === 'plugins' ? 'puzzle'
+            : id === 'schedules' ? 'clock'
+              : /insight|context|洞察/i.test(id + label) ? 'insights' : 'grid'
+          next.set(dockId, {
+            id: dockId, label: label.trim().slice(0, 80),
+            icon, nativePanel: true, panelId: id,
+            order: 10 + (Number.isFinite(panel.order) ? panel.order : 0),
+            onClick: () => navigate(id),
+          })
+        }
+        const prev = [...nativePanels.values()]
+        const nextValues = [...next.values()]
+        if (complete === nativeComplete && prev.length === nextValues.length &&
+          prev.every((item, i) => item.id === nextValues[i].id &&
+            item.label === nextValues[i].label && item.order === nextValues[i].order)) return
+        nativePanels.clear()
+        for (const [id, entry] of next) nativePanels.set(id, entry)
+        nativeComplete = complete
+        emit()
+      },
       register(entry) {
         if (!entry || typeof entry.id !== 'string' ||
             !/^[a-z0-9][a-z0-9._-]{1,100}$/i.test(entry.id) ||
@@ -88,6 +126,7 @@ window.__ModuleLoader__.load({
         save({ ...settings, order: ordered })
       },
       setSize(size) { save({ ...settings, size }) },
+      setNativeCapture(captureNative) { save({ ...settings, captureNative: Boolean(captureNative) }) },
       reset() { save({}) },
     }
     // Plugin evaluation order is not specified by DSH. Providers loaded first
@@ -129,6 +168,14 @@ window.__ModuleLoader__.load({
       if (entry.icon === 'search') return h('svg', base,
         h('circle', { cx: 10.8, cy: 10.8, r: 6.8 }),
         h('path', { d: 'm16 16 4.6 4.6' }))
+      if (entry.icon === 'puzzle') return h('svg', base,
+        h('path', { d: 'M9.5 4h5v3.2a3 3 0 1 1 3 3H21v5h-3.5a3 3 0 1 1-3 3H9.5v-3.5a3 3 0 1 1-3-3V10H3V5h3.5a3 3 0 1 1 3-3z', transform: 'translate(0 2)' }))
+      if (entry.icon === 'clock') return h('svg', base,
+        h('circle', { cx: 12, cy: 12, r: 9 }),
+        h('path', { d: 'M12 6.5V12l3.5 2' }))
+      if (entry.icon === 'insights') return h('svg', base,
+        h('rect', { x: 4, y: 3, width: 16, height: 18, rx: 2 }),
+        h('path', { d: 'M8 8h8M8 12h4M8 16h8' }))
       if (entry.icon === 'settings') return h('svg', base,
         h('circle', { cx: 12, cy: 12, r: 3.4 }),
         h('path', { d: 'M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.2 2.2M16.8 16.8 19 19M5 19l2.2-2.2M16.8 7.2 19 5' }))
@@ -146,7 +193,8 @@ window.__ModuleLoader__.load({
     function IconDock({ wide }) {
       React.useSyncExternalStore(subscribe, snapshot, snapshot)
       const active = getAll().filter(item => !settings.hidden[item.id])
-      if (!active.length) return null
+      const takingOver = registry.getNativeCaptured()
+      if (!active.length && !takingOver) return null
       return h('div', {
         className: 'dsh-icon-dock', role: 'group', 'aria-label': '快捷入口',
         style: {
@@ -157,7 +205,15 @@ window.__ModuleLoader__.load({
           boxSizing: 'border-box',
         },
       },
-      h('style', null, styleTag),
+      h('style', null, styleTag +
+        (takingOver
+          // Upstream SidebarRoot owns its panelList (not a public slot for
+          // replacement). Hide only when every registered native panel has a
+          // live dock counterpart, and only while the dock is mounted.
+          // A changed upstream class or a disabled takeover leaves the
+          // original navigation intact rather than intercepting clicks.
+          ? '\nnav[class*="panelList"]{display:none!important}'
+          : '')),
       ...active.map(item => h('button', {
         key: item.id, type: 'button',
         'aria-label': item.label, title: item.label,
@@ -216,6 +272,15 @@ window.__ModuleLoader__.load({
         onClick: () => registry.move(entry.id, 1) }, '↓')))
         : h('p', { style: { color: muted, padding: '16px 0' } },
           '暂时没有已注册的快捷入口。安装支持图标坞的插件后会自动出现在这里。'),
+      h('label', { style: { display: 'flex', alignItems: 'center', gap: 9,
+        padding: '14px 0 8px', borderBottom: '1px solid ' + separator,
+        cursor: 'pointer' } },
+        h('input', { type: 'checkbox', checked: settings.captureNative,
+          'aria-label': '接管官方导航',
+          onChange: event => registry.setNativeCapture(event.target.checked) }),
+        h('span', null, '接管官方导航（插件、自动化任务等）')),
+      h('p', { style: { color: muted, margin: '4px 0 12px', fontSize: 11 } },
+        '关闭后恢复侧边栏原生文字导航。管理器仅复制导航入口，不替换官方页面。'),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 } },
         h('label', { htmlFor: 'dsh-icon-size' }, '图标大小'),
         h('select', { id: 'dsh-icon-size', value: settings.size,
@@ -228,8 +293,33 @@ window.__ModuleLoader__.load({
         '设置保存在当前浏览器中；不同浏览器或设备可以分别安排快捷入口。'))
     }
     return {
-      inject: ['slots'],
+      inject: ['slots', 'layout', 'locale'],
       apply(ctx) {
+        const syncNativePanels = () => {
+          if (typeof ctx.slots.entriesOfSlot !== 'function') return
+          const records = ctx.slots.entriesOfSlot('sidebar.panellist')
+          const list = records.map(({ options }) => {
+            let label = options.label
+            try { label = typeof label === 'function' ? label() : label }
+            catch { label = null }
+            return {
+              id: options.id, label,
+              order: options.order,
+            }
+          })
+          registry.syncNative(list, id => ctx.layout.selectPanel(id))
+        }
+        // Watch the official public list slot, rather than duplicating fixed
+        // panel IDs or DOM click handlers. The native pages remain untouched.
+        if (typeof ctx.slots.subscribe === 'function') {
+          const offPanels = ctx.slots.subscribe('sidebar.panellist', syncNativePanels)
+          const offLocale = ctx.locale?.subscribe?.(syncNativePanels)
+          if (typeof ctx.effect === 'function') ctx.effect(() => () => {
+            offPanels?.()
+            offLocale?.()
+          }, 'icon-dock: native sidebar mirror')
+        }
+        syncNativePanels()
         ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
           name: 'sidebar.footer.action', id: 'dsh-docker.icon-dock', order: 440,
         }, IconDock))
