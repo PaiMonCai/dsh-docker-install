@@ -46,7 +46,7 @@ for(const [,id,sourceFile] of modules){
     '      if(!r?.list){if(++checks===10)process.stdout.write(\'DSH_REVERSE_CI_REGISTRY_MISSING\\n\');return}',
     '      const rows=await r.list()',
     '      const preset=rows?.find(x=>x.id===\'reverse-engineering\')',
-    '      if(!preset||preset.broken)return',
+    '      if(!preset||preset.broken){if(++checks===10)process.stdout.write(\'DSH_REVERSE_CI_PRESET_DIAG \'+JSON.stringify(rows?.map(x=>({id:x.id,broken:x.broken||null})))+\'\\n\');return}',
     '      announced=true',
     '      clearInterval(timer)',
     '      process.stdout.write(\'DSH_REVERSE_CI_PRESET_REGISTERED\\n\')',
