@@ -196,7 +196,7 @@ jobs:
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui dsh-reverse-skill-bootstrap; do
+            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui dsh-reverse-skill-bootstrap dsh-reverse-preset-declaration; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
             node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs
