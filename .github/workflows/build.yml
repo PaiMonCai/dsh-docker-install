@@ -249,9 +249,16 @@ jobs:
             chromium --version
             playwright --version
             dsh --version
+            # REA and the dsh-purge reverse Agent are baked into this Docker image.
+            command -v rea
+            node -e "const p=require('/usr/local/lib/node_modules/rea-agents/package.json');if(p.version!=='6.4.0')process.exit(1)"
+            node --check /opt/dsh/plugins/dsh-reverse-agent/index.js
+            node --check /opt/dsh/plugins/dsh-reverse-agent/client.js
+            test -f /opt/dsh/plugins/dsh-reverse-agent/vendor/lib/reverse/ui.js
+            test -f /opt/dsh/plugins/dsh-reverse-agent/vendor/presets/reverse-engineering/agent.cordis.yml
             # Built-in Web plugins load from native launcher patch paths
             # and never run dsh plugin add, pnpm or web Profile installers.
-            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
+            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor dsh-reverse-agent; do
               test -f "/opt/dsh/plugins/$plugin/package.json"
               test -f "/opt/dsh/plugins/$plugin/index.js"
               test -f "/opt/dsh/plugins/$plugin/client.js"
@@ -272,6 +279,9 @@ jobs:
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
               --dump-config | grep -Fq "searchProvider: dsh-docker-search"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-reverse-agent/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-reverse-agent"
             # DSH launcher supports multiple --patch flags BEFORE app args.
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/dsh-bind.patch.yml \
@@ -279,6 +289,7 @@ jobs:
               --patch /opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml \
               --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
               --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --patch /opt/dsh/plugins/dsh-reverse-agent/cordis.patch.yml \
               --dump-config | grep -Fq "dsh-docker-icon-dock"
             rm -rf "$native_home"
             test ! -e /usr/local/go/doc
@@ -341,6 +352,22 @@ jobs:
             exit 1
           fi
           echo "DSH Docker healthcheck reports healthy"
+          # The running Web host must register the actual reverse Agent preset,
+          # not merely include YAML or npm binaries in the image.
+          reverse_ready=false
+          for _ in {1..20}; do
+            if docker logs "$name" 2>&1 | grep -Fq "image-bundled REA preset ready"; then
+              reverse_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$reverse_ready" != true ]]; then
+            docker logs "$name"
+            echo "::error::Bundled REA Agent was not registered on DSH Web"
+            exit 1
+          fi
+          docker exec "$name" sh -c 'command -v rea && test -f /opt/dsh/plugins/dsh-reverse-agent/client.js'
 
           # Native bundled Web plugins must be loaded from the immutable
           # image patch files, not Profile dependencies or pnpm state.
