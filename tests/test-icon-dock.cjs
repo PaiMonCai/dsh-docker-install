@@ -19,6 +19,13 @@ function createHarness(initial = new Map()) {
     const panels = [...panelInput]
     const panelListeners = new Set()
     const selectedPanels = []
+    const documentHandlers = new Map()
+    let touchTarget = null
+    const document = {
+      addEventListener(name, callback) { documentHandlers.set(name, callback) },
+      removeEventListener(name) { documentHandlers.delete(name) },
+      elementFromPoint() { return touchTarget },
+    }
     const activeListeners = new Set()
     let activePanelId = null
     let cursor = 0
@@ -36,7 +43,7 @@ function createHarness(initial = new Map()) {
       createElement(type, props, ...children) { return { type, props: { ...props, children } } },
       useSyncExternalStore(_, get) { cursor++; return get() },
     }
-    runInNewContext(dockSource, { window, console }, { filename: 'dock-client.js' })
+    runInNewContext(dockSource, { window, document, console }, { filename: 'dock-client.js' })
     const manager = plugin.factory(name => {
       assert.equal(name, 'react')
       return React
@@ -96,6 +103,15 @@ function createHarness(initial = new Map()) {
     const card = () => render('plugins.item', { view: 'settings' })
     return {
       window, dock, buttons, card, walk, slots, render, records, selectedPanels,
+      setTouchTarget(id, zone) {
+        touchTarget = {
+          closest() { return this },
+          getAttribute(name) {
+            return name === 'data-dock-drop' ? id : zone
+          },
+        }
+      },
+      fireDocument(name, event) { documentHandlers.get(name)?.(event) },
       updatePanels(rows) {
         panels.splice(0, panels.length, ...rows)
         for (const callback of panelListeners) callback()
@@ -214,7 +230,9 @@ test('official panel list is mirrored and clicking a dock icon uses native layou
   assert.equal(app.buttons()[0].props['aria-current'], undefined)
   const collapsed = app.render('sidebar.footer.action', { wide: false })
   assert.equal(collapsed.props.style.width, '36px')
-  assert.equal(collapsed.props.style.flexWrap, 'wrap')
+  const grid = app.walk(collapsed, x => x.props?.className === 'dsh-icon-grid')[0]
+  assert.ok(grid)
+  assert.equal(grid.props.style.gridTemplateColumns, 'repeat(2, minmax(0, 1fr))')
 })
 
 test('native panel discovery follows additions and removals without restarting dock', () => {
@@ -333,4 +351,157 @@ test('future extension renderIcon overrides default glyph without losing dock co
   app.dock.setSize(24)
   const changed = app.buttons()[0].props.children[0].type(app.buttons()[0].props.children[0].props)
   assert.equal(changed.props.width, 24)
+})
+
+
+const many = count => Array.from({ length: count }, (_, i) =>
+  shortcut('fake.item-' + String(i + 1).padStart(2, '0'),
+    '测试' + String(i + 1).padStart(2, '0'), i + 1))
+
+test('strict two-row overflow boundaries: 9 stays visible, 10/11 render More as item ten', () => {
+  for (const count of [0, 1, 5, 9, 10, 11, 26]) {
+    const app = createHarness().page(many(count))
+    const wide = app.buttons()
+    assert.equal(wide.length, Math.min(count, 9) + (count > 9 ? 1 : 0))
+    assert.equal(wide.filter(b => b.props['aria-label'] === '更多').length,
+      count > 9 ? 1 : 0)
+    if (count >= 10) assert.equal(wide[9].props['aria-label'], '更多')
+    const tree = app.render('sidebar.footer.action', { wide: true })
+    if (tree !== null) {
+      const grid = app.walk(tree, node => node.props?.className === 'dsh-icon-grid')[0]
+      assert.equal(grid.props.style.gridTemplateColumns, 'repeat(5, minmax(0, 1fr))')
+      assert.equal(grid.props.style.maxHeight, 77)
+      assert.ok(app.walk(grid, n => n.type === 'button').length <= 10)
+    }
+    const narrow = app.render('sidebar.footer.action', { wide: false })
+    const narrowButtons = app.walk(narrow, n => n.type === 'button')
+    assert.equal(narrowButtons.length,
+      Math.min(count, 3) + (count > 3 ? 1 : 0))
+    assert.ok(narrowButtons.length <= 4)
+    if (count > 3) assert.equal(narrowButtons[3].props['aria-label'], '更多')
+    assert.equal(app.dock.getDockLayout(true).more.length, Math.max(0, count - 9))
+  }
+})
+
+test('More menu opens all overflow items and selecting one preserves its action', () => {
+  let called = null
+  const entries = many(13)
+  entries[12].onClick = () => { called = 'last-item' }
+  const app = createHarness().page(entries)
+  const trigger = app.buttons()[9]
+  assert.equal(trigger.props['aria-label'], '更多')
+  assert.equal(trigger.props['aria-expanded'], false)
+  trigger.props.onClick()
+  const tree = app.render('sidebar.footer.action', { wide: true })
+  const menu = app.walk(tree, node => node.props?.role === 'menu')[0]
+  assert.ok(menu)
+  const options = app.walk(menu, node => node.props?.role === 'menuitem')
+  assert.equal(options.length, 4)
+  assert.equal(options[3].props.title, '测试13')
+  options[3].props.onClick()
+  assert.equal(called, 'last-item')
+  assert.equal(app.dock.isMoreOpen(), false)
+  app.buttons()[9].props.onClick()
+  app.fireDocument('pointerdown', { target: { closest() { return null } } })
+  assert.equal(app.dock.isMoreOpen(), false)
+  app.buttons()[9].props.onClick()
+  let prevented = false
+  app.fireDocument('keydown', {
+    key: 'Escape', preventDefault() { prevented = true },
+  })
+  assert.equal(app.dock.isMoreOpen(), false)
+})
+
+test('editor preview always has 5 columns by 2 rows, with More in slot 10', () => {
+  const app = createHarness().page(many(12))
+  const editor = app.card()
+  const preview = app.walk(editor,
+    node => node.props?.className === 'dsh-icon-preview')[0]
+  assert.ok(preview)
+  const grid = app.walk(preview, node => node.props?.style?.gridTemplateColumns ===
+    'repeat(5,minmax(0,1fr))')[0]
+  assert.ok(grid)
+  assert.equal(grid.props.children.length, 10)
+  assert.equal(grid.props.children[9].props['aria-label'], '更多收纳区')
+  assert.equal(grid.props.children[9].props['data-dock-zone'], 'more')
+  const locations = app.walk(editor, n => n.type === 'select' &&
+    n.props?.['aria-label']?.startsWith('显示位置 '))
+  assert.equal(locations.length, 12)
+  assert.deepEqual(Array.from(locations[0].props.children, n => n.props.value),
+    ['dock', 'more', 'hidden'])
+})
+
+test('editor mode options distinguish More vs hidden, persist and reclaim shortcut slots', () => {
+  const browser = createHarness()
+  const app = browser.page(many(11))
+  const id = 'fake.item-03'
+  const source = app.walk(app.card(), n => n.type === 'select' &&
+    n.props?.['aria-label'] === '显示位置 测试03')[0]
+  source.props.onChange({ target: { value: 'more' } })
+  assert.equal(app.dock.locationOf(id), 'more')
+  assert.equal(app.dock.getDockLayout(true).more.some(item => item.id === id), true)
+  source.props.onChange({ target: { value: 'hidden' } })
+  assert.equal(app.dock.locationOf(id), 'hidden')
+  assert.equal(app.buttons().some(b => b.props['aria-label'] === '测试03'), false)
+  const afterRefresh = browser.page(many(11))
+  assert.equal(afterRefresh.dock.locationOf(id), 'hidden')
+  afterRefresh.dock.setLocation(id, 'dock')
+  assert.equal(afterRefresh.dock.getDockLayout(true).primary.some(item => item.id === id), true,
+    'explicit dock selection must promote entry into first nine icons')
+  assert.equal(afterRefresh.buttons().length, 10)
+})
+
+test('desktop drag-and-drop moves preview icons; tenth slot sends items to More', () => {
+  const app = createHarness().page(many(11))
+  let editor = app.card()
+  let preview = app.walk(editor, n => n.props?.className === 'dsh-icon-preview')[0]
+  let slots = app.walk(preview, n => n.props?.['data-dock-zone'])
+  const source = slots.find(n => n.props['data-dock-drop'] === 'fake.item-04')
+  const target = slots.find(n => n.props['data-dock-drop'] === 'fake.item-02')
+  const data = { effectAllowed: '', setData() {} }
+  source.props.onDragStart({ dataTransfer: data })
+  assert.equal(data.effectAllowed, 'move')
+  let prevented = false
+  target.props.onDrop({ preventDefault() { prevented = true } })
+  assert.ok(prevented)
+  assert.deepEqual(app.buttons().slice(0, 4).map(n => n.props['aria-label']),
+    ['测试01', '测试04', '测试02', '测试03'])
+  editor = app.card()
+  preview = app.walk(editor, n => n.props?.className === 'dsh-icon-preview')[0]
+  slots = app.walk(preview, n => n.props?.['data-dock-zone'])
+  const dragged = slots.find(n => n.props['data-dock-drop'] === 'fake.item-02')
+  const more = slots.find(n => n.props['data-dock-zone'] === 'more')
+  dragged.props.onDragStart({ dataTransfer: data })
+  more.props.onDrop({ preventDefault() {} })
+  assert.equal(app.dock.locationOf('fake.item-02'), 'more')
+  assert.ok(app.dock.getDockLayout(true).more.some(n => n.id === 'fake.item-02'))
+})
+
+test('touch pointer drag reorders icons with elementFromPoint hit testing', () => {
+  const app = createHarness().page(many(5))
+  const preview = app.walk(app.card(),
+    node => node.props?.className === 'dsh-icon-preview')[0]
+  const items = app.walk(preview, n => n.props?.['data-dock-zone'] === 'dock')
+  const first = items[0]
+  const third = items[2]
+  app.setTouchTarget(third.props['data-dock-drop'], 'dock')
+  first.props.onPointerDown({
+    pointerType: 'touch', clientX: 10, clientY: 10, pointerId: 1,
+    currentTarget: { setPointerCapture() {} },
+  })
+  first.props.onPointerMove({ clientX: 60, clientY: 10 })
+  first.props.onPointerUp({ clientX: 60, clientY: 10, preventDefault() {} })
+  assert.deepEqual(app.buttons().map(b => b.props['aria-label']),
+    ['测试02', '测试01', '测试03', '测试04', '测试05'])
+})
+
+test('up/down accessible controls reorder the full list without dragging', () => {
+  const app = createHarness().page(many(5))
+  const editor = app.card()
+  const up = app.walk(editor, n => n.type === 'button' &&
+    n.props?.['aria-label'] === '上移 测试02')[0]
+  up.props.onClick()
+  assert.deepEqual(app.buttons().slice(0, 2).map(n => n.props['aria-label']),
+    ['测试02', '测试01'])
+  assert.equal(app.dock.getSettings().order[0], 'fake.item-02')
 })
