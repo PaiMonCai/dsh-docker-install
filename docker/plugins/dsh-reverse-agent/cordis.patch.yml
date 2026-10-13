@@ -3,3 +3,5 @@
 - insert:
     - id: dsh-docker-reverse-agent
       name: ./index.js
+    - id: dsh-docker-reverse-workbench-api
+      name: ./vendor/lib/reverse/ui.js
