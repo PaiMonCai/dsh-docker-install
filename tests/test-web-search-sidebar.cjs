@@ -7,9 +7,11 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { runInNewContext } = require('node:vm')
 
-function harness() {
+function harness({ searchEnabled = true, managerFirst = false } = {}) {
   const source = readFileSync(join(__dirname,
     '../docker/plugins/dsh-web-search/client.js'), 'utf8')
+  const managerSource = readFileSync(join(__dirname,
+    '../docker/plugins/dsh-session-manager-web/client.js'), 'utf8')
   const registered = new Map()
   const injections = []
   const requests = []
@@ -20,6 +22,8 @@ function harness() {
   let frame
   let cursor = 0
   let moduleDefinition
+  let managerDefinition
+  const managerSlots = new Map()
   const React = {
     createElement(type, props, ...children) {
       return { type, props: { ...props, children } }
@@ -65,7 +69,10 @@ function harness() {
     enabled: true, cacheEnabled: true, braveEnabled: false, braveDailyLimit: 0,
   }
   const sandbox = {
-    window: { __ModuleLoader__: { load(definition) { moduleDefinition = definition } } },
+    window: { __ModuleLoader__: { load(definition) {
+      if (definition.id === 'dsh-docker-session-manager') managerDefinition = definition
+      else moduleDefinition = definition
+    } } },
     document: {
       activeElement: null,
       body: { style: { overflow: '' } },
@@ -91,17 +98,40 @@ function harness() {
     },
   }
   runInNewContext(source, sandbox, { filename: 'web-search-client.js' })
-  const plugin = moduleDefinition.factory(name => {
-    if (name === 'react') return React
-    throw Error('unexpected dependency ' + name)
-  })
-  plugin.apply({ slots: {
-    inject(name, apply) {
-      injections.push(name)
-      apply()
-    },
-    register(meta, component) { registered.set(meta.name, { meta, component }) },
-  }, remote: { credentials } })
+  runInNewContext(managerSource, sandbox, { filename: 'session-manager-client.js' })
+  function MenuItemButton() {}
+  function Modal() {}
+  const registry = { inject(name, factory) {
+    injections.push(name)
+    const values = factory()
+    if (values && typeof values.next === 'function') {
+      for (const _ of values) {}
+    }
+  }, register(meta, component) { registered.set(meta.name, { meta, component }) } }
+  const managerRegistry = { inject(name, factory) {
+    const values = factory()
+    if (values && typeof values.next === 'function') {
+      for (const _ of values) {}
+    }
+  }, register(meta, component) { managerSlots.set(meta.name, { meta, component }) } }
+  function loadSearch() {
+    if (!searchEnabled) return
+    const plugin = moduleDefinition.factory(name => {
+      if (name === 'react') return React
+      throw Error('unexpected dependency ' + name)
+    })
+    plugin.apply({ slots: registry, remote: { credentials } })
+  }
+  function loadManager() {
+    const plugin = managerDefinition.factory(name => {
+      if (name === 'react') return React
+      if (name === '@deepseek-ai/dsh-client-ui-primitives') return { MenuItemButton, Modal }
+      throw Error('unexpected dependency ' + name)
+    })
+    plugin.apply({ slots: managerRegistry })
+  }
+  if (managerFirst) { loadManager(); loadSearch() }
+  else { loadSearch(); loadManager() }
   function nodes(root, predicate, result = []) {
     if (root == null || root === false) return result
     if (Array.isArray(root)) {
@@ -119,6 +149,16 @@ function harness() {
     if (Array.isArray(root)) return root.map(text).join('')
     return text(root.props?.children)
   }
+  function footer(wide = true) {
+    const component = managerSlots.get('sidebar.footer.action')?.component
+    assert.equal(typeof component, 'function')
+    return render(() => component({ wide }), 'footer')
+  }
+  function shortcut(name) {
+    const buttons = nodes(footer(), n => n.type === 'button' && n.props?.['aria-label'] === name)
+    assert.equal(buttons.length, 1, 'missing shortcut: ' + name)
+    return buttons[0]
+  }
   function overlay() {
     const host = registered.get('shell.overlay').component()
     return render(() => host.type(host.props), 'overlay')
@@ -133,35 +173,57 @@ function harness() {
     return render(fn)
   }
   return {
-    registered, injections, requests, render, overlay, card, nodes, text, settle,
+    registered, managerSlots, injections, requests, render, footer, shortcut, overlay, card, nodes, text, settle,
     failNextRefresh() { failNextGet = true },
     keydown(event) { keyHandlers.get('keydown')?.(event) },
   }
 }
 
-test('search shortcut registers beside recycle bin and retains the plugin settings view', () => {
+test('recycle and search icons share exactly one footer row with no visible labels', () => {
   const app = harness()
-  assert.ok(app.injections.includes('sidebar.footer.action'))
   assert.ok(app.injections.includes('shell.overlay'))
   assert.ok(app.injections.includes('plugins.item'))
-  assert.equal(app.registered.get('sidebar.footer.action').meta.order, 440)
-  assert.equal(app.registered.get('sidebar.footer.action').meta.id, 'dsh-docker.search-footer')
+  assert.equal(app.injections.includes('sidebar.footer.action'), false)
   assert.equal(app.registered.get('shell.overlay').meta.id, 'dsh-docker.search-panel')
   assert.equal(app.registered.get('plugins.item').meta.id, 'dsh-docker-web-search')
-  const footer = app.registered.get('sidebar.footer.action').component
-  const compact = footer({ wide: false })
-  const wide = footer({ wide: true })
-  assert.equal(compact.props['aria-label'], '网络搜索')
-  assert.doesNotMatch(app.text(compact), /网络搜索/)
-  assert.match(app.text(wide), /网络搜索/)
-  assert.equal(compact.props.children[0].type.name, 'SearchIcon')
+  const expanded = app.footer(true)
+  const collapsed = app.footer(false)
+  for (const dock of [expanded, collapsed]) {
+    assert.equal(dock.props.role, 'group')
+    assert.equal(dock.props.className, 'dsh-dock-icon-row')
+    const buttons = app.nodes(dock, n => n.type === 'button')
+    assert.equal(buttons.length, 2)
+    assert.deepEqual(buttons.map(n => n.props['aria-label']), ['回收站', '网络搜索'])
+    assert.deepEqual(buttons.map(n => n.props.title), ['回收站', '网络搜索'])
+    assert.doesNotMatch(app.text(dock), /回收站|网络搜索/)
+    assert.equal(buttons[0].props.children[0].type.name, 'DockIcon')
+    assert.equal(buttons[1].props.children[0].type.name, 'DockIcon')
+    assert.equal(dock.props.style.display, 'flex')
+  }
 })
 
-test('sidebar opens a spacious accessible overlay and both close controls work', () => {
+test('shared footer works with just recycle when optional search is disabled', () => {
+  const app = harness({ searchEnabled: false })
+  const dock = app.footer(false)
+  const buttons = app.nodes(dock, n => n.type === 'button')
+  assert.equal(buttons.length, 1)
+  assert.equal(buttons[0].props['aria-label'], '回收站')
+  buttons[0].props.onClick()
+  const overlay = app.render(() => app.managerSlots.get('shell.overlay').component(), 'trash')
+  assert.equal(overlay.props.className, 'dsh-trash-overlay')
+})
+
+test('search can register after session footer initialization without losing paired layout', () => {
+  const app = harness({ managerFirst: true })
+  const dock = app.footer(false)
+  assert.equal(app.nodes(dock, n => n.type === 'button').length, 2)
+  assert.ok(app.shortcut('网络搜索'))
+})
+
+test('search shortcut opens a spacious accessible overlay and both close controls work', () => {
   const app = harness()
-  const footer = app.registered.get('sidebar.footer.action').component
   assert.equal(app.overlay(), null)
-  footer({ wide: true }).props.onClick()
+  app.shortcut('网络搜索').props.onClick()
   let panel = app.overlay()
   assert.equal(panel.props.className, 'dsh-search-overlay')
   assert.equal(app.nodes(panel, n => n.props?.role === 'dialog'
@@ -174,7 +236,7 @@ test('sidebar opens a spacious accessible overlay and both close controls work',
   assert.ok(close)
   close.props.onClick()
   assert.equal(app.overlay(), null)
-  footer({ wide: false }).props.onClick()
+  app.shortcut('网络搜索').props.onClick()
   panel = app.overlay()
   panel.props.onMouseDown({ target: panel, currentTarget: panel })
   assert.equal(app.overlay(), null)
@@ -182,7 +244,7 @@ test('sidebar opens a spacious accessible overlay and both close controls work',
 
 test('opened settings reuse existing authenticated API and Brave controls', async () => {
   const app = harness()
-  app.registered.get('sidebar.footer.action').component({ wide: true }).props.onClick()
+  app.shortcut('网络搜索').props.onClick()
   const panel = app.overlay()
   const settingsView = app.card(panel)
   let tree = app.render(() => settingsView.type(settingsView.props))
@@ -211,7 +273,7 @@ test('plugin summary view remains available without querying search backend or c
 
 test('Refresh reports server errors in the panel and does not create unhandled rejection', async () => {
   const app = harness()
-  app.registered.get('sidebar.footer.action').component({ wide: true }).props.onClick()
+  app.shortcut('网络搜索').props.onClick()
   const panel = app.overlay()
   const view = app.card(panel)
   let tree = app.render(() => view.type(view.props))
@@ -226,7 +288,7 @@ test('Refresh reports server errors in the panel and does not create unhandled r
 
 test('Escape closes the search overlay', () => {
   const app = harness()
-  app.registered.get('sidebar.footer.action').component({ wide: true }).props.onClick()
+  app.shortcut('网络搜索').props.onClick()
   const panel = app.overlay()
   assert.equal(panel.props.className, 'dsh-search-overlay')
   let prevented = false
