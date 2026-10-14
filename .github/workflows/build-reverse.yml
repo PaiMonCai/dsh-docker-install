@@ -117,6 +117,8 @@ jobs:
           node --check reverse/preset-smoke.mjs
           node --check reverse/service-health.mjs
           node --check reverse/reverse-healthcheck.cjs
+          python3 -m py_compile reverse/ghidra-scripts/ExportFunctions.py
+          python3 -m py_compile reverse/bin/reverse-js-triage
           python3 -m unittest discover -s reverse/tests -p 'test_*.py' -v
           bash -n docker/entrypoint.sh
           bash -n ci/reverse-push-gate.sh
@@ -198,7 +200,7 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-prompt; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-prompt; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
             node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs

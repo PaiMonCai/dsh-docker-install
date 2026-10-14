@@ -10,3 +10,5 @@ description: Trace authorized Electron and bundled JavaScript app structure, pre
 5. For minified or bundled code, preserve file/module path and exact offsets or source-map provenance, stating how names were reconstructed.
 6. Record bounded evidence in reverse_evidence_add; export behavior-level findings or clean-room reconstructions, not unverified claims about recovered original source.
 For normal first-party source repositories use ordinary source navigation instead.
+
+Use `reverse-js-triage /workspace/project --output /workspace/reverse-analysis/js-report.json` for bounded static Electron/JS reconnaissance. It does not execute JS, follow symlinks, or parse ASAR containers. Treat signals as heuristic only; verify actual code manually.

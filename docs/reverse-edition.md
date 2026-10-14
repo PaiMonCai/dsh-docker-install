@@ -129,3 +129,8 @@ Reverse 镜像通过 DSH Client Modules 向「设置 → 逆向提示词」注�
 Host 接口使用已登录 Web Client 的 `/api` RPC、仅允许 loopback 权限级别的拦截，不额外暴露公开管理路由。默认只显示 section 元信息；完整正文需要明确采集并展开，随时可以删除。页面采用 DSH 主题变量；只针对 Reverse Agent，Standard 和其他会话不受影响。
 
 **注意**：此功能必须在 PR 合并并发布新版 `:reverse` 镜像后才出现在 Web 设置页。上游 Web Client 插件加载能力可能随 DSH 版本变化，须以真实容器 UI 验证为准。
+
+
+### Electron/JS 静态初检
+
+新增 `reverse-js-triage /workspace/project` 命令：递归扫描工作区内 `.js/.cjs/.mjs/.ts/.tsx/.jsx/.json` 文件（排除 node_modules、构建输出、符号链接），识别 Electron 主进程、IPC、网络、动态代码执行等静态关键词；不运行 JS，也不尝试加载或执行 ASAR。上限 250 文件、累计 8 MiB、单文件 256 KiB。可选 `--output /workspace/reverse-analysis/js-report.json` 输出 JSON 报告。该命令是启发式初检，不保证完整解析代码或证明运行行为。
