@@ -213,3 +213,11 @@ test('Workbench v2 ships project registry and UI integration',()=>{
  assert.match(client,/workbenchProjects/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/projects.test.mjs')))
 })
+
+
+test('Workbench project sample, task and evidence linking is packaged',()=>{
+ const backend=read('reverse/prompt-manager/web/index.mjs')
+ assert.match(backend,/workbenchProjectAttach/)
+ assert.match(read('reverse/prompt-manager/web/client.js'),/关联到项目/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/project-links.test.mjs')))
+})

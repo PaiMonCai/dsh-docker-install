@@ -175,6 +175,9 @@ window.__ModuleLoader__.load({
       const [projects,setProjects]=useState([])
       const [projectName,setProjectName]=useState('')
       const [activeProject,setActiveProject]=useState(null)
+      const [projectLinks,setProjectLinks]=useState(null)
+      const [linkKind,setLinkKind]=useState('sample')
+      const [linkRef,setLinkRef]=useState('')
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
@@ -205,15 +208,34 @@ window.__ModuleLoader__.load({
             h(Field,{value:projectName,onChange:setProjectName,placeholder:'新项目名称'}),
             h(Control,{disabled:busy||!projectName.trim(),onClick:()=>run(async()=>{
               const created=await invoke('workbenchProjectCreate',{name:projectName})
-              setActiveProject(created);setProjectName('')
+              setActiveProject(created);setProjectLinks(await invoke('workbenchProjectLinks',{id:created.id}));setProjectName('')
               setProjects(await invoke('workbenchProjects'))
             })},'创建项目'),
             h(Control,{disabled:busy,onClick:()=>run(async()=>setProjects(await invoke('workbenchProjects')))},'刷新')),
           ...projects.slice(0,30).map(p=>h('div',{key:p.id,style:css.line},
             h('strong',null,p.name),
             h('span',{style:css.muted},p.created_at),
-            h(Control,{disabled:busy,onClick:()=>setActiveProject(p)},'查看'))),
-          activeProject?h('p',{style:css.muted},'当前项目：'+activeProject.name+' · '+activeProject.id):null
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{setActiveProject(p);setProjectLinks(await invoke('workbenchProjectLinks',{id:p.id}))})},'查看'))),
+          activeProject?h('div',{style:css.card},
+            h('p',{style:css.muted},'当前项目：'+activeProject.name+' · '+activeProject.id),
+            h('div',{style:css.line},
+              h('select',{style:css.input,value:linkKind,onChange:e=>setLinkKind(e.target.value)},
+                h('option',{value:'sample'},'样本文件'),
+                h('option',{value:'task'},'分析任务 UUID'),
+                h('option',{value:'evidence'},'证据 JSON')),
+              h(Field,{value:linkRef,onChange:setLinkRef,placeholder:'工作区相对路径或任务 UUID'}),
+              h(Control,{disabled:busy||!linkRef.trim(),onClick:()=>run(async()=>{
+                setProjectLinks(await invoke('workbenchProjectAttach',{id:activeProject.id,kind:linkKind,ref:linkRef.trim()}))
+                setLinkRef('')
+              })},'关联到项目')),
+            ...(projectLinks?.entries||[]).map((entry,i)=>h('div',{key:entry.kind+entry.ref+i,style:css.line},
+              h('span',{style:css.muted},entry.kind+' · '+(entry.valid?'有效':'失效')),
+              h('code',null,entry.ref),
+              entry.kind==='evidence'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
+                setReportPath(entry.ref)
+                setOpenedReport(await invoke('workbenchReport',{path:entry.ref}))
+              })},'查看证据'):null))
+          ):null
         ),
         h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),

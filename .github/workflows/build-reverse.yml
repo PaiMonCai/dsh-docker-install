@@ -114,6 +114,8 @@ jobs:
           node --test reverse/prompt-manager/web/web.test.mjs
           node --test reverse/prompt-manager/web/workbench.test.mjs
           node --test reverse/prompt-manager/web/projects.test.mjs
+          node --test reverse/prompt-manager/web/project-links.test.mjs
+          node --check reverse/prompt-manager/web/project-links.mjs
           node --check reverse/prompt-manager/web/projects.mjs
           node --check reverse/prompt-manager/web/workbench.mjs
           node --check reverse/prompt-manager/web/client.js
