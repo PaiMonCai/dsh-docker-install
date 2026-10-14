@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Read-only sample triage and reproducible JSON/Markdown evidence."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from zipfile import ZipFile, BadZipFile
+
+SCHEMA = "dsh-reverse-evidence/v1"
+MAX_SIZE = 256 * 1024 * 1024
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+
+def source_file(value):
+    supplied = Path(value).expanduser()
+    if supplied.is_symlink():
+        raise ValueError("sample symlinks are not supported")
+    path = supplied.resolve(strict=True)
+    if not path.is_relative_to(ROOT) or not path.is_file():
+        raise ValueError("sample must be a regular file within the workspace")
+    if not 0 < path.stat().st_size <= MAX_SIZE:
+        raise ValueError("sample must be between 1 byte and 256 MiB")
+    return path
+
+def out_dir(value, digest):
+    path = (Path(value) if value else ROOT / "reverse-analysis" / digest[:16]).resolve()
+    if not path.is_relative_to(ROOT):
+        raise ValueError("output must remain within the workspace")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+def hash_file(path):
+    sha = hashlib.sha256()
+    with path.open("rb") as f:
+        for part in iter(lambda: f.read(1024 * 1024), b""):
+            sha.update(part)
+    return sha.hexdigest()
+
+def file_format(head):
+    if head.startswith(b"\x7fELF"):
+        return "ELF"
+    if head.startswith(b"MZ"):
+        return "PE-candidate"
+    if head[:4] in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
+                     b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
+        return "Mach-O"
+    if head.startswith(b"PK\x03\x04"):
+        return "ZIP/APK/JAR-candidate"
+    if head.startswith(b"\x00asm"):
+        return "WebAssembly"
+    return "unknown"
+
+def inspect_lief(path, warnings):
+    try:
+        import lief
+        binary = lief.parse(str(path))
+        if binary is None:
+            return {"status": "unrecognized"}
+        result = {"status": "ok", "type": type(binary).__name__}
+        for name in ("entrypoint", "imagebase"):
+            try:
+                value = getattr(binary, name, None)
+                if isinstance(value, int):
+                    result[name] = hex(value)
+            except Exception:
+                pass
+        try:
+            result["sections"] = [{"name": str(s.name)[:100], "size": int(s.size)}
+                                  for s in list(binary.sections)[:64]]
+        except Exception:
+            pass
+        return result
+    except ImportError:
+        warnings.append("LIEF is unavailable")
+    except Exception as exc:
+        warnings.append("LIEF parsing failed: " + type(exc).__name__)
+    return {"status": "unavailable"}
+
+def inspect_archive(path, warnings):
+    try:
+        with ZipFile(path) as archive:
+            names = archive.namelist()[:5000]
+            return {"scanned_entries": len(names), "apk": "AndroidManifest.xml" in names,
+                    "jar": any(s.endswith(".class") for s in names),
+                    "electron": any(s.endswith(".asar") for s in names)}
+    except (OSError, BadZipFile):
+        warnings.append("ZIP metadata could not be parsed")
+        return {}
+
+def inspect_capa(path, warnings):
+    try:
+        run = subprocess.run(["capa", "-j", str(path)], capture_output=True,
+                             text=True, errors="replace", timeout=90, check=False)
+        if run.returncode or len(run.stdout) > 5_000_000:
+            warnings.append("capa failed or returned oversized results")
+            return {"status": "unavailable", "exit_code": run.returncode}
+        rules = json.loads(run.stdout).get("rules", {})
+        matches = [key for key, val in rules.items() if val.get("matches")]
+        return {"status": "ok", "matches": matches[:40], "count": len(matches)}
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        warnings.append("capa unavailable or timed out")
+        return {"status": "unavailable"}
+
+def atomic_write(path, content):
+    fd, temporary = tempfile.mkstemp(prefix=".reverse-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+def analyze(sample, output=None, capa=False):
+    path = source_file(sample)
+    digest = hash_file(path)
+    target = out_dir(output, digest)
+    warnings = []
+    with path.open("rb") as f:
+        kind = file_format(f.read(4096))
+    details = {"format": kind, "lief": inspect_lief(path, warnings)}
+    if kind == "ZIP/APK/JAR-candidate":
+        details["archive"] = inspect_archive(path, warnings)
+    if capa:
+        if kind in ("ELF", "PE-candidate"):
+            details["capa"] = inspect_capa(path, warnings)
+        else:
+            warnings.append("capa skipped: unsupported format")
+    record = {"schema": SCHEMA, "generated_at": datetime.now(timezone.utc).isoformat(),
+              "sample": {"path": str(path), "sha256": digest, "size": path.stat().st_size},
+              "tools": {"triage": "reverse-triage/v1", "lief": details["lief"]["status"]},
+              "analysis": details,
+              "evidence": [{"id": "E001", "tool": "reverse-triage", "locator": "header@0x0",
+                            "observation": "Static header indicates format: " + kind,
+                            "confidence": "observed"}],
+              "warnings": warnings,
+              "limitations": ["Static header evidence does not prove runtime behavior."]}
+    md = ("# Static sample triage\n\nSHA-256: " + digest + "\n\n"
+          "Size: " + str(record["sample"]["size"]) + " bytes\n\nFormat: " + kind +
+          "\n\n## Evidence\nE001: header@0x0 — " + kind + "\n\n## Warnings\n" +
+          ("\n".join("- " + w for w in warnings) if warnings else "- None") +
+          "\n\n## Limitations\n- Static-only analysis; target is never executed.\n")
+    atomic_write(target / "report.json", json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+    atomic_write(target / "report.md", md)
+    return {"report": str(target / "report.json"), "markdown": str(target / "report.md"),
+            "sha256": digest, "format": kind, "warnings": warnings}
+
+def main():
+    p = argparse.ArgumentParser(description="Static binary triage and evidence report")
+    p.add_argument("sample")
+    p.add_argument("--output", help="Output directory under workspace")
+    p.add_argument("--capa", action="store_true", help="Optional bounded capa inspection")
+    args = p.parse_args()
+    try:
+        print(json.dumps(analyze(args.sample, args.output, args.capa), ensure_ascii=False))
+    except (OSError, ValueError) as exc:
+        print("reverse-triage: " + str(exc), file=sys.stderr)
+        sys.exit(2)
+
+if __name__ == "__main__":
+    main()

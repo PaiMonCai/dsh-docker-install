@@ -106,6 +106,9 @@ jobs:
           set -euo pipefail
           node --check reverse/skills-bootstrap.mjs
           node --check reverse/preset-smoke.mjs
+          node --check reverse/service-health.mjs
+          node --check reverse/reverse-healthcheck.cjs
+          python3 -m unittest discover -s reverse/tests -p 'test_*.py' -v
           bash -n docker/entrypoint.sh
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
@@ -186,7 +189,11 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra; do command -v "$tool"; done
+            /opt/dsh-reverse/venv/bin/python -c "import lief, capa"
+            test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
+            reverse-triage --help >/dev/null
+            reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
             for skill in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
@@ -195,7 +202,7 @@ jobs:
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap reverse-engineering rea-mcp session-controller; do
+            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
             if grep -Eiq "dsh-purge|dsh-reverse-redteam" /tmp/reverse-config.yml; then
@@ -219,18 +226,28 @@ jobs:
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
             fi
-            if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_PRESET_REGISTERED"; then
+            if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_SESSION_FAILED"; then
+              docker logs "$name"; exit 1
+            fi
+            if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_SESSION_CREATED"; then
+              for health_attempt in {1..70}; do
+                health="$(docker inspect --format '{{.State.Health.Status}}' "$name")"
+                [[ "$health" == healthy ]] && break
+                [[ "$health" == unhealthy ]] && { docker inspect "$name" --format '{{json .State.Health.Log}}'; docker logs "$name"; exit 1; }
+                sleep 1
+              done
+              [[ "$(docker inspect --format '{{.State.Health.Status}}' "$name")" == healthy ]] || { docker logs "$name"; exit 1; }
               docker exec "$name" bash -c '
                 for id in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
                 done
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
-              echo "Healthy reverse-engineering Agent registry entry and Skills bootstrap confirmed"
+              echo "Reverse Agent registry, live session/create, sessionController health and Skills confirmed"
               exit 0
             fi
             sleep 1
           done
           docker logs "$name"
-          echo "::error::Reverse preset not confirmed in running DSH"
+          echo "::error::Reverse session/create not confirmed in running DSH"
           exit 1

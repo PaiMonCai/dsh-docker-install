@@ -87,3 +87,26 @@ test('Nine advanced reverse Skills exclude Android and preserve user edits',asyn
  module.installSkills(home,path.join(root,'reverse/skills'))
  assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
 })
+
+test('Phase one ships native analysis and a real session readiness gate',()=>{
+ const docker=read('reverse/Dockerfile')
+ const overlay=read('reverse/cordis.patch.yml')
+ const workflow=read('.github/workflows/build-reverse.yml')
+ for(const p of ['reverse/bin/reverse-triage','reverse/bin/reverse-ghidra',
+    'reverse/ghidra-scripts/ExportFunctions.py','reverse/service-health.mjs',
+    'reverse/reverse-healthcheck.cjs','reverse/tests/test_triage.py'])
+   assert.ok(fs.existsSync(path.join(root,p)),p)
+ assert.match(docker,/HEALTHCHECK/)
+ assert.ok(docker.includes('reverse-healthcheck.cjs'))
+ assert.ok(docker.includes('lief==1.0.0'))
+ assert.ok(docker.includes('flare-capa==9.4.0'))
+ assert.match(overlay,/id: dsh-reverse-session-health/)
+ assert.ok(read('reverse/preset-smoke.mjs').includes('sessionController.create'))
+ assert.match(workflow,/DSH_REVERSE_CI_SESSION_CREATED/)
+ assert.ok(workflow.includes('unittest discover -s reverse/tests'))
+})
+
+test('Reverse disables live config HMR to preserve sessionController lifetime',()=>{
+ assert.match(read('reverse/cordis.patch.yml'),/- id: hmr\n  disabled: true/)
+ assert.doesNotMatch(read('docker-compose.yml'),/DSH_REVERSE_AGENT_PATCH/)
+})

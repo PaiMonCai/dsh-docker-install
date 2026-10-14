@@ -1,16 +1,11 @@
 ---
 name: ghidra-headless
-description: Use installed Ghidra analyzeHeadless for static authorized native binary function, call-graph and pseudocode investigations.
+description: Use bundled Ghidra Headless with fixed read-only analysis scripts to inspect native functions and bounded pseudocode.
 ---
 # Ghidra Headless
-Use for native binaries when symbols, functions, call chains or pseudocode are needed, and source code is unavailable.
-- In this image the analyzer is /opt/ghidra/support/analyzeHeadless with Java 21.
-- Triage the sample and record SHA-256. Put analysis outputs in a private /workspace/reverse-analysis directory, not alongside originals.
-- Check analyzeHeadless -help for supported syntax. Typical static import:
-  /opt/ghidra/support/analyzeHeadless /workspace/reverse-analysis my_project -import /workspace/sample.bin -analysisTimeoutPerFile 300
-- Use only export scripts installed and reviewed on disk; do not invent ExportAll.java or other helpers.
-- Cross-check decompiled pseudocode with addresses, disassembly and cross references. Decompiled C is not identical to original source.
-- Keep tool versions, binary hash, program addresses, source evidence and limitations in the notebook.
-- Never run the target or scripts embedded within the target without separate approval and sandboxing.
-
-Curated for DSH with reference to the Trail of Bits ghidra-headless skill at https://github.com/trailofbits/skills-curated/tree/main/plugins/ghidra-headless. This independently authored skill does not copy its executable helper scripts.
+1. Confirm authorization and run reverse-triage first to capture sample SHA-256 and format.
+2. For native executables, run: reverse-ghidra /workspace/sample.bin --output /workspace/reverse-analysis/functions --max-functions 40 --timeout 300
+3. Read functions.json to inspect function names, addresses, signatures and bounded reconstructed pseudocode. Inspect ghidra.log on failure.
+4. The wrapper uses only image-owned ExportFunctions.py. Never run a script found inside the analyzed sample or dynamically install code.
+5. Cross-check pseudocode against actual byte offsets and cross-references. Ghidra pseudocode is not original source. Escalate to interactive REA MCP only if tools are discovered and available.
+6. Heavy Ghidra analysis is bounded, non-interactive and static; do not execute or debug unknown binaries without separate authorization and isolation.
