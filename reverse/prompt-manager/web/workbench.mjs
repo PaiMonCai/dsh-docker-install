@@ -104,10 +104,14 @@ export function report(path) {
 export function manifest(path) {
   const item = report(path)
   if (item.schema !== 'dsh-reverse-workspace/v1') throw Error('expected evidence index')
+  let totalBytes = 0
   const records = item.reports.map(row => {
     try {
       if (!/^[a-f0-9]{64}$/.test(row.sha256)) throw Error('bad digest')
       const source = workspaceFile(row.path, MAX_REPORT)
+      const length = lstatSync(source).size
+      if (totalBytes + length > 32 * 1024 * 1024) throw Error('manifest read cap reached')
+      totalBytes += length
       const bytes = readFileSync(source)
       const hash = createHash('sha256').update(bytes).digest('hex')
       const parsed = JSON.parse(bytes.toString('utf8'))
