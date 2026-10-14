@@ -1,0 +1,67 @@
+/** Reverse Prompt Manager Web settings: loopback-only RPC, no standalone admin HTTP server. */
+import { listPresets, loadPreset, readState, writeState, importPreset,
+  removePreset, saveSectionPreset, listVersions, restoreVersion } from '../core.mjs'
+import { getSnapshot, clearCapture, requestCapture } from '../inspect.mjs'
+
+export const name = 'dsh-reverse-prompt-web'
+export const inject = []
+const METHODS = new Set(['state','list','get','activate','disable','save','remove',
+  'history','rollback','inspect','captureRequest','captureShow','captureClear'])
+const assertName = name => {
+  if (typeof name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(name))
+    throw Error('invalid preset name')
+  return name
+}
+export function command(method, payload = {}) {
+  if (!METHODS.has(method)) throw Error('unknown prompt-manager method')
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+    throw Error('invalid payload')
+  switch (method) {
+    case 'state': return readState()
+    case 'list': return listPresets().map(name => {
+      const p = loadPreset(name)
+      return { name, title: p.title, mode: p.mode,
+        builtin: ['evidence','concise','architecture'].includes(name) }
+    })
+    case 'get': return loadPreset(assertName(payload.name))
+    case 'activate': return writeState({ schema: 1, enabled: true, active: assertName(payload.name) })
+    case 'disable': return writeState({ ...readState(), enabled: false })
+    case 'save': {
+      const name = assertName(payload.name)
+      if (payload.mode === 'sections') {
+        return saveSectionPreset(name, payload.rules, undefined,
+          typeof payload.title === 'string' ? payload.title : name)
+      }
+      // Prevent accidental overwrite of built-in and section presets.
+      if (payload.mode !== 'append' && payload.mode !== 'replace-persona')
+        throw Error('invalid mode')
+      return importPreset(name, payload.text, undefined, payload.mode)
+    }
+    case 'remove': removePreset(assertName(payload.name)); return { removed: payload.name }
+    case 'history': return listVersions(assertName(payload.name))
+    case 'rollback': {
+      if (typeof payload.revision !== 'string') throw Error('revision required')
+      return restoreVersion(assertName(payload.name), payload.revision)
+    }
+    case 'inspect': return getSnapshot()
+    case 'captureRequest': return requestCapture()
+    case 'captureShow': return getSnapshot(undefined, true)
+    case 'captureClear': return clearCapture()
+  }
+}
+export function apply(ctx) {
+  // Optional connection service: host continues booting even if Web RPC is unavailable.
+  ctx.inject(['connection'], c => {
+    c.connection.rpc.intercept('/api',
+      endpoint => endpoint.startsWith('reverse-prompt/'),
+      async (endpoint, payload) => {
+        try {
+          return { ok: true, value: command(endpoint.slice('reverse-prompt/'.length), payload) }
+        } catch (error) {
+          return { ok: false, error: { code: 'invalid_request',
+            message: String(error?.message ?? error) } }
+        }
+      }, { authority: 'loopback' })
+  })
+}
+export default { name, inject, apply }

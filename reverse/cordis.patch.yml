@@ -12,6 +12,10 @@
     - id: dsh-reverse-prompt-manager
       name: ./prompt-manager/index.mjs
 
+    # Native browser Settings section via dsh.client manifest and loopback RPC.
+    - id: dsh-reverse-prompt-web
+      name: ./prompt-manager/web/index.mjs
+
     - id: dsh-reverse-preset-declaration
       name: '@deepseek-ai/dsh-agent-preset'
       config:

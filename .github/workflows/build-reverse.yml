@@ -109,6 +109,9 @@ jobs:
           node --check reverse/prompt-manager/index.mjs
           node --check reverse/prompt-manager/cli.mjs
           node --check reverse/prompt-manager/inspect.mjs
+          node --check reverse/prompt-manager/web/index.mjs
+          node --check reverse/prompt-manager/web/client.js
+          node --test reverse/prompt-manager/web/web.test.mjs
           node --check reverse/prompt-manager/test/image-audit.mjs
           node --test reverse/prompt-manager/test/prompt-manager.test.mjs
           node --check reverse/preset-smoke.mjs
@@ -211,7 +214,7 @@ jobs:
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-prompt-manager dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
+            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-prompt-manager dsh-reverse-prompt-web dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
             if grep -Eiq "dsh-purge|dsh-reverse-redteam" /tmp/reverse-config.yml; then
