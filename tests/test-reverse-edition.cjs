@@ -203,3 +203,13 @@ test('Reverse Workbench has a separate native settings section',()=>{
  assert.match(client,/label:\(\)=> '逆向工作台'/)
  assert.match(client,/WorkbenchPanel/)
 })
+
+
+test('Workbench v2 ships project registry and UI integration',()=>{
+ const host=read('reverse/prompt-manager/web/index.mjs')
+ const client=read('reverse/prompt-manager/web/client.js')
+ assert.match(host,/workbenchProjectCreate/)
+ assert.match(client,/分析项目/)
+ assert.match(client,/workbenchProjects/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/projects.test.mjs')))
+})
