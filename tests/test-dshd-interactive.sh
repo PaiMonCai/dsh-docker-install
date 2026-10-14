@@ -71,7 +71,7 @@ fi
 ) >"$TMP/menu-colored.out" 2>&1
 grep -Fq $'\033[1;36m[01]' "$TMP/menu-colored.out" || { echo "选项快捷键应为青色"; exit 1; }
 ( menu_colors_enabled() { return 0; }; menu_render_category data ) >"$TMP/uninstall-colored.out"
-grep -Fq 
+grep -Fq $'\033[1;31m[07]' "$TMP/uninstall-colored.out" || { echo "卸载选项应为红色"; exit 1; }
 grep -Fq $'\033[1;32m● running' "$TMP/menu-colored.out" || { echo "运行状态应为绿色"; exit 1; }
 grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状态应为绿色"; exit 1; }
 
@@ -86,7 +86,7 @@ if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
 fi
 
 
-# --- 1b) Token 子菜单：保留 [13] 编号，四项操作全部使用已有命令 -------------
+# --- 1b) 通过 配置与安全 > Token 菜单，仍使用已有 CLI 命令 ------------
 # 不使用真实 Docker，确认交互路线与子命令一一对应。
 (
   cmd_token() { printf 'token-action:%s\n' "$1"; }
@@ -99,7 +99,7 @@ for action in url status set reset; do
     echo "Token 子菜单未正确路由 $action"; cat "$TMP/token-menu.out"; exit 1;
   }
 done
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/token-menu.out")" == "2" ]] || {
+[[ "$(grep -c '◆ DSH Manager' "$TMP/token-menu.out")" == "2" ]] || {
   echo "退出 Token 子菜单应直接回主菜单一次"; exit 1;
 }
 if grep -Fq '[13] 显示首次访问 Token URL' "$TMP/token-menu.out"; then
@@ -257,7 +257,7 @@ timeout 60 bash -c '
   menu
 ' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '2\n5\n\n\n\n0\n0\n')" || true
 grep -q '已取消当前操作' "$TMP/ctrlc.out" || { echo "Ctrl-C 应提示已取消当前操作"; cat "$TMP/ctrlc.out"; exit 1; }
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
+[[ "$(grep -c '◆ DSH Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
   || { echo "Ctrl-C 之后应重新回到菜单"; cat "$TMP/ctrlc.out"; exit 1; }
 
 printf 'test-dshd-interactive: ok\n'
@@ -289,7 +289,7 @@ for action in url status set reset; do
     echo "Token 子菜单未正确路由 $action"; cat "$TMP/token-menu.out"; exit 1;
   }
 done
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/token-menu.out")" == "2" ]] || {
+[[ "$(grep -c '◆ DSH Manager' "$TMP/token-menu.out")" == "2" ]] || {
   echo "退出 Token 子菜单应直接回主菜单一次"; exit 1;
 }
 if grep -Fq '[13] 显示首次访问 Token URL' "$TMP/token-menu.out"; then
@@ -447,7 +447,7 @@ timeout 60 bash -c '
   menu
 ' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '6\n\n\n\n\n\n0\n')" || true
 grep -q '已取消当前操作' "$TMP/ctrlc.out" || { echo "Ctrl-C 应提示已取消当前操作"; cat "$TMP/ctrlc.out"; exit 1; }
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
+[[ "$(grep -c '◆ DSH Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
   || { echo "Ctrl-C 之后应重新回到菜单"; cat "$TMP/ctrlc.out"; exit 1; }
 
 printf 'test-dshd-interactive: ok\n'
