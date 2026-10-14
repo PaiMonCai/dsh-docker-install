@@ -1,0 +1,63 @@
+import json
+import os
+from pathlib import Path
+import runpy
+import tempfile
+import unittest
+from unittest.mock import patch
+SCRIPT = Path(__file__).resolve().parents[1] / "bin" / "reverse-task"
+
+class ReverseTaskTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.workspace = Path(self.tmp.name)
+        self.mod = runpy.run_path(str(SCRIPT))
+        # runpy returns the globals dictionary for each function
+        self.mod["enqueue"].__globals__["ROOT"] = self.workspace
+        self.mod["enqueue"].__globals__["STORE"] = self.workspace / ".reverse-tasks"
+        self.source = self.workspace / "binary.elf"
+        self.source.write_bytes(b"\x7fELF\x02" + b"\0" * 15)
+
+    def test_enqueue_and_durable_state(self):
+        job = self.mod["enqueue"]("triage", [str(self.source)])
+        self.assertEqual(job["state"], "queued")
+        self.assertEqual(self.mod["read_task"](job["id"])["state"], "queued")
+        with self.assertRaises(ValueError):
+            self.mod["retry"](job["id"])
+        self.assertEqual(self.mod["recover"]()["interrupted"], [])
+
+    def test_worker_calls_only_allowlisted_executable_without_shell(self):
+        job = self.mod["enqueue"]("triage", [str(self.source)])
+        class Process:
+            returncode = 0
+            stdout = '{"status":"ok"}'
+            stderr = ''
+        with patch.object(self.mod["worker_once"].__globals__["subprocess"], "run", return_value=Process()) as runner:
+            output = self.mod["worker_once"]()
+        self.assertEqual(output["state"], "succeeded")
+        argv = runner.call_args.args[0]
+        self.assertEqual(argv[0], "reverse-triage")
+        self.assertFalse(runner.call_args.kwargs["shell"])
+        self.assertEqual(self.mod["read_task"](job["id"])["attempts"], 1)
+
+    def test_failed_and_interrupted_require_explicit_retry(self):
+        job = self.mod["enqueue"]("triage", [str(self.source)])
+        job["state"] = "running"
+        self.mod["atomic"](self.mod["task_path"](job["id"]), job)
+        self.assertEqual(self.mod["recover"]()["interrupted"], [job["id"]])
+        self.assertEqual(self.mod["read_task"](job["id"])["state"], "interrupted")
+        result = self.mod["retry"](job["id"])
+        self.assertEqual(result["state"], "queued")
+
+    def test_input_path_and_task_id_validation(self):
+        with self.assertRaises(ValueError):
+            self.mod["enqueue"]("shell", [str(self.source)])
+        (self.workspace / "linked").symlink_to(self.source)
+        with self.assertRaises(ValueError):
+            self.mod["enqueue"]("triage", [str(self.workspace / "linked")])
+        with self.assertRaises(ValueError):
+            self.mod["read_task"]("../../etc/passwd")
+
+if __name__ == "__main__":
+    unittest.main()
