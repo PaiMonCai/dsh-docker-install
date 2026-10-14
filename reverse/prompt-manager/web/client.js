@@ -167,6 +167,34 @@ window.__ModuleLoader__.load({
                 h('pre',{style:css.pre},JSON.stringify(capture.sections,null,2)))
             : null,
           h('p',{style:css.muted},'这里的分块在 DSH 模板变量插值前捕获，不等于完整最终模型请求。')),
+        message?h('p',{role:'status',style:{color:'var(--dsw-alias-state-warn-label)',fontSize:12}},message):null
+      )
+    }
+
+    function WorkbenchPanel({call}) {
+      const [jobs,setJobs]=useState([])
+      const [selectedJob,setSelectedJob]=useState(null)
+      const [reportPath,setReportPath]=useState('reverse-index.json')
+      const [manifest,setManifest]=useState(null)
+      const [openedReport,setOpenedReport]=useState(null)
+      const [selectedFunction,setSelectedFunction]=useState('')
+      const [functionSearch,setFunctionSearch]=useState('')
+      const [busy,setBusy]=useState(false)
+      const [message,setMessage]=useState('')
+      async function invoke(method,args={}) {
+        const result=await call('reverse-prompt/'+method,args)
+        if (!result?.ok) throw Error(result?.error?.message||'Reverse Workbench RPC unavailable')
+        return result.value
+      }
+      async function run(work) {
+        setBusy(true);setMessage('')
+        try { await work() }
+        catch (error) { setMessage(String(error?.message??error)) }
+        finally { setBusy(false) }
+      }
+      useEffect(()=>{invoke('workbenchTasks').then(setJobs)
+        .catch(error=>setMessage(String(error?.message??error)))},[])
+      return h('div',{style:css.shell},
         h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
           h('div',{style:css.line},
@@ -235,6 +263,11 @@ window.__ModuleLoader__.load({
         label:()=> '逆向提示词',
         inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/api',method,payload)})
       },Panel))
+      ctx.slots.inject('settings.section',()=>ctx.slots.register({
+        name:'settings.section',id:'reverse-workbench',order:31,
+        label:()=> '逆向工作台',
+        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/api',method,payload)})
+      },WorkbenchPanel))
     }
     exports.apply=apply
     exports.inject=['slots','connection']
