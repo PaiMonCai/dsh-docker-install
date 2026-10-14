@@ -17,8 +17,7 @@ services:
     environment:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DSH_TRUSTED_HOSTS: "${DSH_REVERSE_TRUSTED_HOSTS:-}"
-      DSH_REVERSE_PURGE_PATCH: /opt/dsh-reverse/cordis.patch.yml
-      DSH_REVERSE_AGENT_ENABLED: "false"
+      DSH_REVERSE_AGENT_PATCH: /opt/dsh-reverse/cordis.patch.yml
       DSH_DOCKER_RESTART: container
       NPM_CONFIG_CACHE: /tmp/npm-cache
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"

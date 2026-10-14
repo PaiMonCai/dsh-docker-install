@@ -1,9 +1,8 @@
 # syntax=docker/dockerfile:1
-# Independent container/volume: the full host-level purge patch NEVER runs in Standard.
+# Isolated Reverse edition: native Agent preset and dedicated analysis tools.
 ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
 FROM ${BASE_IMAGE}
 ARG TARGETARCH
-ARG PURGE_COMMIT=28c8eaf5b5de70d53795387d01faae9498a83d63
 ARG REA_VERSION=6.4.0
 ARG GHIDRA_VERSION=12.1.4
 ARG GHIDRA_RELEASE_DATE=20260921
@@ -14,10 +13,9 @@ ARG JADX_MCP_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573
 ARG JADX_SHA256=8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec
 LABEL io.caicailo.dsh.edition="reverse" \
       org.opencontainers.image.title="DeepSeek Harness Reverse Edition" \
-      org.opencontainers.image.description="Full dsh-purge, REA, Ghidra, JADX, GDB and Frida in a dedicated DSH container" \
+      org.opencontainers.image.description="Native Reverse Agent, REA, Ghidra, JADX, GDB and Frida in a dedicated DSH container" \
       org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install"
-ENV DSH_REVERSE_PURGE_PATCH=/opt/dsh-reverse/cordis.patch.yml \
-    DSH_REVERSE_AGENT_ENABLED=false \
+ENV DSH_REVERSE_AGENT_PATCH=/opt/dsh-reverse/cordis.patch.yml \
     DSH_REVERSE_EDITION=true \
     GHIDRA_INSTALL_DIR=/opt/ghidra \
     REA_JADX_MCP_JAR=/opt/jadx-headless-mcp/jadx-headless-mcp.jar \
@@ -74,40 +72,25 @@ RUN set -eux; \
     echo "${JADX_MCP_SHA256}  /opt/jadx-headless-mcp/jadx-headless-mcp.jar" | sha256sum -c -; \
     test -s /opt/jadx-headless-mcp/jadx-headless-mcp.jar
 
-# A complete pinned dsh-purge snapshot; no runtime git clone.
-RUN set -eux; \
-    mkdir -p /opt/dsh-reverse/purge; \
-    git init /tmp/dsh-purge; \
-    git -C /tmp/dsh-purge remote add origin https://github.com/ANRCM0/dsh-purge.git; \
-    git -C /tmp/dsh-purge fetch --depth=1 origin "${PURGE_COMMIT}"; \
-    test "$(git -C /tmp/dsh-purge rev-parse FETCH_HEAD)" = "${PURGE_COMMIT}"; \
-    git -C /tmp/dsh-purge archive "${PURGE_COMMIT}" | tar -xf - -C /opt/dsh-reverse/purge; \
-    test -f /opt/dsh-reverse/purge/cordis.patch.yml; \
-    test -f /opt/dsh-reverse/purge/client.js; \
-    rm -rf /tmp/dsh-purge
-
-# Run upstream's unchanged source tests BEFORE adapting module resolution.
-RUN node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs \
-       /opt/dsh-reverse/purge/tests/reverse-workflow.test.mjs
-
-COPY reverse/generate-overlay.mjs /opt/dsh-reverse/generate-overlay.mjs
+# Native Reverse Agent declaration and bundled static skills.
+# The build no longer fetches third-party Agent source or Web bundles.
+COPY reverse/cordis.patch.yml /opt/dsh-reverse/cordis.patch.yml
 COPY reverse/skills/ /opt/dsh-reverse/skills/
 COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
-COPY reverse/purge-ui/ /opt/dsh-reverse/purge-ui/
-# Reverse only: install the edition-aware entrypoint from this tree. The
-# Standard published image and its persistent DSH_HOME remain untouched.
+COPY reverse/preset-smoke.mjs /opt/dsh-reverse/preset-smoke.mjs
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
-RUN node /opt/dsh-reverse/generate-overlay.mjs \
- && node --check /opt/dsh-reverse/purge/lib/index.js \
- && node --check /opt/dsh-reverse/purge-ui/client.js \
- && node --check /opt/dsh-reverse/skills-bootstrap.mjs \
+RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
+ && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);for(const n of m.SKILLS){if(!fs.existsSync(home+'/reverse-engineering/skills/'+n+'/SKILL.md'))process.exit(1)}})" \
- && node --check /opt/dsh-reverse/purge/lib/redteam/index.js \
- && node --check /opt/dsh-reverse/purge/lib/reverse/index.js \
  && bash -n /usr/local/bin/dsh-entrypoint \
- && test -x /usr/local/bin/dsh-entrypoint \
+ && test ! -e /opt/dsh-reverse/purge \
+ && test ! -e /opt/dsh-reverse/purge-ui \
  && DSH_HOME="$(mktemp -d)" dsh --profile web \
-       --patch /opt/dsh-reverse/cordis.patch.yml --dump-config | grep -Fq 'dsh-purge' \
+       --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml \
+ && grep -Fq 'dsh-reverse-preset-declaration' /tmp/reverse-config.yml \
+ && grep -Fq 'session-controller' /tmp/reverse-config.yml \
+ && grep -Fq 'rea-mcp' /tmp/reverse-config.yml \
+ && ! grep -Eiq 'dsh-purge|dsh-reverse-redteam' /tmp/reverse-config.yml \
  && command -v rea && command -v jadx && command -v gdb \
  && test -f /opt/ghidra/support/analyzeHeadless
 WORKDIR /workspace
