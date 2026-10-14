@@ -78,13 +78,13 @@ confirm() { return 1; }
 printf '2\n\n7\n\n8\n\n13\n\n0\n' | cmd_search_menu >"$TMP/declined.out"
 [[ ! -s "$SEARCH_TEST_LOG" ]] || { echo 'declined operation still executed' >&2; exit 1; }
 
-# Main menu 28 enters submenu, then returns directly without an extra pause.
+# Main menu > Network > Search returns directly without an extra pause.
 # Avoid actual Docker calls in status rendering.
 : >"$SEARCH_TEST_LOG"
-printf '28\n0\n0\n' | menu >"$TMP/main-menu.out" 2>"$TMP/main-menu.err"
-grep -Fq '[28] Web Search / SearXNG' "$TMP/main-menu.out" || { echo 'main menu entry missing' >&2; exit 1; }
-grep -Fq 'Web Search / SearXNG 管理' "$TMP/main-menu.out" || { echo '28 did not enter submenu' >&2; exit 1; }
-[[ "$(grep -Fc '◆ DSH / Docker Manager' "$TMP/main-menu.out")" == 2 ]] || { echo 'submenu returned to main with wrong input consumption' >&2; exit 1; }
+printf '5\n2\n0\n0\n0\n' | menu >"$TMP/main-menu.out" 2>"$TMP/main-menu.err"
+grep -Fq '[02] Web Search / SearXNG' "$TMP/main-menu.out" || { echo 'main menu entry missing' >&2; exit 1; }
+grep -Fq 'Web Search / SearXNG 管理' "$TMP/main-menu.out" || { echo 'Network > Search did not enter submenu' >&2; exit 1; }
+[[ "$(grep -Fc '◆ DSH Manager' "$TMP/main-menu.out")" == 2 ]] || { echo 'submenu returned to main with wrong input consumption' >&2; exit 1; }
 [[ ! -s "$SEARCH_TEST_LOG" ]] || { echo 'navigation should not trigger any search operation' >&2; exit 1; }
 
 # EOF must immediately exit rather than spinning, including quota prompt.

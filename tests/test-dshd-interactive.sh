@@ -37,26 +37,29 @@ container_running() { return 1; }
 DSH_NAME=dsh
 DSH_PORT=3080
 set +e
-printf '6\n\n2\n0\n' | menu >"$TMP/menu.out" 2>"$TMP/menu.err"
+printf '2\n5\n\n1\n\n0\n0\n' | menu >"$TMP/menu.out" 2>"$TMP/menu.err"
 menu_rc=$?
 set -e
 [[ "$menu_rc" -eq 0 ]] || { echo "菜单应正常退出(0)，实际 $menu_rc"; cat "$TMP/menu.err"; exit 1; }
 grep -q '本次操作未完成' "$TMP/menu.err" || { echo "应提示操作未完成并返回菜单"; cat "$TMP/menu.err"; exit 1; }
 
-# 菜单重排只改变展示，不应丢失选项或修改原有数字快捷键。
-for section in 容器运行 配置与连接 开发与数据 诊断与维护; do
-  grep -Fq "▌ $section" "$TMP/menu.out" || { echo "主菜单缺少分区: $section"; exit 1; }
+# 首页应仅包含六个入口，高级操作已移至二级分类。
+for section in 实例管理 运行管理 版本与更新 配置与安全 网络与服务 数据与维护; do
+  grep -Fq "$section" "$TMP/menu.out" || { echo "主菜单缺少分类: $section"; exit 1; }
 done
-for number in $(seq 1 27); do
+for number in $(seq 1 6); do
   item="$(printf '[%02d]' "$number")"
   grep -Fq "$item" "$TMP/menu.out" || { echo "主菜单缺少快捷键 $item"; exit 1; }
 done
-grep -Fq '[ 0] 退出' "$TMP/menu.out" || { echo "主菜单缺少退出选项"; exit 1; }
-grep -Fq '[13] Web 登录 Token 管理' "$TMP/menu.out" || { echo "主菜单 [13] 应显示 Token 管理而非旧访问链接"; exit 1; }
-grep -q '容器 .*状态 .*健康 ' "$TMP/menu.out" || { echo "顶部未显示完整运行状态"; exit 1; }
-grep -q 'Edition .*Pack .*Docker 管理' "$TMP/menu.out" || { echo "顶部未显示版本与 Docker 权限"; exit 1; }
-if grep -Fq $'\033[' "$TMP/menu.out"; then
-  echo "重定向输出不应包含 ANSI 颜色控制符"; exit 1
+! grep -Fq '[29]' "$TMP/menu.out"
+grep -Fq '[ 0] 退出' "$TMP/menu.out"
+menu_render_category config >"$TMP/config-category.out"
+grep -Fq '[06] Web 登录 Token 管理' "$TMP/config-category.out"
+grep -q '容器 .*端口 ' "$TMP/menu.out"
+grep -q '版本 .*● ' "$TMP/menu.out"
+menu_render_main >"$TMP/menu-header.out"
+if grep -Fq $'\033[' "$TMP/menu-header.out"; then
+  echo "重定向的主页标题不应包含 ANSI 控制符"; exit 1
 fi
 
 # 测试主题颜色：实际菜单只在彩色终端启用，测试在子 shell 中显式模拟彩色输出。
@@ -67,7 +70,8 @@ fi
   menu <<<"0"
 ) >"$TMP/menu-colored.out" 2>&1
 grep -Fq $'\033[1;36m[01]' "$TMP/menu-colored.out" || { echo "选项快捷键应为青色"; exit 1; }
-grep -Fq $'\033[1;31m[20]' "$TMP/menu-colored.out" || { echo "卸载选项应为红色"; exit 1; }
+( menu_colors_enabled() { return 0; }; menu_render_category data ) >"$TMP/uninstall-colored.out"
+grep -Fq $'\033[1;31m[07]' "$TMP/uninstall-colored.out" || { echo "卸载选项应为红色"; exit 1; }
 grep -Fq $'\033[1;32m● running' "$TMP/menu-colored.out" || { echo "运行状态应为绿色"; exit 1; }
 grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状态应为绿色"; exit 1; }
 
@@ -76,26 +80,26 @@ grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状�
   COLUMNS=60
   menu <<<"0"
 ) >"$TMP/menu-narrow.out" 2>&1
-grep -Fq '[14] 进入容器 Shell' "$TMP/menu-narrow.out" || { echo "窄屏缺少容器 Shell"; exit 1; }
+grep -Fq '[06] 数据与维护' "$TMP/menu-narrow.out" || { echo "窄屏缺少数据与维护入口"; exit 1; }
 if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
   echo "窄屏应切换为单列菜单"; exit 1
 fi
 
 
-# --- 1b) Token 子菜单：保留 [13] 编号，四项操作全部使用已有命令 -------------
+# --- 1b) 配置与安全 > Token 子菜单，保留原有 CLI ----------------
 # 不使用真实 Docker，确认交互路线与子命令一一对应。
 (
   cmd_token() { printf 'token-action:%s\n' "$1"; }
-  printf '13\n无效\n1\n\n2\n\n3\n\n4\n\n0\n0\n' | menu
+  printf '4\n6\n无效\n1\n\n2\n\n3\n\n4\n\n0\n0\n0\n' | menu
 ) >"$TMP/token-menu.out" 2>"$TMP/token-menu.err"
-grep -Fq 'Web 登录 Token 管理' "$TMP/token-menu.out" || { echo "主菜单 13 未进入 Token 子菜单"; exit 1; }
+grep -Fq 'Web 登录 Token 管理' "$TMP/token-menu.out" || { echo "配置菜单未进入 Token 子菜单"; exit 1; }
 grep -Fq '无效选项' "$TMP/token-menu.err" || { echo "Token 子菜单应允许重输无效选项"; exit 1; }
 for action in url status set reset; do
   [[ "$(grep -Fc "token-action:$action" "$TMP/token-menu.out")" == "1" ]] || {
     echo "Token 子菜单未正确路由 $action"; cat "$TMP/token-menu.out"; exit 1;
   }
 done
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/token-menu.out")" == "2" ]] || {
+[[ "$(grep -c '◆ DSH Manager' "$TMP/token-menu.out")" == "2" ]] || {
   echo "退出 Token 子菜单应直接回主菜单一次"; exit 1;
 }
 if grep -Fq '[13] 显示首次访问 Token URL' "$TMP/token-menu.out"; then
@@ -251,9 +255,9 @@ timeout 60 bash -c '
   }
   set +e
   menu
-' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '6\n\n\n\n\n\n0\n')" || true
+' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '2\n5\n\n\n\n0\n0\n')" || true
 grep -q '已取消当前操作' "$TMP/ctrlc.out" || { echo "Ctrl-C 应提示已取消当前操作"; cat "$TMP/ctrlc.out"; exit 1; }
-[[ "$(grep -c '◆ DSH / Docker Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
+[[ "$(grep -c '◆ DSH Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
   || { echo "Ctrl-C 之后应重新回到菜单"; cat "$TMP/ctrlc.out"; exit 1; }
 
 printf 'test-dshd-interactive: ok\n'

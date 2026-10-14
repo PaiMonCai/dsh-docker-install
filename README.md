@@ -76,6 +76,24 @@ dshd edition standard
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
+## dshd 0.11：六分类交互菜单
+
+输入 `dshd` 打开新的简洁主页：
+
+```text
+◆ DSH Manager  v0.11.0
+
+[01] 实例管理      查看、创建、切换实例
+[02] 运行管理      状态、启停、日志、Shell
+[03] 版本与更新    Edition、镜像更新、回滚
+[04] 配置与安全    API、Token、Trusted Hosts、权限
+[05] 网络与服务    sing-box、Web Search、Dashboard
+[06] 数据与维护    存储、挂载、备份、诊断、卸载
+[ 0] 退出
+```
+
+各分类输入 `0` 返回主菜单，`Ctrl-D` 退出当前菜单；宽窄终端统一为清爽的单列布局。所有原有 CLI 子命令（如 `dshd update`、`dshd -i study logs`）**保持可用**，仅改进交互入口。各实例仍可切换回默认实例，旧版 Reverse 保持兼容。
+
 ## 同时运行多份 DSH（多实例管理）
 
 `dshd` 现支持独立的命名实例：同一台机器上可同时部署 Standard、Research Economics、Reverse 或多个指定版本镜像，分别配置容器名、端口、持久数据、工作区、备份、更新与回滚。**原有 `dshd` 命令继续管理默认实例，旧数据不需要迁移。**
@@ -89,7 +107,7 @@ dshd -i study update
 dshd -i econ logs
 ```
 
-交互菜单选 **[29] 多实例管理**，可新建或选择实例，再使用原运维菜单。历史 `dshd reverse ...` 仍兼容。完整隔离规则、安全边界及测试见 [多实例部署与运维](docs/multi-instance.md)。
+交互菜单首页选 **[01] 实例管理**，可查看、创建、选择实例；选定实例后通过六分类菜单运行各项操作。历史 `dshd reverse ...` 仍兼容。完整隔离规则、安全边界及测试见 [多实例部署与运维](docs/multi-instance.md)。
 
 ## 固定 Web 登录 Token
 
