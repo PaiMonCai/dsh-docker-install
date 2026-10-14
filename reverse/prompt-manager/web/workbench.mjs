@@ -69,8 +69,16 @@ export function report(path) {
     const functions = (Array.isArray(data.functions) ? data.functions : []).slice(0,200)
       .map(x => ({address:String(x.address).slice(0,80),name:String(x.name).slice(0,160),
         signature:String(x.signature || '').slice(0,500),pseudocode:String(x.pseudocode || '').slice(0,4000)}))
-    return { schema:data.schema, program:String(data.program || '').slice(0,180), nodes, edges, functions,
-      limitations:data.limitations || [] }
+    const known = new Set(nodes.map(n => n.address))
+    const safeEdges = edges.filter(e => known.has(e.source) && known.has(e.target))
+    const refs = (Array.isArray(data.references?.entries) ? data.references.entries : [])
+      .slice(0, 2000).map(r => ({target:String(r.target).slice(0,80),
+        from:String(r.from).slice(0,80), type:String(r.type).slice(0,80)}))
+      .filter(r => known.has(r.target))
+    return { schema:data.schema, program:String(data.program || '').slice(0,180), nodes,
+      edges:safeEdges, references:refs, functions,
+      graph_truncated: Boolean(data.call_graph?.truncated),
+      limitations:Array.isArray(data.limitations) ? data.limitations.slice(0,20) : [] }
   }
   if (data.schema === 'dsh-reverse-workspace/v1') {
     const entries=Array.isArray(data.reports)?data.reports:[]

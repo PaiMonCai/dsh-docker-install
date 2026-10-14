@@ -114,6 +114,7 @@ jobs:
           node --test reverse/prompt-manager/web/web.test.mjs
           node --test reverse/prompt-manager/web/workbench.test.mjs
           node --check reverse/prompt-manager/web/workbench.mjs
+          node --check reverse/prompt-manager/web/client.js
           node --check reverse/prompt-manager/test/image-audit.mjs
           node --test reverse/prompt-manager/test/prompt-manager.test.mjs
           node --check reverse/preset-smoke.mjs
