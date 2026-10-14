@@ -4,7 +4,7 @@ import { listPresets, loadPreset, readState, writeState, importPreset,
 import { getSnapshot, clearCapture, requestCapture } from '../inspect.mjs'
 import { projects, project, createProject } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
-import { createProjectTask, reconcileProjectResults, recoverProjectTasks } from './project-tasks.mjs'
+import { createProjectTask, reconcileProjectResults, recoverProjectTasks, inspectOrphanTasks } from './project-tasks.mjs'
 import { runProjectTask } from './task-runner.mjs'
 import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifest as workbenchManifest } from './workbench.mjs'
 
@@ -26,6 +26,7 @@ export function command(method, payload = {}) {
     throw Error('invalid payload')
   switch (method) {
     case 'workbenchProjectRunOnce': return runProjectTask(payload.id,payload.taskId,payload.confirmation)
+    case 'workbenchOrphanTasks': return inspectOrphanTasks()
     case 'workbenchProjectTasksRecover': return recoverProjectTasks(payload.id)
     case 'workbenchProjectResultsSync': return reconcileProjectResults(payload.id)
     case 'workbenchProjectTaskCreate': return createProjectTask(payload.id,payload.kind,payload.inputs)
