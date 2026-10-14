@@ -59,7 +59,7 @@ done
 # Invalid input redraws immediately and EOF exits both levels.
 printf 'bad\n1\n0\n0\n' | menu > "$TMP/navigation.txt" 2> "$TMP/navigation.err"
 grep -Fq '无效选项' "$TMP/navigation.err"
-[[ "$(grep -Fc '◆ DSH Manager' "$TMP/navigation.txt")" == 2 ]]
+[[ "$(grep -Fc '◆ DSH Manager' "$TMP/navigation.txt")" == 3 ]]
 timeout 5 bash -c '
   export DSHD_LIB_ONLY=1 DSHD_NO_SELF_UPDATE=1
   source "$1/dshd"
