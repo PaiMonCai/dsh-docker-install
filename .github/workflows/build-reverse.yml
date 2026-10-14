@@ -196,8 +196,8 @@ jobs:
             for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-prompt; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
-            node -e "const s=require('/tmp/reverse-prompt-status.json');if(s.enabled)process.exit(1)"
-            node -e "const s=require('/tmp/reverse-prompt-list.json');if(!s.some(p=>p.name==='evidence'))process.exit(1)"
+            grep -Eq enabled.*false /tmp/reverse-prompt-status.json
+            grep -Fq evidence /tmp/reverse-prompt-list.json
             /opt/dsh-reverse/venv/bin/python -c "import lief, capa"
             test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
             reverse-triage --help >/dev/null
