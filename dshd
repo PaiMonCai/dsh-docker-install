@@ -78,6 +78,14 @@ PROXY_NODES_DIR="$PROXY_DIR/nodes"
 PROXY_SUBSCRIPTIONS_DIR="$PROXY_DIR/subscriptions"
 PROXY_CONFIG_FILE="$PROXY_DIR/config.json"
 PROXY_RESULTS_FILE="$PROXY_DIR/last-test.tsv"
+# Preserve the shared instance registry when navigating from a named menu.
+if [[ -n "${DSHD_INSTANCE_ID:-}" && "$STATE_DIR" == */instances/"$DSHD_INSTANCE_ID" ]]; then
+  INSTANCE_ROOT_STATE_DIR="${DSHD_INSTANCE_ROOT_STATE_DIR:-${STATE_DIR%/instances/$DSHD_INSTANCE_ID}}"
+elif [[ "${DSHD_REVERSE_MODE:-0}" == "1" && "$STATE_DIR" == *-reverse ]]; then
+  INSTANCE_ROOT_STATE_DIR="${DSHD_INSTANCE_ROOT_STATE_DIR:-${STATE_DIR%-reverse}}"
+else
+  INSTANCE_ROOT_STATE_DIR="${DSHD_INSTANCE_ROOT_STATE_DIR:-$STATE_DIR}"
+fi
 
 C_RESET=$'\033[0m'
 C_BLUE=$'\033[1;34m'
@@ -5751,7 +5759,7 @@ instance_validate_id() {
   [[ "$1" =~ ^[a-z][a-z0-9-]{0,31}$ ]] && [[ "$1" != default ]]
 }
 instance_config_dir() {
-  printf '%s/instances/%s' "$STATE_DIR" "$1"
+  printf '%s/instances/%s' "$INSTANCE_ROOT_STATE_DIR" "$1"
 }
 instance_config_exists() {
   [[ -f "$(instance_config_dir "$1")/config.env" ]]
@@ -5768,20 +5776,37 @@ instance_exec() {
   local id="${1:-}" self="${BASH_SOURCE[0]}" directory
   shift || true
   [[ -f "$self" ]] || die "无法定位 dshd 可执行文件。"
-  if [[ "$id" == reverse && ! -f "$(instance_config_dir reverse)/config.env" && -f "$STATE_DIR-reverse/config.env" ]]; then
-    cmd_reverse_instance "${1:-menu}" "${@:2}"
+  # Selecting default works from any named instance and never relocates data.
+  if [[ "$id" == default ]]; then
+    env -u DSHD_LIB_ONLY -u DSHD_INSTANCE_ID -u DSHD_INSTANCE_EDITION \
+      -u DSHD_REVERSE_MODE -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
+      -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
+      "DSHD_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
+      "DSHD_INSTANCE_ROOT_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
+      bash "$self" "${@:-menu}"
+    return
+  fi
+  if [[ "$id" == reverse && ! -f "$(instance_config_dir reverse)/config.env" \
+    && -f "$INSTANCE_ROOT_STATE_DIR-reverse/config.env" ]]; then
+    env -u DSHD_LIB_ONLY -u DSHD_INSTANCE_ID -u DSHD_INSTANCE_EDITION \
+      -u DSHD_REVERSE_MODE -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
+      "DSHD_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
+      "DSHD_INSTANCE_ROOT_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
+      bash "$self" reverse "${@:-menu}"
     return
   fi
   instance_assert_registered "$id"
   directory="$(instance_config_dir "$id")"
   env -u DSHD_LIB_ONLY -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
     -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
+    -u DSHD_REVERSE_MODE -u DSHD_INSTANCE_EDITION \
     "DSHD_STATE_DIR=$directory" "DSHD_INSTANCE_ID=$id" \
+    "DSHD_INSTANCE_ROOT_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
     bash "$self" "${@:-menu}"
 }
 instance_port_reserved() {
   local port="$1" file
-  for file in "$STATE_DIR/config.env" "$STATE_DIR-reverse/config.env" "$STATE_DIR"/instances/*/config.env; do
+  for file in "$INSTANCE_ROOT_STATE_DIR/config.env" "$INSTANCE_ROOT_STATE_DIR-reverse/config.env" "$INSTANCE_ROOT_STATE_DIR"/instances/*/config.env; do
     [[ -f "$file" ]] || continue
     grep -Fxq "DSH_PORT=$port" "$file" && return 0
   done
@@ -5801,7 +5826,7 @@ instance_add() {
   local id="${1:-}" edition="${2:-standard}" image pack=none port self
   instance_validate_id "$id" || die "实例名称必须为小写字母开头的 1-32 位字母、数字或连字符，且不能为 default。"
   [[ ! -e "$(instance_config_dir "$id")" ]] || die "实例 $id 已存在，请通过 dshd -i $id 管理。"
-  if [[ "$id" == reverse && -f "$STATE_DIR-reverse/config.env" ]]; then
+  if [[ "$id" == reverse && -f "$INSTANCE_ROOT_STATE_DIR-reverse/config.env" ]]; then
     die "已有历史 Reverse 实例，请使用 dshd reverse 管理。"
   fi
   case "$edition" in
@@ -5824,6 +5849,7 @@ instance_add() {
   env -u DSHD_LIB_ONLY -u DSHD_CONFIG_FILE -u DSHD_CONTAINER_ENV_FILE \
     -u DSHD_MOUNTS_FILE -u DSHD_BACKUP_DIR -u DSHD_PROXY_DIR \
     "DSHD_STATE_DIR=$(instance_config_dir "$id")" \
+    "DSHD_INSTANCE_ROOT_STATE_DIR=$INSTANCE_ROOT_STATE_DIR" \
     "DSHD_INSTANCE_ID=$id" "DSHD_INSTANCE_EDITION=$edition" \
     "DSHD_REVERSE_MODE=$([[ "$edition" == reverse ]] && echo 1 || echo 0)" \
     "DSH_NAME=dsh-$id" "DSH_PORT=$port" \
@@ -5850,9 +5876,11 @@ instance_show_one() {
 cmd_instances() {
   local cfg id
   printf '\n%-19s %-22s %-12s %-7s %s\n' "INSTANCE" "CONTAINER" "EDITION" "PORT" "STATE"
-  instance_show_one default "$STATE_DIR/config.env"
-  instance_show_one reverse "$STATE_DIR-reverse/config.env"
-  for cfg in "$STATE_DIR"/instances/*/config.env; do
+  instance_show_one default "$INSTANCE_ROOT_STATE_DIR/config.env"
+  if [[ ! -f "$(instance_config_dir reverse)/config.env" ]]; then
+    instance_show_one reverse "$INSTANCE_ROOT_STATE_DIR-reverse/config.env"
+  fi
+  for cfg in "$INSTANCE_ROOT_STATE_DIR"/instances/*/config.env; do
     [[ -f "$cfg" ]] || continue
     id="${cfg%/config.env}"
     id="${id##*/}"
