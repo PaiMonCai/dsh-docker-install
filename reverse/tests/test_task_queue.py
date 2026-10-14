@@ -59,5 +59,13 @@ class ReverseTaskTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mod["read_task"]("../../etc/passwd")
 
+    def test_expected_task_id_rejects_non_head(self):
+        first = self.mod["enqueue"]("triage", [str(self.source)])
+        second = self.mod["enqueue"]("triage", [str(self.source)])
+        with self.assertRaises(ValueError):
+            self.mod["worker_once"](second["id"])
+        self.assertEqual(self.mod["read_task"](first["id"])["state"], "queued")
+
 if __name__ == "__main__":
     unittest.main()
+

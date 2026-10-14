@@ -204,3 +204,8 @@ Web Workbench 不再嵌在「逆向提示词」页面内，使用同一原生 DS
 ### 项目内创建任务与同步报告
 
 Workbench 的项目详情现可创建五种允许的静态任务（`triage`、`js-triage`、`ghidra`、`diff`、`verify`），复用 `/workspace/.reverse-tasks` 的现有任务格式，并立即关联任务 UUID。输入限定工作区，拒绝任意命令、路径逃逸和符号链接。**Web 只添加 `queued` 任务，执行仍需要显式调用 `reverse-task run-once`**。可在任务完成后点击「同步已完成任务的证据」：仅从成功的 Ghidra 与二进制初检任务的固定报告位置读取并验证已知格式 JSON，再关联证据；其余工具暂不自动推断输出。没有后台任务执行器、自动重试或未经授权的动态调试。
+
+
+### 受控 Web 单任务执行（默认关闭）
+
+设置容器环境变量 `DSH_REVERSE_WEB_EXECUTION=1` 后，逆向工作台可要求输入 `EXECUTE_ONE_PROJECT_TASK` 才允许触发关联项目中已排队的任务。后端调用固定的 `reverse-task run-once --expected-id UUID`，在队列锁持有期间确认 UUID 正好是全局队首；否则拒绝执行。这不是任意命令执行接口。无配置时只允许排队与只读查看。子进程为无 Shell 调用，设定超时，输入路径仍由现有逆向任务 CLI 重新检查。运行过程中不要关闭部署的访问权限；仍需实际浏览器验证与操作审计。

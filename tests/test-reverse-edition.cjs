@@ -231,3 +231,10 @@ test('Workbench project-scoped queued tasks and evidence reconciliation',()=>{
  assert.match(view,/同步已完成任务的证据/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/project-tasks.test.mjs')))
 })
+
+
+test('Workbench guarded single task execution',()=>{
+ assert.match(read('reverse/prompt-manager/web/task-runner.mjs'),/DSH_REVERSE_WEB_EXECUTION/)
+ assert.match(read('reverse/bin/reverse-task'),/--expected-id/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/task-runner.test.mjs')))
+})

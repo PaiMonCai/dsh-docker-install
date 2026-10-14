@@ -5,6 +5,7 @@ import { getSnapshot, clearCapture, requestCapture } from '../inspect.mjs'
 import { projects, project, createProject } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
 import { createProjectTask, reconcileProjectResults } from './project-tasks.mjs'
+import { runProjectTask } from './task-runner.mjs'
 import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifest as workbenchManifest } from './workbench.mjs'
 
 export const name = 'dsh-reverse-prompt-web'
@@ -13,7 +14,7 @@ const METHODS = new Set(['state','list','get','activate','disable','save','remov
   'history','rollback','inspect','captureRequest','captureShow','captureClear',
   'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest',
   'workbenchProjects','workbenchProject','workbenchProjectCreate',
-  'workbenchProjectLinks','workbenchProjectAttach','workbenchProjectTaskCreate','workbenchProjectResultsSync'])
+  'workbenchProjectLinks','workbenchProjectAttach','workbenchProjectTaskCreate','workbenchProjectResultsSync','workbenchProjectRunOnce'])
 const assertName = name => {
   if (typeof name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(name))
     throw Error('invalid preset name')
@@ -24,6 +25,7 @@ export function command(method, payload = {}) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload))
     throw Error('invalid payload')
   switch (method) {
+    case 'workbenchProjectRunOnce': return runProjectTask(payload.id,payload.taskId,payload.confirmation)
     case 'workbenchProjectResultsSync': return reconcileProjectResults(payload.id)
     case 'workbenchProjectTaskCreate': return createProjectTask(payload.id,payload.kind,payload.inputs)
     case 'workbenchProjectLinks': return projectLinks(payload.id)
@@ -74,7 +76,7 @@ export function apply(ctx) {
       endpoint => endpoint.startsWith('reverse-prompt/'),
       async (endpoint, payload) => {
         try {
-          return { ok: true, value: command(endpoint.slice('reverse-prompt/'.length), payload) }
+          return { ok: true, value: await command(endpoint.slice('reverse-prompt/'.length), payload) }
         } catch (error) {
           return { ok: false, error: { code: 'invalid_request',
             message: String(error?.message ?? error) } }

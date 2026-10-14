@@ -116,6 +116,8 @@ jobs:
           node --test reverse/prompt-manager/web/projects.test.mjs
           node --test reverse/prompt-manager/web/project-links.test.mjs
           node --test reverse/prompt-manager/web/project-tasks.test.mjs
+          node --test reverse/prompt-manager/web/task-runner.test.mjs
+          node --check reverse/prompt-manager/web/task-runner.mjs
           node --check reverse/prompt-manager/web/project-tasks.mjs
           node --check reverse/prompt-manager/web/project-links.mjs
           node --check reverse/prompt-manager/web/projects.mjs
