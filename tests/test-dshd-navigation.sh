@@ -75,7 +75,8 @@ env DSHD_INSTANCE_ID=study DSHD_STATE_DIR="$DSHD_STATE_DIR/instances/study" \
   source "$ROOT/dshd"
   [[ "$INSTANCE_ROOT_STATE_DIR" == "$SHARED_DIR" ]]
   [[ "$(instance_config_dir other)" == "$SHARED_DIR/instances/other" ]]
-  cmd_instances | grep -Fq other
+  listed="$(cmd_instances)"
+  [[ "$listed" == *other* ]]
 '
 
 bash -n "$ROOT/dshd"
