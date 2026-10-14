@@ -207,7 +207,7 @@ window.__ModuleLoader__.load({
                     .filter(e=>e.target===fn.address).slice(0,20)
                     .map(e=>e.from+' ['+e.type+']').join(', ')),
                   h('pre',{style:css.pre},fn.signature+'\n'+fn.pseudocode))),
-                selectedFunction?h(Control,{onClick:()=>setSelectedFunction('')},'显示全部函数'):null))
+                selectedFunction?h(Control,{onClick:()=>setSelectedFunction('')},'显示全部函数'):null)
               : h('pre',{style:css.pre},JSON.stringify(openedReport,null,2))
           ) : null
         ),
