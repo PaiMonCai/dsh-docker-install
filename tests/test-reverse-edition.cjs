@@ -87,3 +87,21 @@ test('Nine advanced reverse Skills exclude Android and preserve user edits',asyn
  module.installSkills(home,path.join(root,'reverse/skills'))
  assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
 })
+
+test('Phase one ships native analysis and a real session readiness gate',()=>{
+ const docker=read('reverse/Dockerfile')
+ const overlay=read('reverse/cordis.patch.yml')
+ const workflow=read('.github/workflows/build-reverse.yml')
+ for(const p of ['reverse/bin/reverse-triage','reverse/bin/reverse-ghidra',
+    'reverse/ghidra-scripts/ExportFunctions.py','reverse/service-health.mjs',
+    'reverse/reverse-healthcheck.cjs','reverse/tests/test_triage.py'])
+   assert.ok(fs.existsSync(path.join(root,p)),p)
+ assert.match(docker,/HEALTHCHECK/)
+ assert.match(docker,/reverse-healthcheck\\.cjs/)
+ assert.match(docker,/lief==1\\.0\\.0/)
+ assert.match(docker,/flare-capa==9\\.4\\.0/)
+ assert.match(overlay,/id: dsh-reverse-session-health/)
+ assert.match(read('reverse/preset-smoke.mjs'),/sessionController\\.create/)
+ assert.match(workflow,/DSH_REVERSE_CI_SESSION_CREATED/)
+ assert.match(workflow,/test_triage/)
+})

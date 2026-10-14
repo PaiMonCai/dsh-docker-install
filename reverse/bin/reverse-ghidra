@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Ghidra Headless static task runner; never executes the input binary."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+HEADLESS = "/opt/ghidra/support/analyzeHeadless"
+SCRIPTS = "/opt/dsh-reverse/ghidra-scripts"
+
+def main():
+    parser = argparse.ArgumentParser(description="Bounded static Ghidra Headless analysis")
+    parser.add_argument("sample")
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--max-functions", type=int, default=40)
+    args = parser.parse_args()
+    sample = Path(args.sample)
+    if sample.is_symlink():
+        parser.error("sample symlinks are not supported")
+    sample = sample.resolve(strict=True)
+    target = Path(args.output).resolve()
+    if not sample.is_file() or not sample.is_relative_to(ROOT):
+        parser.error("sample must be a workspace file")
+    if not target.is_relative_to(ROOT):
+        parser.error("output must be within the workspace")
+    if not 30 <= args.timeout <= 900 or not 1 <= args.max_functions <= 200:
+        parser.error("invalid timeout or function limit")
+    if sample.stat().st_size > 256 * 1024 * 1024:
+        parser.error("sample exceeds 256 MiB")
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    project = Path(tempfile.mkdtemp(prefix=".ghidra-", dir=target))
+    exported = target / "functions.json"
+    command = [HEADLESS, str(project), "ReverseProject", "-import", str(sample),
+               "-scriptPath", SCRIPTS, "-postScript", "ExportFunctions.py",
+               str(exported), str(args.max_functions),
+               "-analysisTimeoutPerFile", str(min(args.timeout, 600)), "-deleteProject"]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace", timeout=args.timeout + 30)
+        log = target / "ghidra.log"
+        log.write_text(result.stdout[-100000:], encoding="utf-8")
+        if result.returncode or not exported.is_file():
+            print(json.dumps({"status": "failed", "exit_code": result.returncode,
+                              "log": str(log)}))
+            return 1
+        functions = json.loads(exported.read_text(encoding="utf-8")).get("functions", [])
+        print(json.dumps({"status": "ok", "function_count": len(functions),
+                          "report": str(exported), "log": str(log)}))
+        return 0
+    except subprocess.TimeoutExpired:
+        print(json.dumps({"status": "timeout"}))
+        return 124
+    finally:
+        shutil.rmtree(project, ignore_errors=True)
+
+if __name__ == "__main__":
+    sys.exit(main())

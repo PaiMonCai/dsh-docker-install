@@ -1,11 +1,11 @@
 ---
 name: binary-triage
-description: Classify authorized ELF, PE, Mach-O and firmware binaries using static header, import, string and hash inspection before deeper analysis.
+description: Classify authorized ELF, PE, Mach-O and archives with read-only static analysis, LIEF, optional capa, and structured evidence reports.
 ---
 # Binary Triage
-1. Confirm authority to inspect the artifact; never execute the target as a triage shortcut.
-2. Record original file path, size and SHA-256 using sha256sum. Keep source bytes unchanged. Work on a copy if extraction is necessary.
-3. Use file, xxd -l 256, and bounded strings -a -n 6 to identify characteristics, then readelf -h -l -S -d for ELF or objdump -p when applicable. PE/Mach-O data may require Ghidra/REA rather than ELF tools.
-4. Identify format, architecture, bitness, potential packing, linkage and imported libraries, but distinguish header facts from behavioral inference.
-5. If functions or data flow must be inspected, use Ghidra Headless or a verified REA MCP tool. Never guess a tool name or install dependencies silently.
-6. Save relevant locations and evidence with reverse_evidence_add. Prefer static work; executing unknown binaries needs explicit authorization and disposable isolation.
+1. Confirm authorization and that the sample is under /workspace. Never execute the target.
+2. Run: reverse-triage /workspace/sample.bin
+3. Open the returned report.json and report.md. Record SHA-256, header-based format, LIEF results, tool status, warnings and evidence locations.
+4. On ELF or PE samples only, optionally request bounded capability classification: reverse-triage /workspace/sample.bin --capa
+5. Do not infer a runtime behavior merely from a rule match, import, string or packer heuristic. Prefer Ghidra when deeper static function analysis is necessary.
+6. Never extract unknown archives into /workspace automatically. Keep source bytes unchanged and avoid copying embedded secrets into chat or reports.

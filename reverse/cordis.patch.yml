@@ -79,6 +79,10 @@
             config:
               allowParallelInProgress: true
 
+    # Runtime health guard: only active while sessionController is injectable.
+    - id: dsh-reverse-session-health
+      name: ./service-health.mjs
+
     # CI-only actual registry check; disabled for normal users.
     - id: dsh-reverse-preset-smoke
       name: ./preset-smoke.mjs

@@ -37,8 +37,10 @@ RUN npm install --global --no-audit --no-fund "rea-agents@${REA_VERSION}" \
 RUN uv venv --seed /opt/dsh-reverse/venv \
  && UV_NO_CACHE=1 uv pip install --python /opt/dsh-reverse/venv/bin/python \
       "pwntools==4.15.0" "frida-tools==14.11.0" \
+      "lief==1.0.0" "flare-capa==9.4.0" \
  && /opt/dsh-reverse/venv/bin/python -c "import pwn, frida; print('reverse Python tools ready')" \
- && /opt/dsh-reverse/venv/bin/frida --version
+ && /opt/dsh-reverse/venv/bin/frida --version \
+ && /opt/dsh-reverse/venv/bin/python -c "import lief, capa; print('static triage engines ready')"
 
 # Pin official release files to publisher SHA-256.
 RUN set -eux; \
@@ -78,9 +80,19 @@ COPY reverse/cordis.patch.yml /opt/dsh-reverse/cordis.patch.yml
 COPY reverse/skills/ /opt/dsh-reverse/skills/
 COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
 COPY reverse/preset-smoke.mjs /opt/dsh-reverse/preset-smoke.mjs
+COPY reverse/service-health.mjs /opt/dsh-reverse/service-health.mjs
+COPY reverse/reverse-healthcheck.cjs /opt/dsh-reverse/reverse-healthcheck.cjs
+COPY --chmod=0755 reverse/bin/reverse-triage /usr/local/bin/reverse-triage
+COPY --chmod=0755 reverse/bin/reverse-ghidra /usr/local/bin/reverse-ghidra
+COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
+ && node --check /opt/dsh-reverse/service-health.mjs \
+ && node --check /opt/dsh-reverse/reverse-healthcheck.cjs \
+ && python3 -m py_compile /usr/local/bin/reverse-triage /usr/local/bin/reverse-ghidra \
+ && reverse-triage --help >/dev/null \
+ && reverse-ghidra --help >/dev/null \
  && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);for(const n of m.SKILLS){if(!fs.existsSync(home+'/reverse-engineering/skills/'+n+'/SKILL.md'))process.exit(1)}})" \
  && bash -n /usr/local/bin/dsh-entrypoint \
  && test ! -e /opt/dsh-reverse/purge \
@@ -96,3 +108,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
 WORKDIR /workspace
 VOLUME ["/root/.dsh"]
 EXPOSE 3080
+
+# Reverse must report unhealthy when sessionController fails to activate.
+HEALTHCHECK --interval=30s --timeout=7s --start-period=45s --retries=3 \
+  CMD ["node", "/opt/dsh-reverse/reverse-healthcheck.cjs"]
