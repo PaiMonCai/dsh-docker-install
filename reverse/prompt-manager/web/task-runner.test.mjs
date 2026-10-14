@@ -22,3 +22,13 @@ test('web execution requires explicit confirmation and project association',asyn
  delete process.env.DSH_REVERSE_WEB_EXECUTION
 })
 test.after(()=>rmSync(root,{recursive:true,force:true}))
+
+test('runner uses an isolated process group and has escalation logic',async()=>{
+ const {readFileSync}=await import('node:fs')
+ const {fileURLToPath}=await import('node:url')
+ const {join,dirname}=await import('node:path')
+ const source=readFileSync(join(dirname(fileURLToPath(import.meta.url)),'task-runner.mjs'),'utf8')
+ assert.match(source,/detached:true/)
+ assert.match(source,/process\.kill\(-worker\.pid/)
+ assert.match(source,/SIGKILL/)
+})
