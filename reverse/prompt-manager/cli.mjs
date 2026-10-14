@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Native Reverse prompt manager CLI; no Web auth surface. */
-import { readFileSync } from 'node:fs'
-import { readState, readActive, writeState, loadPreset, listPresets, importPreset, removePreset, fingerprint, applyPreset } from './core.mjs'
+import { readFileSync, statSync } from 'node:fs'
+import { readState, readActive, writeState, loadPreset, listPresets, importPreset, removePreset, fingerprint, applyPreset, LIMIT } from './core.mjs'
 const say = value => process.stdout.write(JSON.stringify(value, null, 2) + '\n')
 function usage() { process.stdout.write('reverse-prompt status | list | show NAME | activate NAME | disable | import NAME FILE [--replace-persona] | remove NAME | preview [NAME]\n') }
 try {
@@ -23,7 +23,9 @@ try {
     case 'import': {
       if (!name || !file) throw Error('import requires preset name and file (or - for stdin)')
       if (option && option !== '--replace-persona') throw Error('unknown option')
+      if (file !== '-' && statSync(file).size > LIMIT) throw Error('source prompt is larger than 12 KiB')
       const text = readFileSync(file === '-' ? 0 : file, 'utf8')
+      if (Buffer.byteLength(text) > LIMIT) throw Error('source prompt is larger than 12 KiB')
       const p = importPreset(name, text, undefined, option ? 'replace-persona' : 'append')
       say({ name: p.name, mode: p.mode, fingerprint: fingerprint(p) })
       break
