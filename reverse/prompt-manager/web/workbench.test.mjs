@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 const home=mkdtempSync(join(tmpdir(),'reverse-workbench-'))
 process.env.DSH_REVERSE_WORKSPACE_ROOT=home
-const {tasks,taskDetail,report}=await import('./workbench.mjs')
+const {tasks,taskDetail,report,manifest}=await import('./workbench.mjs')
 test('read-only evidence and task metadata',()=>{
  const folder=join(home,'.reverse-tasks')
  mkdirSync(folder)
@@ -47,4 +48,25 @@ test('graph viewer filters non-exported edges and maps real entrypoint reference
  assert.equal(data.edges.length,1)
  assert.equal(data.references.length,1)
  assert.deepEqual(data.references[0],{target:'0x1',from:'0x88',type:'READ'})
+})
+
+test('evidence index navigation verifies SHA-256, size and schema',()=>{
+ const evidence={schema:'dsh-reverse-evidence/v1',sample:{},evidence:[]}
+ const raw=JSON.stringify(evidence)
+ writeFileSync(join(home,'evidence.json'),raw)
+ const hash=createHash('sha256').update(raw).digest('hex')
+ const path='index.json'
+ writeFileSync(join(home,path),JSON.stringify({
+   schema:'dsh-reverse-workspace/v1',reports:[
+     {path:'evidence.json',schema:evidence.schema,sha256:hash,size:Buffer.byteLength(raw)},
+     {path:'missing.json',schema:evidence.schema,sha256:hash,size:1}
+   ]
+ }))
+ const first=manifest(path)
+ assert.equal(first.total,2)
+ assert.equal(first.verified,1)
+ assert.equal(first.reports[0].verified,true)
+ assert.equal(first.reports[1].verified,false)
+ writeFileSync(join(home,'evidence.json'),raw+' ')
+ assert.equal(manifest(path).verified,0)
 })

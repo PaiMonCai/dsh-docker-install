@@ -195,3 +195,11 @@ test('Reverse Workbench is readonly and packaged in native client module',()=>{
  assert.match(read('reverse/prompt-manager/web/workbench.mjs'),/symlink path is not allowed/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/workbench.test.mjs')))
 })
+
+
+test('Reverse Workbench has a separate native settings section',()=>{
+ const client=read('reverse/prompt-manager/web/client.js')
+ assert.match(client,/id:'reverse-workbench'/)
+ assert.match(client,/label:\(\)=> '逆向工作台'/)
+ assert.match(client,/WorkbenchPanel/)
+})

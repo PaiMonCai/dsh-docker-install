@@ -1,5 +1,6 @@
 /** Read-only Reverse Workbench data access, bounded to workspace evidence and task files. */
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { resolve, join, relative, isAbsolute, sep } from 'node:path'
 const ROOT = resolve(process.env.DSH_REVERSE_WORKSPACE_ROOT || '/workspace')
 const TASKS = join(ROOT, '.reverse-tasks')
@@ -96,4 +97,31 @@ export function report(path) {
   }
   return {schema:data.schema,functions_added:data.functions_added,functions_removed:data.functions_removed,
     functions_modified:data.functions_modified,edges_added:data.edges_added,edges_removed:data.edges_removed}
+}
+
+
+/** Validate a stored manifest's evidence provenance before exposing browse links. */
+export function manifest(path) {
+  const item = report(path)
+  if (item.schema !== 'dsh-reverse-workspace/v1') throw Error('expected evidence index')
+  let totalBytes = 0
+  const records = item.reports.map(row => {
+    try {
+      if (!/^[a-f0-9]{64}$/.test(row.sha256)) throw Error('bad digest')
+      const source = workspaceFile(row.path, MAX_REPORT)
+      const length = lstatSync(source).size
+      if (totalBytes + length > 32 * 1024 * 1024) throw Error('manifest read cap reached')
+      totalBytes += length
+      const bytes = readFileSync(source)
+      const hash = createHash('sha256').update(bytes).digest('hex')
+      const parsed = JSON.parse(bytes.toString('utf8'))
+      const verified = bytes.length === row.size && hash === row.sha256 &&
+        parsed?.schema === row.schema && KNOWN.has(parsed.schema)
+      return { path:row.path, schema:row.schema, size:row.size, verified }
+    } catch {
+      return { path:row.path, schema:row.schema, size:row.size, verified:false }
+    }
+  })
+  return { schema:'dsh-reverse-workspace-navigation/v1',
+    total:records.length, verified:records.filter(x=>x.verified).length, reports:records }
 }

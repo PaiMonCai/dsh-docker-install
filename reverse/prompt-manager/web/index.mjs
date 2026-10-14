@@ -2,13 +2,13 @@
 import { listPresets, loadPreset, readState, writeState, importPreset,
   removePreset, saveSectionPreset, listVersions, restoreVersion } from '../core.mjs'
 import { getSnapshot, clearCapture, requestCapture } from '../inspect.mjs'
-import { tasks as workbenchTasks, taskDetail, report as workbenchReport } from './workbench.mjs'
+import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifest as workbenchManifest } from './workbench.mjs'
 
 export const name = 'dsh-reverse-prompt-web'
 export const inject = []
 const METHODS = new Set(['state','list','get','activate','disable','save','remove',
   'history','rollback','inspect','captureRequest','captureShow','captureClear',
-  'workbenchTasks','workbenchTaskDetail','workbenchReport'])
+  'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest'])
 const assertName = name => {
   if (typeof name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(name))
     throw Error('invalid preset name')
@@ -19,6 +19,7 @@ export function command(method, payload = {}) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload))
     throw Error('invalid payload')
   switch (method) {
+    case 'workbenchManifest': return workbenchManifest(payload.path)
     case 'workbenchTasks': return workbenchTasks()
     case 'workbenchTaskDetail': return taskDetail(payload.id)
     case 'workbenchReport': return workbenchReport(payload.path)
