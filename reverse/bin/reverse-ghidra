@@ -49,8 +49,19 @@ def main():
             print(json.dumps({"status": "failed", "exit_code": result.returncode,
                               "log": str(log)}))
             return 1
-        functions = json.loads(exported.read_text(encoding="utf-8")).get("functions", [])
+        report = json.loads(exported.read_text(encoding="utf-8"))
+        if report.get("schema") != "dsh-reverse-ghidra/v2":
+            print(json.dumps({"status": "failed", "reason": "unexpected report schema"}))
+            return 1
+        functions = report.get("functions", [])
+        graph = report.get("call_graph", {})
+        references = report.get("references", {})
+        if not isinstance(functions, list) or not isinstance(graph.get("edges"), list):
+            print(json.dumps({"status": "failed", "reason": "invalid graph data"}))
+            return 1
         print(json.dumps({"status": "ok", "function_count": len(functions),
+                          "call_edges": len(graph["edges"]),
+                          "entry_references": len(references.get("entries", [])),
                           "report": str(exported), "log": str(log)}))
         return 0
     except subprocess.TimeoutExpired:

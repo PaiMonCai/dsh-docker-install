@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Read-only bounded Electron / JavaScript project scanner; never executes source."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+MAX_FILES = 250
+MAX_BYTES = 8 * 1024 * 1024
+MAX_SINGLE = 256 * 1024
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+MARKERS = {
+    "electron": re.compile(rb"\b(?:electron|BrowserWindow|app\.whenReady|webContents)\b"),
+    "ipc": re.compile(rb"\b(?:ipcMain|ipcRenderer|contextBridge|preload)\b"),
+    "network": re.compile(rb"\b(?:fetch\(|axios|XMLHttpRequest|WebSocket)\b"),
+    "native": re.compile(rb"\b(?:process\.dlopen|node-gyp|bindings\()\b"),
+    "dynamic_code": re.compile(rb"\b(?:eval\(|new Function\(|vm\.runIn)\b"),
+}
+EXT = {".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx", ".json"}
+
+def collect(source):
+    entry = Path(source).expanduser()
+    if entry.is_symlink():
+        raise ValueError("symlink inputs are rejected")
+    source = entry.resolve(strict=True)
+    if not source.is_relative_to(ROOT):
+        raise ValueError("source must be inside the workspace")
+    if source.is_file():
+        if source.suffix.lower() not in EXT:
+            raise ValueError("unsupported source extension")
+        return [source]
+    if not source.is_dir():
+        raise ValueError("source must be a file or directory")
+    selected = []
+    # os.walk with followlinks=False; explicit directory and file symlink checks.
+    for directory, dirs, files in os.walk(source, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if not (Path(directory) / d).is_symlink()
+                         and d not in {"node_modules", ".git", "dist", "build", ".next"})
+        for name in sorted(files):
+            path = Path(directory) / name
+            if path.is_symlink() or path.suffix.lower() not in EXT:
+                continue
+            selected.append(path)
+            if len(selected) >= MAX_FILES:
+                return selected
+    return selected
+
+def analyze(source):
+    selected = collect(source)
+    total = 0
+    entries = []
+    warnings = []
+    for path in selected:
+        size = path.stat().st_size
+        if size > MAX_SINGLE:
+            warnings.append("skipped large file: " + str(path.relative_to(ROOT)))
+            continue
+        if total + size > MAX_BYTES:
+            warnings.append("total input cap reached")
+            break
+        data = path.read_bytes()
+        total += len(data)
+        digest = hashlib.sha256(data).hexdigest()
+        signals = {key: len(expr.findall(data)) for key, expr in MARKERS.items()}
+        signals = {k: min(v, 100) for k, v in signals.items() if v}
+        record = {"path": str(path.relative_to(ROOT)), "size": len(data),
+                  "sha256": digest, "signals": signals}
+        if path.name == "package.json":
+            try:
+                metadata = json.loads(data.decode("utf-8"))
+                if isinstance(metadata, dict):
+                    record["package"] = {
+                        k: str(metadata[k])[:160] for k in ("name", "main", "version")
+                        if k in metadata and isinstance(metadata[k], (str, int))
+                    }
+            except (ValueError, UnicodeError):
+                warnings.append("invalid package metadata: " + record["path"])
+        entries.append(record)
+    if len(selected) >= MAX_FILES:
+        warnings.append("file count cap reached")
+    return {"schema": "dsh-reverse-js-triage/v1", "source": str(Path(source).resolve()),
+            "files_scanned": len(entries), "bytes_scanned": total,
+            "entries": entries, "warnings": warnings,
+            "limitations": ["Heuristic string matches do not prove runtime behavior.",
+                            "No JS is executed and dependency directories are not traversed.",
+                            "Electron ASAR archives require separate trusted parsing."]}
+
+def main():
+    parser = argparse.ArgumentParser(description="Bounded static JS/Electron inspection")
+    parser.add_argument("source", help="JS file or project directory under workspace")
+    parser.add_argument("--output", help="Optional JSON output file under workspace")
+    args = parser.parse_args()
+    try:
+        report = analyze(args.source)
+        if args.output:
+            supplied = Path(args.output)
+            if supplied.is_symlink():
+                raise ValueError("output symlinks rejected")
+            output = supplied.resolve()
+            if not output.is_relative_to(ROOT):
+                raise ValueError("output must be under workspace")
+            if not output.parent.is_dir():
+                raise ValueError("output parent must already exist")
+            output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False))
+    except (OSError, ValueError) as error:
+        print("reverse-js-triage: " + str(error), file=sys.stderr)
+        return 2
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

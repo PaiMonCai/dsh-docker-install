@@ -150,3 +150,11 @@ test('Reverse native Prompt Manager settings module is image-owned',()=>{
   assert.match(read('reverse/prompt-manager/web/client.js'),/settings.section/)
   assert.match(workflow,/prompt-manager\/web\/web.test.mjs/)
 })
+
+
+test('Reverse Phase 2 ships read-only Electron and JS triage',()=>{
+ const docker=read('reverse/Dockerfile')
+ assert.match(docker,/reverse-js-triage/)
+ assert.match(read('reverse/bin/reverse-js-triage'),/MAX_FILES = 250/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_js_triage.py')))
+})
