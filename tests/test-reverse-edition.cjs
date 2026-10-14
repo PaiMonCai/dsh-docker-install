@@ -221,3 +221,13 @@ test('Workbench project sample, task and evidence linking is packaged',()=>{
  assert.match(read('reverse/prompt-manager/web/client.js'),/关联到项目/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/project-links.test.mjs')))
 })
+
+
+test('Workbench project-scoped queued tasks and evidence reconciliation',()=>{
+ const host=read('reverse/prompt-manager/web/index.mjs')
+ const view=read('reverse/prompt-manager/web/client.js')
+ assert.match(host,/workbenchProjectTaskCreate/)
+ assert.match(host,/workbenchProjectResultsSync/)
+ assert.match(view,/同步已完成任务的证据/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/project-tasks.test.mjs')))
+})
