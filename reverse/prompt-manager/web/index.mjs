@@ -72,18 +72,18 @@ export function command(method, payload = {}) {
   }
 }
 export function apply(ctx) {
-  // Optional connection service: host continues booting even if Web RPC is unavailable.
+  // An independent authenticated RPC channel is mandatory: /api allows exactly
+  // one interceptor, which belongs to upstream dsh-api-gateway. Claiming it
+  // here can leave all built-in session/model/directory APIs returning 404.
   ctx.inject(['connection'], c => {
-    c.connection.rpc.intercept('/api',
-      endpoint => endpoint.startsWith('reverse-prompt/'),
-      async (endpoint, payload) => {
-        try {
-          return { ok: true, value: await command(endpoint.slice('reverse-prompt/'.length), payload) }
-        } catch (error) {
-          return { ok: false, error: { code: 'invalid_request',
-            message: String(error?.message ?? error) } }
-        }
-      }, { authority: 'loopback' })
+    c.connection.rpc.handle('/reverse-prompt', async (endpoint, payload) => {
+      try {
+        return { ok: true, value: await command(endpoint, payload) }
+      } catch (error) {
+        return { ok: false, error: { code: 'invalid_request',
+          message: String(error?.message ?? error) } }
+      }
+    })
   })
 }
 export default { name, inject, apply }

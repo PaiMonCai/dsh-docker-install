@@ -33,3 +33,19 @@ test('inspection returns absent snapshot and one-shot capture request',()=>{
   assert.equal(command('captureClear').cleared,true)
 })
 test.after(()=>rmSync(home,{recursive:true,force:true}))
+
+test('Reverse Web RPC owns a separate channel and never intercepts upstream /api', async()=>{
+  const { apply } = await import('./index.mjs')
+  let channel, handler, intercepted = false
+  apply({ inject(services, callback) {
+    assert.deepEqual(services, ['connection'])
+    callback({connection:{rpc:{
+      handle(path, fn) { channel=path; handler=fn },
+      intercept() { intercepted=true; throw Error('must not claim shared /api') }
+    }}})
+  }})
+  assert.equal(channel, '/reverse-prompt')
+  assert.equal(intercepted, false)
+  assert.deepEqual(await handler('state', {}), { ok:true, value:command('state') })
+  assert.equal((await handler('invalidMethod', {})).ok, false)
+})
