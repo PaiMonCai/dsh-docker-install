@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Read-only bounded evidence index for Reverse Edition analysis reports."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from datetime import datetime, timezone
+
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+TYPES = {"dsh-reverse-evidence/v1", "dsh-reverse-ghidra/v2",
+         "dsh-reverse-js-triage/v1", "dsh-reverse-diff/v1"}
+MAX_REPORTS = 100
+MAX_FILE = 8 * 1024 * 1024
+MAX_TOTAL = 32 * 1024 * 1024
+
+def check_file(value):
+    supplied = Path(value).expanduser()
+    if supplied.is_symlink():
+        raise ValueError("symlinks are not allowed")
+    path = supplied.resolve(strict=True)
+    if not path.is_file() or not path.is_relative_to(ROOT):
+        raise ValueError("report must be a workspace file")
+    return path
+
+def index(files):
+    if not files or len(files) > MAX_REPORTS:
+        raise ValueError("supply 1..100 report paths")
+    found = set()
+    entries = []
+    total = 0
+    for item in files:
+        path = check_file(item)
+        if path in found:
+            continue
+        found.add(path)
+        size = path.stat().st_size
+        total += size
+        if size <= 0 or size > MAX_FILE or total > MAX_TOTAL:
+            raise ValueError("evidence index size limit reached")
+        payload = path.read_bytes()
+        report = json.loads(payload)
+        if not isinstance(report, dict) or report.get("schema") not in TYPES:
+            raise ValueError("unknown analysis report schema: " + path.name)
+        entries.append({
+            "path": str(path.relative_to(ROOT)),
+            "schema": report["schema"],
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size": len(payload)
+        })
+    entries.sort(key=lambda row: row["path"])
+    return {
+        "schema": "dsh-reverse-workspace/v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "reports": entries,
+        "limitations": ["Index records file provenance, not validity of analytical conclusions.",
+                        "Re-run index after a report is modified; no implicit background monitoring."]
+    }
+
+def verify(manifest):
+    if not isinstance(manifest, dict) or manifest.get("schema") != "dsh-reverse-workspace/v1":
+        raise ValueError("invalid workspace manifest")
+    entries = manifest.get("reports")
+    if not isinstance(entries, list) or len(entries) > MAX_REPORTS:
+        raise ValueError("invalid report entries")
+    results = []
+    for row in entries:
+        if not isinstance(row, dict) or not isinstance(row.get("path"), str):
+            raise ValueError("invalid report entry")
+        relative = Path(row["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("invalid report path")
+        try:
+            path = check_file(ROOT / relative)
+            if path.stat().st_size > MAX_FILE:
+                raise ValueError("oversized report")
+            raw = path.read_bytes()
+            ok = hashlib.sha256(raw).hexdigest() == row.get("sha256")
+            results.append({"path": row["path"], "verified": ok})
+        except (OSError, ValueError):
+            results.append({"path": row["path"], "verified": False})
+    return {"schema": "dsh-reverse-workspace-verification/v1",
+            "passed": all(r["verified"] for r in results),
+            "results": results}
+
+def main():
+    p = argparse.ArgumentParser(description="Index or verify static reverse evidence reports")
+    sub = p.add_subparsers(dest="mode", required=True)
+    p_index = sub.add_parser("index")
+    p_index.add_argument("reports", nargs="+")
+    p_index.add_argument("--output", required=True)
+    p_verify = sub.add_parser("verify")
+    p_verify.add_argument("manifest")
+    args = p.parse_args()
+    try:
+        if args.mode == "index":
+            result = index(args.reports)
+            target = Path(args.output).expanduser()
+            if target.is_symlink():
+                raise ValueError("output symlink rejected")
+            target = target.resolve()
+            if not target.is_relative_to(ROOT) or not target.parent.is_dir():
+                raise ValueError("output parent must exist inside workspace")
+            if target.exists():
+                raise ValueError("refusing to overwrite existing evidence manifest")
+            fd = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                json.dump(result, out, indent=2)
+                out.write("\n")
+            print(json.dumps({"manifest": str(target), "reports": len(result["reports"])}))
+        else:
+            supplied = check_file(args.manifest)
+            if supplied.stat().st_size > MAX_FILE:
+                raise ValueError("oversized manifest")
+            result = verify(json.loads(supplied.read_text(encoding="utf-8")))
+            print(json.dumps(result))
+            return 0 if result["passed"] else 1
+        return 0
+    except (OSError, ValueError) as e:
+        print("reverse-workspace: " + str(e), file=sys.stderr)
+        return 2
+
+if __name__ == "__main__":
+    sys.exit(main())

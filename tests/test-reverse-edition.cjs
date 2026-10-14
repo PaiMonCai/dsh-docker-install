@@ -166,3 +166,11 @@ test('Reverse Phase 3 offline diff packaged with no execution',()=>{
  assert.match(read('reverse/bin/reverse-diff'),/dsh-reverse-diff\/v1/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_diff.py')))
 })
+
+
+test('Reverse Phase 4 evidence manifest tool packaged',()=>{
+ const docker=read('reverse/Dockerfile')
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-workspace/)
+ assert.match(read('reverse/bin/reverse-workspace'),/dsh-reverse-workspace\/v1/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_workspace.py')))
+})

@@ -141,3 +141,10 @@ Host 接口使用已登录 Web Client 的 `/api` RPC、仅允许 loopback 权限
 `reverse-diff /workspace/v1/functions.json /workspace/v2/functions.json` 比较两份 `dsh-reverse-ghidra/v2` 静态报告，给出新增、删除、修改的函数和调用边。对比基于地址，重新链接后的偏移变化可能产生大量假阳性，结果需人工确认。两个输入限定工作区、各不超过 8 MiB，不运行任何程序。
 
 动态调试接口、网络协议会话抓取与调度队列尚未进入本次实现；它们必须有独立的授权确认、隔离边界、超时/资源限制和恢复策略。第四批可视化逆向工作台待任务、证据 API 约定和数据持久性验证后推进。
+
+
+## 第四批启动：工作区证据索引
+
+新增 `reverse-workspace index /workspace/a/report.json /workspace/b/functions.json --output /workspace/reverse-index.json` 以生成统一 `dsh-reverse-workspace/v1` 证据索引，记录已完成静态报告的相对路径、schema、文件大小及 SHA-256。`reverse-workspace verify /workspace/reverse-index.json` 可检查文件是否被修改或丢失。支持初检、Ghidra v2、Electron/JS、diff 等四类已知报告；最多 100 个、单文件不超过 8 MiB、总量不超过 32 MiB，跳过重复路径、拒绝外部路径和符号链接。只读报告本体，不执行代码；索引文件不会默认覆盖已有记录。
+
+这是第四批证据平台的第一层数据协议，**不是完整工作台**。独立 UI 函数浏览、证据检索、任务恢复还需要基于该协议继续开发，并且不得把索引文件当作结论真实性证明。
