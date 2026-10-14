@@ -185,3 +185,13 @@ test('Reverse task queue is allowlisted and does not execute through shell',()=>
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-task/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_task_queue.py')))
 })
+
+
+test('Reverse Workbench is readonly and packaged in native client module',()=>{
+ const host=read('reverse/prompt-manager/web/index.mjs')
+ const view=read('reverse/prompt-manager/web/client.js')
+ assert.match(host,/workbenchTasks/)
+ assert.match(view,/逆向分析工作台/)
+ assert.match(read('reverse/prompt-manager/web/workbench.mjs'),/symlink path is not allowed/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/workbench.test.mjs')))
+})

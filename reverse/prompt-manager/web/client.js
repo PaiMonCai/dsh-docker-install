@@ -42,6 +42,10 @@ window.__ModuleLoader__.load({
       const [inspection,setInspection]=useState(null)
       const [capture,setCapture]=useState(null)
       const [message,setMessage]=useState('')
+      const [jobs,setJobs]=useState([])
+      const [selectedJob,setSelectedJob]=useState(null)
+      const [reportPath,setReportPath]=useState('reverse-index.json')
+      const [openedReport,setOpenedReport]=useState(null)
       const [busy,setBusy]=useState(false)
       async function invoke(method,args={}) {
         const result=await call('reverse-prompt/'+method,args)
@@ -129,6 +133,36 @@ window.__ModuleLoader__.load({
                 h('pre',{style:css.pre},JSON.stringify(capture.sections,null,2)))
             : null,
           h('p',{style:css.muted},'这里的分块在 DSH 模板变量插值前捕获，不等于完整最终模型请求。')),
+        h(Section,{title:'逆向分析工作台 · 只读'},
+          h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
+          h('div',{style:css.line},
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setJobs(await invoke('workbenchTasks'))
+            })},'刷新任务列表'),
+            h('span',{style:css.muted},'最近任务：'+jobs.length)),
+          ...jobs.slice(0,30).map(job=>h('div',{key:job.id,style:css.line},
+            h('code',null,job.kind+' · '+job.state),
+            h('span',{style:css.muted},job.id.slice(0,8)),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setSelectedJob(await invoke('workbenchTaskDetail',{id:job.id}))
+            })},'查看状态'))),
+          selectedJob ? h('pre',{style:css.pre},JSON.stringify(selectedJob,null,2)) : null,
+          h('div',{style:css.line},
+            h(Field,{value:reportPath,onChange:setReportPath,placeholder:'工作区内 JSON 报告相对路径'}),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setOpenedReport(await invoke('workbenchReport',{path:reportPath}))
+            })},'打开报告')),
+          openedReport ? h('div',{style:css.card},
+            h('strong',null,'报告：'+openedReport.schema),
+            openedReport.schema==='dsh-reverse-ghidra/v2'
+              ? h('div',null,
+                h('p',{style:css.muted},'函数 '+openedReport.functions.length+' · 调用边 '+openedReport.edges.length),
+                ...openedReport.functions.slice(0,60).map(fn=>h('details',{key:fn.address},
+                  h('summary',null,fn.name+' @ '+fn.address),
+                  h('pre',{style:css.pre},fn.signature+'\n'+fn.pseudocode))))
+              : h('pre',{style:css.pre},JSON.stringify(openedReport,null,2))
+          ) : null
+        ),
         message?h('p',{role:'status',style:{color:'var(--dsw-alias-state-warn-label)',fontSize:12}},message):null
       )
     }
