@@ -2,6 +2,7 @@
 import { listPresets, loadPreset, readState, writeState, importPreset,
   removePreset, saveSectionPreset, listVersions, restoreVersion } from '../core.mjs'
 import { getSnapshot, clearCapture, requestCapture } from '../inspect.mjs'
+import { readHook, writeHook } from '../hook-guidance.mjs'
 import { projects, project, createProject } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
 import { createProjectTask, reconcileProjectResults, recoverProjectTasks, inspectOrphanTasks } from './project-tasks.mjs'
@@ -11,7 +12,7 @@ import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifes
 export const name = 'dsh-reverse-prompt-web'
 export const inject = []
 const METHODS = new Set(['state','list','get','activate','disable','save','remove',
-  'history','rollback','inspect','captureRequest','captureShow','captureClear',
+  'history','rollback','hookGet','hookSave','inspect','captureRequest','captureShow','captureClear',
   'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest',
   'workbenchProjects','workbenchProject','workbenchProjectCreate',
   'workbenchProjectLinks','workbenchProjectAttach','workbenchProjectTaskCreate','workbenchProjectResultsSync','workbenchProjectRunOnce'])
@@ -39,6 +40,8 @@ export function command(method, payload = {}) {
     case 'workbenchTasks': return workbenchTasks()
     case 'workbenchTaskDetail': return taskDetail(payload.id)
     case 'workbenchReport': return workbenchReport(payload.path)
+    case 'hookGet': return readHook()
+    case 'hookSave': return writeHook({enabled:payload.enabled,text:payload.text})
     case 'state': return readState()
     case 'list': return listPresets().map(name => {
       const p = loadPreset(name)

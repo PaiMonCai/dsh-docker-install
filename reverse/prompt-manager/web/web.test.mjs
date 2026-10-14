@@ -49,3 +49,11 @@ test('Reverse Web RPC owns a separate channel and never intercepts upstream /api
   assert.deepEqual(await handler('state', {}), { ok:true, value:command('state') })
   assert.equal((await handler('invalidMethod', {})).ok, false)
 })
+
+test('authenticated workbench command supports independent Hook configuration',()=>{
+  const saved=command('hookSave',{enabled:true,text:'Prefer static analysis evidence'})
+  assert.equal(saved.enabled,true)
+  assert.equal(command('hookGet').text,'Prefer static analysis evidence')
+  assert.throws(()=>command('hookSave',{enabled:true,text:''}))
+  assert.equal(command('hookSave',{enabled:false,text:saved.text}).enabled,false)
+})

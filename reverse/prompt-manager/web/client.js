@@ -72,6 +72,8 @@ window.__ModuleLoader__.load({
       const [revision,setRevision]=useState('')
       const [inspection,setInspection]=useState(null)
       const [capture,setCapture]=useState(null)
+      const [hookText,setHookText]=useState('')
+      const [hookEnabled,setHookEnabled]=useState(false)
       const [message,setMessage]=useState('')
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
@@ -89,6 +91,7 @@ window.__ModuleLoader__.load({
       async function refresh(){
         const [next,list,diag]=await Promise.all([invoke('state'),invoke('list'),invoke('inspect')])
         setState(next);setPresets(list);setInspection(diag)
+        const hook=await invoke('hookGet');setHookText(hook.text);setHookEnabled(hook.enabled)
       }
       useEffect(()=>{refresh().catch(e=>setMessage(String(e.message)))},[])
       async function run(work){
@@ -147,6 +150,18 @@ window.__ModuleLoader__.load({
               await invoke('rollback',{name:draftName,revision})
               choose(draftName)
             })},'回滚选中版本'))),
+        h(Section,{title:'Hook 级指令注入 · Reverse Agent'},
+          h('p',{style:css.muted},'独立规则块注入 system-prompt/assemble，仅作用于逆向 Agent；不会替换工具定义、审批策略或模型服务商限制。默认关闭。'),
+          h('label',null,h('input',{type:'checkbox',checked:hookEnabled,onChange:e=>setHookEnabled(e.target.checked)}),' 启用 Hook 注入'),
+          h(Field,{multiline:true,value:hookText,onChange:setHookText,placeholder:'输入要插入 Reverse Agent System Prompt 的独立指令（最多 12 KiB）'}),
+          h('div',{style:css.line},
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              await invoke('hookSave',{enabled:hookEnabled,text:hookText})
+            })},'保存 Hook 配置'),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              await invoke('hookSave',{enabled:false,text:hookText});setHookEnabled(false)
+            })},'立即停用')),
+          h('p',{style:css.muted},'配置在下一次逆向 Agent 提示词组装时生效；下方可采集真实注入后的分块进行核对。')),
         h(Section,{title:'真实组装检查'},
           h('p',{style:css.muted},'默认只显示实际 Reverse Agent 组装的分块名称、字节数与哈希，不保存完整文本。'),
           h('div',{style:css.line},
