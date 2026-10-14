@@ -110,3 +110,18 @@ test('Reverse disables live config HMR to preserve sessionController lifetime',(
  assert.match(read('reverse/cordis.patch.yml'),/- id: hmr\n  disabled: true/)
  assert.doesNotMatch(read('docker-compose.yml'),/DSH_REVERSE_AGENT_PATCH/)
 })
+
+test('Reverse native Prompt Manager is scoped, rollback-safe and image-owned',()=>{
+ const docker=read('reverse/Dockerfile')
+ const overlay=read('reverse/cordis.patch.yml')
+ const workflow=read('.github/workflows/build-reverse.yml')
+ for(const p of ['reverse/prompt-manager/core.mjs','reverse/prompt-manager/index.mjs',
+  'reverse/prompt-manager/cli.mjs','reverse/prompt-manager/presets/evidence.json',
+  'reverse/prompt-manager/test/prompt-manager.test.mjs']) assert.ok(fs.existsSync(path.join(root,p)),p)
+ assert.match(docker,/COPY reverse\/prompt-manager\//)
+ assert.match(docker,/reverse-prompt list/)
+ assert.match(overlay,/id: dsh-reverse-prompt-manager/)
+ assert.match(workflow,/node --test reverse\/prompt-manager\/test/)
+ assert.ok(read('reverse/prompt-manager/index.mjs').includes("'reverse-engineering'"))
+ assert.doesNotMatch(read('docker-compose.yml'),/DSH_REVERSE_PROMPT/)
+})

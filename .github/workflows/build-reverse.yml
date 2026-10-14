@@ -105,6 +105,10 @@ jobs:
         run: |
           set -euo pipefail
           node --check reverse/skills-bootstrap.mjs
+          node --check reverse/prompt-manager/core.mjs
+          node --check reverse/prompt-manager/index.mjs
+          node --check reverse/prompt-manager/cli.mjs
+          node --test reverse/prompt-manager/test/prompt-manager.test.mjs
           node --check reverse/preset-smoke.mjs
           node --check reverse/service-health.mjs
           node --check reverse/reverse-healthcheck.cjs
@@ -189,7 +193,11 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-prompt; do command -v "$tool"; done
+            reverse-prompt list >/tmp/reverse-prompt-list.json
+            reverse-prompt status >/tmp/reverse-prompt-status.json
+            grep -Eq enabled.*false /tmp/reverse-prompt-status.json
+            grep -Fq evidence /tmp/reverse-prompt-list.json
             /opt/dsh-reverse/venv/bin/python -c "import lief, capa"
             test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
             reverse-triage --help >/dev/null
@@ -202,7 +210,7 @@ jobs:
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
+            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-prompt-manager dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
             if grep -Eiq "dsh-purge|dsh-reverse-redteam" /tmp/reverse-config.yml; then

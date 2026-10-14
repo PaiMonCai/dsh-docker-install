@@ -7,6 +7,11 @@
     - id: dsh-reverse-skill-bootstrap
       name: ./skills-bootstrap.mjs
 
+    # Reverse-only prompt customization; reads small state files per assembly.
+    # Does not depend on Loader HMR or modify other Agent presets.
+    - id: dsh-reverse-prompt-manager
+      name: ./prompt-manager/index.mjs
+
     - id: dsh-reverse-preset-declaration
       name: '@deepseek-ai/dsh-agent-preset'
       config:

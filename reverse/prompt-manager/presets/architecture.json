@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "name": "architecture",
+  "title": "架构还原 · 调用链",
+  "mode": "append",
+  "text": "For authorized software architecture reconstruction, identify entrypoints, modules, interfaces and boundaries before deeper decompilation. Trace one behavior end-to-end and record symbol names, addresses, cross-references and uncertainty. Represent observations as a dependency or call graph when supported by real evidence. Distinguish reconstructed behavior from original implementation. Do not run target binaries or modify targets without explicit authorization."
+}
