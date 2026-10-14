@@ -201,3 +201,23 @@ test('CLI section editor, doctor, inspect and capture commands', t => {
   assert.equal(call('capture-clear').status, 0)
   assert.equal(call('section-remove', 'custom-graph', 'reverse:user-graph').status, 1)
 })
+
+test('live preview reuses actual pristine sections and explicit opt-in capture', async t => {
+  const { requestCapture, recordAssembly, getSnapshot } = await import('../inspect.mjs')
+  const home = temp(); t.after(() => rmSync(home, { recursive: true, force: true }))
+  requestCapture(home)
+  recordAssembly({ sections: baseline() }, { sections: baseline() }, { enabled: false }, home)
+  const captured = getSnapshot(home, true)
+  assert.equal(captured.pristineSections.length, 4)
+  const cli = new URL('../cli.mjs', import.meta.url)
+  const call = (...args) => spawnSync(process.execPath, [cli.pathname, ...args], {
+    encoding: 'utf8', env: { ...process.env, DSH_HOME: home }
+  })
+  const response = call('preview-live', 'evidence')
+  assert.equal(response.status, 0, response.stderr)
+  const info = JSON.parse(response.stdout)
+  assert.equal(info.changed, true)
+  assert.equal(info.sections.length, 5)
+  assert.equal(info.sections[3].text, 'Original tool schema')
+  assert.match(info.note, /NOT a future request/)
+})
