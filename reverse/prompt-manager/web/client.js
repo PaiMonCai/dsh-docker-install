@@ -181,6 +181,7 @@ window.__ModuleLoader__.load({
       const [taskKind,setTaskKind]=useState('triage')
       const [taskInputs,setTaskInputs]=useState('')
       const [runConfirm,setRunConfirm]=useState('')
+      const [orphanStatus,setOrphanStatus]=useState(null)
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
@@ -245,6 +246,12 @@ window.__ModuleLoader__.load({
                 setProjectLinks(await invoke('workbenchProjectAttach',{id:activeProject.id,kind:linkKind,ref:linkRef.trim()}))
                 setLinkRef('')
               })},'关联到项目')),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setOrphanStatus(await invoke('workbenchOrphanTasks'))
+            })},'检查孤儿暂存任务'),
+            orphanStatus?h('p',{style:css.muted},
+              '未关联 '+orphanStatus.orphan.length+' · 已关联暂存 '+orphanStatus.linked_staged.length+' · 无效记录 '+orphanStatus.invalid.length):null,
+            orphanStatus?h('pre',{style:css.pre},JSON.stringify(orphanStatus,null,2)):null,
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
               const recovery=await invoke('workbenchProjectTasksRecover',{id:activeProject.id})
               setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
