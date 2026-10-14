@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "name": "concise",
+  "title": "快速分析 · 简洁输出",
+  "mode": "append",
+  "text": "For authorized reverse-engineering tasks, first identify the user's concrete technical question and select the smallest read-only investigation that can answer it. Return a compact result with explicit source references, then list the next verification action. Do not fabricate tool output or perform target execution by default. Preserve DSH tool and approval procedures."
+}

@@ -79,6 +79,7 @@ RUN set -eux; \
 COPY reverse/cordis.patch.yml /opt/dsh-reverse/cordis.patch.yml
 COPY reverse/skills/ /opt/dsh-reverse/skills/
 COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
+COPY reverse/prompt-manager/ /opt/dsh-reverse/prompt-manager/
 COPY reverse/preset-smoke.mjs /opt/dsh-reverse/preset-smoke.mjs
 COPY reverse/service-health.mjs /opt/dsh-reverse/service-health.mjs
 COPY reverse/reverse-healthcheck.cjs /opt/dsh-reverse/reverse-healthcheck.cjs
@@ -86,7 +87,13 @@ COPY --chmod=0755 reverse/bin/reverse-triage /usr/local/bin/reverse-triage
 COPY --chmod=0755 reverse/bin/reverse-ghidra /usr/local/bin/reverse-ghidra
 COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
+RUN ln -s /opt/dsh-reverse/prompt-manager/cli.mjs /usr/local/bin/reverse-prompt \
+ && chmod 0755 /opt/dsh-reverse/prompt-manager/cli.mjs
 RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
+ && node --check /opt/dsh-reverse/prompt-manager/core.mjs \
+ && node --check /opt/dsh-reverse/prompt-manager/index.mjs \
+ && node --check /opt/dsh-reverse/prompt-manager/cli.mjs \
+ && reverse-prompt list >/dev/null \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --check /opt/dsh-reverse/service-health.mjs \
  && node --check /opt/dsh-reverse/reverse-healthcheck.cjs \
@@ -100,6 +107,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && DSH_HOME="$(mktemp -d)" dsh --profile web \
        --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml \
  && grep -Fq 'dsh-reverse-preset-declaration' /tmp/reverse-config.yml \
+ && grep -Fq 'dsh-reverse-prompt-manager' /tmp/reverse-config.yml \
  && grep -Fq 'session-controller' /tmp/reverse-config.yml \
  && grep -Fq 'rea-mcp' /tmp/reverse-config.yml \
  && ! grep -Eiq 'dsh-purge|dsh-reverse-redteam' /tmp/reverse-config.yml \
