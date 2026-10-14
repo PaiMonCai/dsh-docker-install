@@ -29,6 +29,37 @@ window.__ModuleLoader__.load({
     function Section({title,children}) {
       return h('section',{style:css.card},h('strong',null,title),...React.Children.toArray(children))
     }
+    function CallGraph({data,selected,onSelect}) {
+      const nodes=(data.nodes||[]).slice(0,24)
+      const lookup=new Map(nodes.map((node,i)=>[node.address,i]))
+      const edges=(data.edges||[]).filter(edge=>lookup.has(edge.source)&&lookup.has(edge.target)).slice(0,48)
+      const cols=4, stepX=190, stepY=82, width=770
+      const height=Math.ceil(nodes.length/cols)*stepY+30
+      return h('div',{style:{overflowX:'auto',border:'1px solid var(--dsw-alias-border-l2)',borderRadius:8}},
+        h('svg',{role:'img','aria-label':'函数调用关系图，点击节点查看函数',
+          viewBox:'0 0 '+width+' '+Math.max(height,100),style:{width:'100%',minWidth:680,height:Math.max(height,100)}},
+          ...edges.map((edge,i)=>{
+            const a=lookup.get(edge.source),b=lookup.get(edge.target)
+            const x1=95+(a%cols)*stepX,y1=32+Math.floor(a/cols)*stepY
+            const x2=95+(b%cols)*stepX,y2=32+Math.floor(b/cols)*stepY
+            return h('line',{key:'e'+i,x1,y1,x2,y2,stroke:'var(--dsw-alias-label-tertiary)',
+              strokeWidth:1,opacity:.55})
+          }),
+          ...nodes.map((node,i)=>{
+            const x=10+(i%cols)*stepX,y=10+Math.floor(i/cols)*stepY
+            return h('g',{key:node.address,onClick:()=>onSelect(node.address),
+              role:'button',tabIndex:0,onKeyDown:e=>{if(e.key==='Enter'||e.key===' ')onSelect(node.address)},
+              style:{cursor:'pointer'}},
+              h('rect',{x,y,width:170,height:45,rx:7,
+                fill:'var(--dsw-alias-bg-module-platform)',stroke:node.address===selected?
+                  'var(--dsw-alias-label-primary)':'var(--dsw-alias-border-l2)',strokeWidth:node.address===selected?2:1}),
+              h('text',{x:x+8,y:y+18,fill:'var(--dsw-alias-label-primary)',fontSize:11},
+                node.name.slice(0,22)),
+              h('text',{x:x+8,y:y+33,fill:'var(--dsw-alias-label-tertiary)',fontSize:10},
+                node.address.slice(0,22)))
+          })
+        ))
+    }
     function Panel({call}) {
       const [state,setState]=useState({enabled:false,active:'evidence'})
       const [presets,setPresets]=useState([])
@@ -46,6 +77,8 @@ window.__ModuleLoader__.load({
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
       const [openedReport,setOpenedReport]=useState(null)
+      const [selectedFunction,setSelectedFunction]=useState('')
+      const [functionSearch,setFunctionSearch]=useState('')
       const [busy,setBusy]=useState(false)
       async function invoke(method,args={}) {
         const result=await call('reverse-prompt/'+method,args)
@@ -157,9 +190,24 @@ window.__ModuleLoader__.load({
             openedReport.schema==='dsh-reverse-ghidra/v2'
               ? h('div',null,
                 h('p',{style:css.muted},'函数 '+openedReport.functions.length+' · 调用边 '+openedReport.edges.length),
-                ...openedReport.functions.slice(0,60).map(fn=>h('details',{key:fn.address},
-                  h('summary',null,fn.name+' @ '+fn.address),
-                  h('pre',{style:css.pre},fn.signature+'\n'+fn.pseudocode))))
+                h('p',{style:css.muted},'图中最多显示 24 个函数、48 条调用边；完整数据可在函数列表和报告中检查。连线表示静态分析发现的调用关系。'),
+                h(CallGraph,{data:openedReport,selected:selectedFunction,onSelect:setSelectedFunction}),
+                h('div',{style:css.line},h(Field,{value:functionSearch,onChange:setFunctionSearch,placeholder:'按函数名称或地址筛选'})),
+                ...openedReport.functions.filter(fn=>
+                  (!functionSearch||fn.name.toLowerCase().includes(functionSearch.toLowerCase())||
+                    fn.address.toLowerCase().includes(functionSearch.toLowerCase())) &&
+                  (!selectedFunction||selectedFunction===fn.address)
+                ).slice(0,100).map(fn=>h('details',{key:fn.address,open:selectedFunction===fn.address},
+                  h('summary',{onClick:()=>setSelectedFunction(fn.address)},fn.name+' @ '+fn.address),
+                  h('p',{style:css.muted},'调用：'+openedReport.edges.filter(e=>e.source===fn.address)
+                    .map(e=>e.target).slice(0,20).join(', ')),
+                  h('p',{style:css.muted},'被调用：'+openedReport.edges.filter(e=>e.target===fn.address)
+                    .map(e=>e.source).slice(0,20).join(', ')),
+                  h('p',{style:css.muted},'入口引用：'+(openedReport.references||[])
+                    .filter(e=>e.target===fn.address).slice(0,20)
+                    .map(e=>e.from+' ['+e.type+']').join(', ')),
+                  h('pre',{style:css.pre},fn.signature+'\n'+fn.pseudocode))),
+                selectedFunction?h(Control,{onClick:()=>setSelectedFunction('')},'显示全部函数'):null))
               : h('pre',{style:css.pre},JSON.stringify(openedReport,null,2))
           ) : null
         ),

@@ -33,3 +33,18 @@ test('reject traversal, absolute files and symlink targets',()=>{
  assert.throws(()=>taskDetail('../../etc/passwd'))
 })
 test.after(()=>rmSync(home,{force:true,recursive:true}))
+
+test('graph viewer filters non-exported edges and maps real entrypoint references',()=>{
+ writeFileSync(join(home,'xref.json'),JSON.stringify({
+  schema:'dsh-reverse-ghidra/v2',program:'sample',
+  functions:[{address:'0x1',name:'entry',signature:'void()',pseudocode:'call();'}],
+  call_graph:{nodes:[{address:'0x1',name:'entry'}],
+    edges:[{source:'0x1',target:'0x999'},{source:'0x1',target:'0x1'}]},
+  references:{entries:[{target:'0x1',from:'0x88',type:'READ'},
+    {target:'0x999',from:'0x77',type:'CALL'}]}
+ }))
+ const data=report('xref.json')
+ assert.equal(data.edges.length,1)
+ assert.equal(data.references.length,1)
+ assert.deepEqual(data.references[0],{target:'0x1',from:'0x88',type:'READ'})
+})
