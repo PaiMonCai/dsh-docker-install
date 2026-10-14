@@ -1,0 +1,40 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync,writeFileSync,mkdirSync,readFileSync,rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+const home=mkdtempSync(join(tmpdir(),'reverse-project-queue-'))
+process.env.DSH_REVERSE_WORKSPACE_ROOT=home
+const {createProject}=await import('./projects.mjs')
+const {createProjectTask,reconcileProjectResults}=await import('./project-tasks.mjs')
+const {projectLinks}=await import('./project-links.mjs')
+const p=createProject('Queued Analysis')
+test('enqueue creates durable task and links it to project without executing',()=>{
+ writeFileSync(join(home,'sample.bin'),'dummy sample')
+ const task=createProjectTask(p.id,'triage',['sample.bin'])
+ assert.equal(task.state,'queued')
+ const record=JSON.parse(readFileSync(join(home,'.reverse-tasks',task.id+'.json'),'utf8'))
+ assert.deepEqual(record.inputs,[join(home,'sample.bin')])
+ assert.equal(record.attempts,0)
+ assert.ok(projectLinks(p.id).entries.some(x=>x.kind==='task'&&x.ref===task.id))
+})
+test('successful triage result can be reconciled into validated evidence',()=>{
+ const task=createProjectTask(p.id,'triage',['sample.bin'])
+ const path=join(home,'evidence.json')
+ writeFileSync(path,JSON.stringify({schema:'dsh-reverse-evidence/v1',sample:{},evidence:[]}))
+ const file=join(home,'.reverse-tasks',task.id+'.json')
+ const record=JSON.parse(readFileSync(file,'utf8'))
+ record.state='succeeded'
+ record.result={exit_code:0,stdout:JSON.stringify({report:path})}
+ writeFileSync(file,JSON.stringify(record))
+ const linked=reconcileProjectResults(p.id)
+ assert.ok(linked.added.includes('evidence.json'))
+ assert.ok(projectLinks(p.id).entries.some(x=>x.kind==='evidence'&&x.ref==='evidence.json'&&x.valid))
+})
+test('reject invalid work, unknown project, traversal and no implicit execution',()=>{
+ assert.throws(()=>createProjectTask(p.id,'shell',['sample.bin']))
+ assert.throws(()=>createProjectTask(p.id,'diff',['sample.bin']))
+ assert.throws(()=>createProjectTask(p.id, 'triage', ["../outside"]))
+ assert.throws(()=>createProjectTask('bad','triage',['sample.bin']))
+})
+test.after(()=>rmSync(home,{force:true,recursive:true}))

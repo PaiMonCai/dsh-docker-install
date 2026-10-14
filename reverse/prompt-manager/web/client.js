@@ -178,6 +178,8 @@ window.__ModuleLoader__.load({
       const [projectLinks,setProjectLinks]=useState(null)
       const [linkKind,setLinkKind]=useState('sample')
       const [linkRef,setLinkRef]=useState('')
+      const [taskKind,setTaskKind]=useState('triage')
+      const [taskInputs,setTaskInputs]=useState('')
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
@@ -218,6 +220,20 @@ window.__ModuleLoader__.load({
             h(Control,{disabled:busy,onClick:()=>run(async()=>{setActiveProject(p);setProjectLinks(await invoke('workbenchProjectLinks',{id:p.id}))})},'查看'))),
           activeProject?h('div',{style:css.card},
             h('p',{style:css.muted},'当前项目：'+activeProject.name+' · '+activeProject.id),
+            h('strong',null,'新建静态分析任务'),
+            h('p',{style:css.muted},'仅创建待执行任务；执行仍需使用 reverse-task run-once。diff 填两条工作区相对路径，以换行分隔。'),
+            h('div',{style:css.line},
+              h('select',{style:css.input,value:taskKind,onChange:e=>setTaskKind(e.target.value)},
+                ...['triage','js-triage','ghidra','diff','verify'].map(k=>h('option',{value:k,key:k},k))),
+              h(Field,{value:taskInputs,onChange:setTaskInputs,placeholder:'工作区相对输入路径'}),
+              h(Control,{disabled:busy||!taskInputs.trim(),onClick:()=>run(async()=>{
+                const inputs=taskInputs.split('\n').map(s=>s.trim()).filter(Boolean)
+                const created=await invoke('workbenchProjectTaskCreate',{id:activeProject.id,kind:taskKind,inputs})
+                setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
+                setJobs(await invoke('workbenchTasks'))
+                setTaskInputs('')
+                setMessage('任务已排队：'+created.id+'，尚未执行')
+              })},'添加到队列')),
             h('div',{style:css.line},
               h('select',{style:css.input,value:linkKind,onChange:e=>setLinkKind(e.target.value)},
                 h('option',{value:'sample'},'样本文件'),
@@ -228,6 +244,11 @@ window.__ModuleLoader__.load({
                 setProjectLinks(await invoke('workbenchProjectAttach',{id:activeProject.id,kind:linkKind,ref:linkRef.trim()}))
                 setLinkRef('')
               })},'关联到项目')),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              const results=await invoke('workbenchProjectResultsSync',{id:activeProject.id})
+              setProjectLinks(results.links)
+              setMessage('已同步 '+results.added.length+' 份报告；未找到 '+results.skipped.length+' 份')
+            })},'同步已完成任务的证据'),
             ...(projectLinks?.entries||[]).map((entry,i)=>h('div',{key:entry.kind+entry.ref+i,style:css.line},
               h('span',{style:css.muted},entry.kind+' · '+(entry.valid?'有效':'失效')),
               h('code',null,entry.ref),
