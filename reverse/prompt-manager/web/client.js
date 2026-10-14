@@ -82,7 +82,7 @@ window.__ModuleLoader__.load({
       const [functionSearch,setFunctionSearch]=useState('')
       const [busy,setBusy]=useState(false)
       async function invoke(method,args={}) {
-        const result=await call('reverse-prompt/'+method,args)
+        const result=await call(method,args)
         if(!result?.ok) throw Error(result?.error?.message || 'Prompt Manager RPC unavailable')
         return result.value
       }
@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
       const [busy,setBusy]=useState(false)
       const [message,setMessage]=useState('')
       async function invoke(method,args={}) {
-        const result=await call('reverse-prompt/'+method,args)
+        const result=await call(method,args)
         if (!result?.ok) throw Error(result?.error?.message||'Reverse Workbench RPC unavailable')
         return result.value
       }
@@ -350,12 +350,12 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('settings.section',()=>ctx.slots.register({
         name:'settings.section',id:'reverse-prompt-manager',order:30,
         label:()=> '逆向提示词',
-        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/api',method,payload)})
+        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/reverse-prompt',method,payload)})
       },Panel))
       ctx.slots.inject('settings.section',()=>ctx.slots.register({
         name:'settings.section',id:'reverse-workbench',order:31,
         label:()=> '逆向工作台',
-        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/api',method,payload)})
+        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/reverse-prompt',method,payload)})
       },WorkbenchPanel))
     }
     exports.apply=apply
