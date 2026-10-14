@@ -1,6 +1,7 @@
 /** Scoped Reverse Prompt Manager; real assembly metadata and opt-in one-shot inspection. */
 import { applyPreset, readActive } from './core.mjs'
 import { recordAssembly } from './inspect.mjs'
+import { readHook, applyHook } from './hook-guidance.mjs'
 export const name = 'dsh-reverse-prompt-manager'
 export const inject = ['agentPresets']
 export function apply(ctx) {
@@ -41,6 +42,12 @@ export function apply(ctx) {
         lastWarning = msg
         ctx.logger?.warn?.('Reverse Prompt Manager: %s; original preserved', msg)
       }
+    }
+    try {
+      const hook = applyHook(applied.sections, readHook())
+      if (hook.changed) { applied = { ...applied, sections: hook.sections }; details.injected = true; details.hookInjected = true }
+    } catch (error) {
+      ctx.logger?.warn?.('Reverse Hook Guidance: %s; hook skipped', String(error?.message ?? error))
     }
     // Diagnostic persistence must NEVER interrupt model requests.
     try { recordAssembly(original, applied, details) }
