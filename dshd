@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.10.0"
+DSHD_VERSION="0.11.0"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -5466,101 +5466,248 @@ menu_option_line() {
   fi
 }
 
+
+# Keep the home screen small: actions live in six focused categories.
+# All menu actions use the existing command implementations and remain available
+# via their historical CLI names, independent of this interface.
 menu_render_main() {
-  local reset="" cyan="" blue="" green="" yellow="" red="" muted="" bold=""
+  local reset="" cyan="" muted="" green="" yellow="" red="" state="" health=""
   if menu_colors_enabled; then
     reset=$'\033[0m'
     cyan=$'\033[1;36m'
-    blue=$'\033[1;34m'
+    muted=$'\033[90m'
     green=$'\033[1;32m'
     yellow=$'\033[1;33m'
     red=$'\033[1;31m'
-    muted=$'\033[90m'
-    bold=$'\033[1m'
   fi
-
-  local columns="${COLUMNS:-80}" small=0 line first_token after second_token first
-  if [[ ! "$columns" =~ ^[0-9]+$ ]]; then columns=80; fi
-  # 两列宽约 68 字符；窄终端自动改为单列，并缩短分隔线。
-  (( columns < 72 )) && small=1
-  local rule='──────────────────────────────────────────────────────────'
-  (( columns < 60 )) && rule='────────────────────────────────────'
-
-  local state health docker_color state_color health_color
   state="$(container_state 2>/dev/null || printf 'unknown')"
   health="$(health_state 2>/dev/null || printf 'unknown')"
+  local state_color="$yellow" health_color="$yellow"
   case "$state" in
     running) state_color="$green" ;;
     exited|dead|removing|paused) state_color="$red" ;;
-    *) state_color="$yellow" ;;
   esac
   case "$health" in
     healthy) health_color="$green" ;;
     unhealthy) health_color="$red" ;;
     none|n/a) health_color="$muted" ;;
-    *) health_color="$yellow" ;;
   esac
-  case "$DSH_DOCKER_ACCESS" in
-    true) docker_color="$green" ;;
-    *) docker_color="$muted" ;;
-  esac
+  local instance_name="${DSHD_INSTANCE_ID:-default}"
+  [[ "${DSHD_REVERSE_MODE:-0}" == "1" && "$instance_name" == default ]] && instance_name=reverse
 
-  printf '\n  %s◆%s %sDSH%s %s/ Docker Manager%s  %sv%s\n' \
-    "$cyan" "$reset" "$bold" "$reset" "$muted" "$reset" "$muted" "$DSHD_VERSION"
-  printf '  %s%s%s\n' "$muted" "$rule" "$reset"
-  printf '  %s容器%s %s   %s状态%s %s● %s%s   %s健康%s %s● %s%s\n' \
-    "$muted" "$reset" "$DSH_NAME" "$muted" "$reset" "$state_color" "$state" "$reset" "$muted" "$reset" "$health_color" "$health" "$reset"
-  printf '  %sEdition%s %s   %sPack%s %s   %sDocker 管理%s %s%s%s\n' \
-    "$muted" "$reset" "$DSH_EDITION" "$muted" "$reset" "$DSH_RESEARCH_PACK" "$muted" "$reset" \
-    "$docker_color" "$DSH_DOCKER_ACCESS" "$reset"
-
-
-  while IFS= read -r line; do
-    case "$line" in
-      '@'*) printf '\n  %s▌%s %s%s%s\n' "$blue" "$reset" "$bold" "${line#@}" "$reset" ;;
-      '') ;;
-      *)
-        if (( small )) && [[ "$line" =~ \[[0-9][0-9]\] ]]; then
-          first_token="${BASH_REMATCH[0]}"
-          after="${line#*"$first_token"}"
-          if [[ "$after" =~ \[[0-9][0-9]\] ]]; then
-            second_token="${BASH_REMATCH[0]}"
-            first="${line%%"$second_token"*}"
-            first="${first%"${first##*[![:space:]]}"}"
-            menu_option_line "$first" "$cyan" "$red" "$muted" "$reset"
-            menu_option_line "  ${second_token}${line#*"$second_token"}" "$cyan" "$red" "$muted" "$reset"
-            continue
-          fi
-        fi
-        menu_option_line "$line" "$cyan" "$red" "$muted" "$reset"
-        ;;
-    esac
-  done <<'MENU_ITEMS'
-@容器运行
-  [01] 安装 / 初始化                    [02] 查看状态
-  [03] 启动                             [04] 停止
-  [05] 重启                             [06] 查看实时日志
-  [07] 更新镜像并重建                   [18] 按当前配置重建
-@配置与连接
-  [08] 修改完整配置                     [09] DeepSeek API / Base URL
-  [10] 快捷管理 Trusted Hosts           [25] Whale Widget 远程写权限
-  [11] Docker 项目管理权限              [27] 国际网络 / sing-box
-  [28] Web Search / SearXNG          [29] 多实例管理
-  [21] Standard / Research / Reverse 版本     [22] Research Pack 切换
-@开发与数据
-  [12] 查看容器开发环境                 [13] Web 登录 Token 管理
-  [14] 进入容器 Shell
-  [15] 备份数据                         [16] 恢复数据
-  [23] 查看持久化存储                   [26] 自定义持久化挂载
-  [24] Research Dashboard
-@诊断与维护
-  [17] 环境诊断                         [19] 检查更新 dshd 自身
-  [20] 卸载
-MENU_ITEMS
-
-  printf '\n  %s%s%s\n' "$muted" "$rule" "$reset"
+  printf '\n  %s◆ DSH Manager%s   %sv%s\n' "$cyan" "$reset" "$muted" "$DSHD_VERSION"
+  printf '  %s──────────────────────────────────────────%s\n' "$muted" "$reset"
+  printf '  实例 %s%s%s  ·  容器 %s  ·  端口 %s\n' \
+    "$cyan" "$instance_name" "$reset" "$DSH_NAME" "$DSH_PORT"
+  printf '  版本 %s / %s  ·  %s● %s%s  ·  %s● %s%s\n' \
+    "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$state_color" "$state" "$reset" "$health_color" "$health" "$reset"
+  printf '\n'
+  menu_option_line '  [01] 实例管理          创建 / 选择 / 查看实例' "$cyan" "$red" "$muted" "$reset"
+  menu_option_line '  [02] 运行管理          状态 / 启停 / 日志 / Shell' "$cyan" "$red" "$muted" "$reset"
+  menu_option_line '  [03] 版本与更新        镜像 / Edition / 回滚' "$cyan" "$red" "$muted" "$reset"
+  menu_option_line '  [04] 配置与安全        API / Token / 权限' "$cyan" "$red" "$muted" "$reset"
+  menu_option_line '  [05] 网络与服务        代理 / 搜索 / Dashboard' "$cyan" "$red" "$muted" "$reset"
+  menu_option_line '  [06] 数据与维护        存储 / 备份 / 诊断 / 卸载' "$cyan" "$red" "$muted" "$reset"
+  printf '\n'
   menu_option_line '  [ 0] 退出' "$cyan" "$red" "$muted" "$reset"
-  printf '  %s输入编号后回车 · Ctrl-D 退出%s\n' "$muted" "$reset"
+  printf '  %s输入编号选择 · Ctrl-D 退出%s\n' "$muted" "$reset"
+}
+
+menu_category_title() {
+  case "$1" in
+    instances) printf '实例管理' ;;
+    runtime) printf '运行管理' ;;
+    versions) printf '版本与更新' ;;
+    config) printf '配置与安全' ;;
+    network) printf '网络与服务' ;;
+    data) printf '数据与维护' ;;
+  esac
+}
+
+# One action per line, including narrow terminals. This layout never requires
+# two-column width calculations and keeps destructive actions out of the home.
+menu_render_category() {
+  local category="$1" title="" line="" cyan="" red="" muted="" reset=""
+  title="$(menu_category_title "$category")"
+  if menu_colors_enabled; then
+    cyan=$'\033[1;36m'; red=$'\033[1;31m'
+    muted=$'\033[90m'; reset=$'\033[0m'
+  fi
+  printf '\n  %s◆%s %s  %s·  实例 %s%s%s\n' "$cyan" "$reset" "$title" "$muted" \
+    "${DSHD_INSTANCE_ID:-default}" "$reset" ""
+  printf '  %s──────────────────────────────────────────%s\n\n' "$muted" "$reset"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "$line" == *卸载* ]]; then
+      # Uninstall is the only destructive action highlighted in red.
+      menu_option_line "$line" "$red" "$red" "$muted" "$reset"
+    else
+      menu_option_line "$line" "$cyan" "$red" "$muted" "$reset"
+    fi
+  done < <(
+    case "$category" in
+      instances) cat <<'OPTIONS'
+  [01] 查看全部实例
+  [02] 创建新实例
+  [03] 选择 / 管理实例
+  [04] 返回默认实例
+OPTIONS
+      ;;
+      runtime) cat <<'OPTIONS'
+  [01] 查看状态
+  [02] 启动容器
+  [03] 停止容器
+  [04] 重启容器
+  [05] 实时日志
+  [06] 进入 Shell
+  [07] 查看开发环境
+  [08] 安装 / 初始化
+OPTIONS
+      ;;
+      versions) cat <<'OPTIONS'
+  [01] 更新镜像并安全重建
+  [02] 切换 Edition
+  [03] 切换 Research Pack
+  [04] 按当前配置重建
+  [05] 查看回滚状态
+  [06] 回滚到上一版本
+  [07] 清理回滚容器
+  [08] 更新 dshd 管理器
+OPTIONS
+      ;;
+      config) cat <<'OPTIONS'
+  [01] 修改完整配置
+  [02] DeepSeek API / Base URL
+  [03] Trusted Hosts
+  [04] Whale Widget 远程写权限
+  [05] Docker 项目管理权限
+  [06] Web 登录 Token 管理
+OPTIONS
+      ;;
+      network) cat <<'OPTIONS'
+  [01] 国际网络 / sing-box
+  [02] Web Search / SearXNG
+  [03] Dashboard 状态
+  [04] 启动 Dashboard
+  [05] 停止 Dashboard
+  [06] Dashboard 日志
+  [07] 修改 Dashboard 端口
+OPTIONS
+      ;;
+      data) cat <<'OPTIONS'
+  [01] 查看持久化存储
+  [02] 管理自定义挂载
+  [03] 备份数据
+  [04] 恢复数据
+  [05] 环境诊断
+  [06] 插件诊断
+  [07] 卸载当前实例（危险）
+OPTIONS
+      ;;
+    esac
+  )
+  printf '\n'
+  menu_option_line '  [ 0] 返回主菜单' "$cyan" "$red" "$muted" "$reset"
+}
+
+menu_pause() {
+  local ignored=""
+  # EOF is not retried: scripts and piped input must never spin.
+  read -r -p $'\n按 Enter 继续...' ignored || true
+}
+
+menu_instances_add() {
+  local id="" edition=""
+  menu_read id '新实例 ID: ' || return 0
+  [[ -n "$id" ]] || { warn '实例 ID 不能为空。'; return 0; }
+  menu_read edition 'Edition [standard/research/research-economics/reverse] (默认 standard): ' || return 0
+  run_action instance_add "$id" "${edition:-standard}"
+}
+
+menu_instances_select() {
+  local id=""
+  cmd_instances
+  menu_read id '选择实例 ID（default / reverse / 自定义 ID）: ' || return 0
+  [[ -n "$id" ]] || return 0
+  if [[ "$id" == "${DSHD_INSTANCE_ID:-default}" ]]; then
+    info '已经位于该实例中。'
+  else
+    run_action instance_exec "$id" menu
+  fi
+}
+
+menu_dashboard_port() {
+  local port=""
+  menu_read port 'Dashboard 宿主机端口 (1-65535): ' || return 0
+  [[ -n "$port" ]] || return 0
+  run_action cmd_dashboard port "$port"
+}
+
+# The return status is a UI hint, not a command outcome:
+# 0 = show "Enter to continue"; 10 = child menu handles its own input.
+menu_category_action() {
+  local category="$1" choice="$2"
+  case "$category:$choice" in
+    instances:1) run_action cmd_instances ;;
+    instances:2) menu_instances_add ;;
+    instances:3) menu_instances_select; return 10 ;;
+    instances:4) run_action instance_exec default menu; return 10 ;;
+    runtime:1) run_action cmd_status ;;
+    runtime:2) run_action cmd_start ;;
+    runtime:3) run_action cmd_stop ;;
+    runtime:4) run_action cmd_restart ;;
+    runtime:5) run_action cmd_logs ;;
+    runtime:6) run_action cmd_shell ;;
+    runtime:7) run_action cmd_env ;;
+    runtime:8) run_action cmd_install ;;
+    versions:1) run_action cmd_update ;;
+    versions:2) run_action cmd_edition_menu; return 10 ;;
+    versions:3) run_action cmd_research_pack_menu; return 10 ;;
+    versions:4) run_action cmd_recreate ;;
+    versions:5) run_action cmd_rollback status ;;
+    versions:6) run_action cmd_rollback apply ;;
+    versions:7) run_action cmd_rollback clear ;;
+    versions:8) run_action cmd_self_update ;;
+    config:1) run_action cmd_config ;;
+    config:2) run_action cmd_api ;;
+    config:3) run_action cmd_hosts ;;
+    config:4) run_action cmd_admin_hosts ;;
+    config:5) run_action cmd_docker_access ;;
+    config:6) run_action cmd_token_menu; return 10 ;;
+    network:1) run_action cmd_proxy; return 10 ;;
+    network:2) run_action cmd_search_menu; return 10 ;;
+    network:3) run_action cmd_dashboard status ;;
+    network:4) run_action cmd_dashboard start ;;
+    network:5) run_action cmd_dashboard stop ;;
+    network:6) run_action cmd_dashboard logs ;;
+    network:7) menu_dashboard_port ;;
+    data:1) run_action cmd_storage show ;;
+    data:2) run_action cmd_mounts_menu; return 10 ;;
+    data:3) run_action cmd_backup ;;
+    data:4) run_action cmd_restore ;;
+    data:5) run_action cmd_doctor ;;
+    data:6) run_action cmd_doctor_plugins ;;
+    data:7) run_action cmd_uninstall ;;
+    *) warn '无效选项'; return 10 ;;
+  esac
+  return 0
+}
+
+menu_category() {
+  local category="$1" choice="" rc=0 action_rc=0
+  while true; do
+    clear 2>/dev/null || true
+    menu_render_category "$category"
+    rc=0
+    menu_read choice '请选择 (0 返回): ' || rc=$?
+    if (( rc == 2 )); then continue; fi
+    (( rc == 0 )) || return 0
+    case "$choice" in 0|'') return 0 ;; esac
+    action_rc=0
+    menu_category_action "$category" "$choice" || action_rc=$?
+    if (( action_rc != 10 )); then menu_pause; fi
+    load_config_guarded || warn '配置读取失败，部分操作可能不可用。'
+  done
 }
 
 menu() {
@@ -5571,59 +5718,32 @@ menu() {
     err "无法加载 dshd 配置，菜单已退出。"
     return 1
   fi
+  local choice="" rc=0 category=""
   while true; do
     clear 2>/dev/null || true
     menu_render_main
-    local choice=""
-    local menu_rc=0
+    rc=0
     if menu_colors_enabled; then
-      menu_read choice $'\n\033[1;36m›\033[0m 请选择: ' || menu_rc=$?
+      menu_read choice $'\n\033[1;36m›\033[0m 请选择: ' || rc=$?
     else
-      menu_read choice $'\n请选择: ' || menu_rc=$?
+      menu_read choice $'\n请选择: ' || rc=$?
     fi
-    if (( menu_rc == 2 )); then continue; fi
-    (( menu_rc == 0 )) || return 0
-    printf '\n'
+    if (( rc == 2 )); then continue; fi
+    (( rc == 0 )) || return 0
     case "$choice" in
-      1) run_action cmd_install ;;
-      2) run_action cmd_status ;;
-      3) run_action cmd_start ;;
-      4) run_action cmd_stop ;;
-      5) run_action cmd_restart ;;
-      6) run_action cmd_logs ;;
-      7) run_action cmd_update ;;
-      8) run_action cmd_config ;;
-      9) run_action cmd_api ;;
-      10) run_action cmd_hosts ;;
-      11) run_action cmd_docker_access ;;
-      12) run_action cmd_env ;;
-      13) run_action cmd_token_menu ;;
-      14) run_action cmd_shell ;;
-      15) run_action cmd_backup ;;
-      16) run_action cmd_restore ;;
-      17) run_action cmd_doctor ;;
-      18) run_action cmd_recreate ;;
-      19) run_action cmd_self_update ;;
-      20) run_action cmd_uninstall ;;
-      21) run_action cmd_edition_menu ;;
-      22) run_action cmd_research_pack_menu ;;
-      23) run_action cmd_storage show ;;
-      24) run_action cmd_dashboard status ;;
-      25) run_action cmd_admin_hosts ;;
-      26) run_action cmd_mounts_menu ;;
-      27) run_action cmd_proxy ;;
-      28) run_action cmd_search_menu ;;
-      29) run_action cmd_instances_menu ;;
-      0) return ;;
-      *) warn "无效选项" ;;
+      1|01) category=instances ;;
+      2|02) category=runtime ;;
+      3|03) category=versions ;;
+      4|04) category=config ;;
+      5|05) category=network ;;
+      6|06) category=data ;;
+      0|'') return 0 ;;
+      *) warn '无效选项'; continue ;;
     esac
-    if [[ "$choice" != "6" && "$choice" != "13" && "$choice" != "14" && "$choice" != "28" ]]; then
-      read -r -p $'\n按 Enter 返回菜单...' _ || true
-    fi
-    load_config_guarded || warn "当前配置存在问题，部分操作可能不可用。"
+    menu_category "$category"
+    load_config_guarded || warn '当前配置存在问题，部分操作可能不可用。'
   done
 }
-
 
 # Multi-instance registry. The original $STATE_DIR remains the default instance;
 # $STATE_DIR-reverse is supported for older dedicated Reverse installations.
