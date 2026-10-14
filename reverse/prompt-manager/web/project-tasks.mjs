@@ -5,6 +5,8 @@ import { mkdirSync, lstatSync, readdirSync, openSync, writeFileSync, closeSync, 
 import { resolve, relative, sep, join, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
+import { projects } from './projects.mjs'
+import { auditRecovery } from './recovery-audit.mjs'
 const ROOT=resolve(process.env.DSH_REVERSE_WORKSPACE_ROOT || '/workspace')
 const STORE=join(ROOT,'.reverse-tasks')
 const ALLOW={triage:1,'js-triage':1,ghidra:1,diff:2,verify:1}
@@ -91,7 +93,33 @@ export function recoverProjectTasks(projectId) {
       recovered.push(id)
     }catch {skipped.push(id)}
   }
+  auditRecovery({project_id:projectId,recovered,skipped})
   return {recovered,skipped}
+}
+
+/** Read-only inventory: only staged JSON tasks; no deletion or implicit recovery. */
+export function inspectOrphanTasks() {
+  validateTaskStore()
+  const linked=new Set()
+  for(const p of projects()) {
+    try {
+      for(const item of projectLinks(p.id).entries)if(item.kind==='task')linked.add(item.ref)
+    } catch { /* Invalid project indices must not cause execution or deletion. */ }
+  }
+  const orphan=[],linkedStaged=[],invalid=[]
+  const names=readdirSync(STORE).filter(x=>x.endsWith('.json')).slice(0,300)
+  for(const name of names) {
+    try {
+      const id=name.slice(0,-5)
+      if(!/^[0-9a-f-]{36}$/.test(id))continue
+      const path=join(STORE,name),st=lstatSync(path)
+      if(!st.isFile()||st.size>30000)throw Error('unsafe record')
+      const d=JSON.parse(readFileSync(path,'utf8'))
+      if(d.id!==id||d.schema!=='dsh-reverse-task/v1')throw Error('invalid record')
+      if(d.state==='staging')(linked.has(id)?linkedStaged:orphan).push(id)
+    } catch {invalid.push(name.slice(0,80))}
+  }
+  return {orphan,linked_staged:linkedStaged,invalid}
 }
 
 /** Explicit reconciliation: existing successful reports only, never executes tasks. */

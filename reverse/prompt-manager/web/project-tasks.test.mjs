@@ -6,7 +6,7 @@ import { join } from 'node:path'
 const home=mkdtempSync(join(tmpdir(),'reverse-project-queue-'))
 process.env.DSH_REVERSE_WORKSPACE_ROOT=home
 const {createProject}=await import('./projects.mjs')
-const {createProjectTask,reconcileProjectResults,recoverProjectTasks}=await import('./project-tasks.mjs')
+const {createProjectTask,reconcileProjectResults,recoverProjectTasks,inspectOrphanTasks}=await import('./project-tasks.mjs')
 const {projectLinks}=await import('./project-links.mjs')
 const p=createProject('Queued Analysis')
 test('enqueue creates durable task and links it to project without executing',()=>{
@@ -46,5 +46,21 @@ test('recovery commits only linked staged records after validation',()=>{
  assert.equal(recoverProjectTasks(p.id).recovered.includes(task.id),true)
  assert.equal(JSON.parse(readFileSync(file,'utf8')).state,'queued')
  assert.deepEqual(recoverProjectTasks(p.id).recovered,[])
+})
+test('orphan staging tasks are only inventoried; recovery is audited',()=>{
+ const existing=createProjectTask(p.id,'triage',['sample.bin'])
+ const file=join(home,'.reverse-tasks',existing.id+'.json')
+ const state=JSON.parse(readFileSync(file,'utf8'));state.state='staging'
+ writeFileSync(file,JSON.stringify(state))
+ const id='00000000-0000-4000-8000-000000000001'
+ writeFileSync(join(home,'.reverse-tasks',id+'.json'),JSON.stringify({...state,id}))
+ const found=inspectOrphanTasks()
+ assert.ok(found.orphan.includes(id))
+ assert.ok(found.linked_staged.includes(existing.id))
+ const recovered=recoverProjectTasks(p.id)
+ assert.ok(recovered.recovered.includes(existing.id))
+ assert.equal(JSON.parse(readFileSync(join(home,'.reverse-tasks',id+'.json'),'utf8')).state,'staging')
+ const logs=readFileSync(join(home,'.reverse-tasks','recovery-audit.jsonl'),'utf8').trim().split('\n')
+ assert.ok(logs.some(line=>JSON.parse(line).recovered.includes(existing.id)))
 })
 test.after(()=>rmSync(home,{force:true,recursive:true}))
