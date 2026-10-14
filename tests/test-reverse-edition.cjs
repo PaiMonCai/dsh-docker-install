@@ -105,3 +105,8 @@ test('Phase one ships native analysis and a real session readiness gate',()=>{
  assert.match(workflow,/DSH_REVERSE_CI_SESSION_CREATED/)
  assert.ok(workflow.includes('unittest discover -s reverse/tests'))
 })
+
+test('Reverse disables live config HMR to preserve sessionController lifetime',()=>{
+ assert.match(read('reverse/cordis.patch.yml'),/- id: hmr\n  disabled: true/)
+ assert.doesNotMatch(read('docker-compose.yml'),/DSH_REVERSE_AGENT_PATCH/)
+})

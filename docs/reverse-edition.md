@@ -63,3 +63,5 @@ Triage 输出 `report.json`（`dsh-reverse-evidence/v1`）和 `report.md`，带 
 逆向镜像增加 `dsh-reverse-session-health` 插件，仅当 `sessionController` 注入成功时生成临时状态标志。Reverse 专属 Docker HEALTHCHECK 同时检查 Web 和会话标志。CI 再执行真正的 `sessionController.create({ agentPreset: 'reverse-engineering' })`，而非仅验证 Web 端口、Agent 列表。
 
 **注意：该门禁能暴露并阻止坏镜像通过 CI，但不是上游 sessionController 依赖冲突本身的修复。** 如果门禁失败，应收集启动诊断和插件状态，而不是删除用户持久化数据。
+
+为了规避 DSH 上游已记录的 Web Profile 热重载与会话控制器生命周期冲突，Reverse 的 Cordis overlay 默认禁用 `hmr`。修改插件、Profile 或相关补丁后，必须显式重启 Reverse 容器才会生效；Standard 不受影响。

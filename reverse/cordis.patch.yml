@@ -1,4 +1,8 @@
 # Reverse Edition native Agent preset; no global host policy changes.
+# Prevent upstream profile HMR from leaving sessionController unavailable after reload.
+- id: hmr
+  disabled: true
+
 - insert:
     - id: dsh-reverse-skill-bootstrap
       name: ./skills-bootstrap.mjs
