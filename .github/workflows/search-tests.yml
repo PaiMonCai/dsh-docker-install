@@ -43,7 +43,7 @@ jobs:
           bash tests/test-dshd-search-recovery.sh
           bash tests/test-dshd-rollback.sh
           bash tests/test-dshd-instances.sh
-          bash -x tests/test-dshd-navigation.sh
+          bash tests/test-dshd-navigation.sh
           bash tests/test-dshd-reverse-install.sh
           bash tests/test-dshd-storage.sh
           bash tests/test-dshd-interactive.sh
