@@ -1,5 +1,5 @@
 /** Project links: references only; does not execute samples or mutate task records. */
-import { existsSync, lstatSync, readFileSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync, mkdirSync, rmdirSync, fsyncSync } from 'node:fs'
 import { randomUUID, createHash } from 'node:crypto'
 import { join, resolve, relative, sep, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
@@ -13,7 +13,7 @@ function readLinks(projectId) {
   const file=targetPath(projectId)
   if (!existsSync(file)) return {schema:'dsh-reverse-project-links/v1',project_id:projectId,entries:[]}
   const st=lstatSync(file)
-  if (!st.isFile()||st.size>40000) throw Error('invalid project links')
+  if (st.isSymbolicLink() || !st.isFile()||st.size>40000) throw Error('invalid project links')
   const data=JSON.parse(readFileSync(file,'utf8'))
   if (data.schema!=='dsh-reverse-project-links/v1'||data.project_id!==projectId||
       !Array.isArray(data.entries)||data.entries.length>LIMIT) throw Error('invalid links schema')
@@ -22,7 +22,7 @@ function readLinks(projectId) {
 function writeLinks(projectId,data) {
   const final=targetPath(projectId),temp=join(PROJECT_DIR,'.'+randomUUID()+'.tmp')
   const fd=openSync(temp,'wx',0o600)
-  try {writeFileSync(fd,JSON.stringify(data,null,2)+'\n');closeSync(fd);renameSync(temp,final)}
+  try {writeFileSync(fd,JSON.stringify(data,null,2)+'\n');fsyncSync(fd);closeSync(fd);renameSync(temp,final)}
   catch(e){try{closeSync(fd)}catch{};try{unlinkSync(temp)}catch{};throw e}
 }
 function localFile(input) {
@@ -56,6 +56,16 @@ export function projectLinks(id) {
 }
 export function attachProjectItem(id,kind,ref) {
   if(!['sample','task','evidence'].includes(kind)) throw Error('invalid link type')
+  // mkdir is exclusive across processes: refuse concurrent writes instead of losing updates.
+  // A stale lock requires explicit operator review, never silently steal it.
+  project(id)
+  const lock=join(PROJECT_DIR,id+'.links.lock')
+  try {mkdirSync(lock,{mode:0o700})}
+  catch(error) {if(error.code==='EEXIST')throw Error('project links are being updated');throw error}
+  try {return attachLocked(id,kind,ref)}
+  finally {rmdirSync(lock)}
+}
+function attachLocked(id,kind,ref) {
   const data=readLinks(id)
   let item
   if(kind==='task') {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -36,5 +36,19 @@ test('project links reject unsafe paths, arbitrary formats and invalid task IDs'
  assert.throws(()=>attachProjectItem(p.id,'task','invalid'))
  assert.throws(()=>attachProjectItem(p.id,'evidence','sample.elf'))
  assert.throws(()=>attachProjectItem(p.id,'shell','sample.elf'))
+})
+test('exclusive cross-process lock refuses overlapping project writes without overwriting',()=>{
+ const lock=join(home,'.reverse-projects',p.id+'.links.lock')
+ const before=projectLinks(p.id).entries.length
+ mkdirSync(lock)
+ assert.throws(()=>attachProjectItem(p.id,'sample','sample.elf'),/being updated/)
+ assert.equal(projectLinks(p.id).entries.length,before)
+ rmSync(lock,{recursive:true})
+ attachProjectItem(p.id,'sample','sample.elf')
+ assert.equal(projectLinks(p.id).entries.length,before)
+})
+test('lock is released after validation error',()=>{
+ assert.throws(()=>attachProjectItem(p.id,'evidence','sample.elf'))
+ assert.ok(!existsSync(join(home,'.reverse-projects',p.id+'.links.lock')))
 })
 test.after(()=>rmSync(home,{recursive:true,force:true}))
