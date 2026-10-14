@@ -103,5 +103,5 @@ test('Phase one ships native analysis and a real session readiness gate',()=>{
  assert.match(overlay,/id: dsh-reverse-session-health/)
  assert.match(read('reverse/preset-smoke.mjs'),/sessionController\\.create/)
  assert.match(workflow,/DSH_REVERSE_CI_SESSION_CREATED/)
- assert.match(workflow,/test_triage/)
+ assert.ok(workflow.includes('unittest discover -s reverse/tests'))
 })
