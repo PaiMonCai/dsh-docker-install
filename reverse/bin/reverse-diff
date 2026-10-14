@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Offline, bounded comparison of two Ghidra v2 JSON reports; no executable runs."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+MAX_REPORT = 8 * 1024 * 1024
+
+def load(path):
+    p = Path(path).expanduser()
+    if p.is_symlink():
+        raise ValueError("symlinks are rejected")
+    p = p.resolve(strict=True)
+    if not p.is_file() or not p.is_relative_to(ROOT) or p.stat().st_size > MAX_REPORT:
+        raise ValueError("report must be a bounded workspace file")
+    data = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema") != "dsh-reverse-ghidra/v2":
+        raise ValueError("expected Ghidra v2 report")
+    if not isinstance(data.get("functions"), list) or len(data["functions"]) > 200:
+        raise ValueError("invalid function list")
+    return data
+
+def summarize(data):
+    functions = {}
+    for f in data["functions"]:
+        if not isinstance(f, dict) or not isinstance(f.get("address"), str):
+            raise ValueError("invalid function record")
+        if len(f["address"]) > 64 or len(f.get("name", "")) > 200:
+            raise ValueError("invalid function attributes")
+        functions[f["address"]] = {
+            "name": f.get("name", ""), "signature": f.get("signature", ""),
+            "pseudocode": f.get("pseudocode", "")
+        }
+    graph = data.get("call_graph", {})
+    if not isinstance(graph, dict) or not isinstance(graph.get("edges"), list):
+        raise ValueError("invalid graph")
+    if len(graph["edges"]) > 4000:
+        raise ValueError("graph exceeds comparison limit")
+    edges = set()
+    for edge in graph["edges"]:
+        if not isinstance(edge, dict) or edge.get("kind") != "call":
+            raise ValueError("invalid edge")
+        source, target = edge.get("source"), edge.get("target")
+        if not isinstance(source, str) or not isinstance(target, str):
+            raise ValueError("invalid edge endpoint")
+        edges.add((source, target))
+    return functions, edges
+
+def compare(left, right):
+    a, ae = summarize(left)
+    b, be = summarize(right)
+    changed = []
+    for address in sorted(a.keys() & b.keys()):
+        diff = [k for k in ("name", "signature", "pseudocode") if a[address][k] != b[address][k]]
+        if diff:
+            changed.append({"address": address, "fields": diff,
+                            "old_name": a[address]["name"], "new_name": b[address]["name"]})
+    return {"schema": "dsh-reverse-diff/v1",
+        "left_program": left.get("program"), "right_program": right.get("program"),
+        "functions_added": sorted(b.keys() - a.keys()),
+        "functions_removed": sorted(a.keys() - b.keys()),
+        "functions_modified": changed,
+        "edges_added": [{"source": s, "target": t} for s,t in sorted(be-ae)],
+        "edges_removed": [{"source": s, "target": t} for s,t in sorted(ae-be)],
+        "limitations": [
+            "Address-based comparison: relinked builds can move equivalent functions.",
+            "Pseudocode changes may reflect decompiler differences.",
+            "Calls outside exported functions and indirect calls are omitted."
+        ]}
+
+def main():
+    parser = argparse.ArgumentParser(description="Offline static Ghidra report comparison")
+    parser.add_argument("left")
+    parser.add_argument("right")
+    args = parser.parse_args()
+    try:
+        print(json.dumps(compare(load(args.left), load(args.right)), indent=2))
+        return 0
+    except (ValueError, OSError, json.JSONDecodeError) as e:
+        print("reverse-diff: " + str(e), file=sys.stderr)
+        return 2
+
+if __name__ == "__main__":
+    sys.exit(main())

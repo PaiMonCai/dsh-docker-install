@@ -200,7 +200,7 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-prompt; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-prompt; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
             node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs
