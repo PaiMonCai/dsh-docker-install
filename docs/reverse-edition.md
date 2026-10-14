@@ -92,3 +92,31 @@ reverse-prompt remove custom  # 须先禁用或切换当前预设
 用户状态位于 `$DSH_HOME/reverse-engineering/prompt-manager/state.json`，用户预设位于其 `presets/*.json`，由命令行原子写入，0600 权限。每次创建提示词会读取新配置；配置损坏、上游 Reverse Persona 锚点变化或模式不匹配时保持原文并记录去重警告，不阻断会话。
 
 `preview` 只展示**变更分块的离线模拟预览**，并非完整真实会话 Prompt；不包含实际插件上下文与工具定义。工具的执行权限、审批和沙箱不会因提示词改变而扩大。禁止将不可信样本内容直接导入受信提示词，分析样本应始终作为数据处理。单个预设的文本最大约 12 KiB。
+
+
+### Prompt Manager 增强：真实组装检查与分块级编辑
+
+新增子命令（只适用于新版 Reverse 镜像）：
+
+\`\`\`bash
+docker exec dsh-reverse reverse-prompt inspect       # 最近一次真实组装的分块名、大小、哈希
+docker exec dsh-reverse reverse-prompt doctor        # 配置、注入状态和兼容性诊断
+docker exec dsh-reverse reverse-prompt capture-next  # 5 分钟内显式采集下一次 Reverse 组装
+# 发送一次 Reverse Agent 消息后：
+docker exec dsh-reverse reverse-prompt capture-show
+docker exec dsh-reverse reverse-prompt preview-live evidence
+docker exec dsh-reverse reverse-prompt capture-clear # 删除原始采集文本
+
+docker cp analysis-guide.txt dsh-reverse:/workspace/analysis-guide.txt
+docker exec dsh-reverse reverse-prompt section-set custom-guidance reverse:user-analysis /workspace/analysis-guide.txt
+docker exec dsh-reverse reverse-prompt section-list custom-guidance
+docker exec dsh-reverse reverse-prompt activate custom-guidance
+docker exec dsh-reverse reverse-prompt history custom-guidance
+docker exec dsh-reverse reverse-prompt rollback custom-guidance REVISION.json
+\`\`\`
+
+分块规则仅可增加 reverse:user-* 指令块（锚点为 Reverse Persona 或同一预设先前新增的分块），以及仅替换 Reverse Persona；拒绝覆盖 DSH 身份、工具协议、Plan 审批或其他 Agent 分块。每次保存已有用户分块预设会生成历史版本，最多保留 8 个版本，可回滚。旧版 append、replace-persona 格式仍兼容。
+
+默认只记录真实组装时分块名称、大小和 SHA-256，不持久记录完整 System Prompt。完整原始 Section 文本仅在明确执行 capture-next 后采集一次，5 分钟内有效，采集上限 512 KiB；不会记录用户消息、变量值或工具 schema。采集文件位于私有 Reverse DSH_HOME 内且权限为 0600，直到 capture-clear 才删除。采集文本可能包含敏感系统指令，请勿公开。
+
+注意：这是运行时实际观察到的 System Prompt Sections，在 DSH 最终渲染插值之前；不代表完整最终模型请求。当前为本地 CLI 配置和检查，尚未开发 Web 可视化编辑器。

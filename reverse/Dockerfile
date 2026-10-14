@@ -93,6 +93,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/core.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/index.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/cli.mjs \
+ && node --check /opt/dsh-reverse/prompt-manager/inspect.mjs \
  && reverse-prompt list >/dev/null \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --check /opt/dsh-reverse/service-health.mjs \

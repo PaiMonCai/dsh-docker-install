@@ -30,12 +30,51 @@ function normalizeState(s) {
 }
 function normalizePreset(p, name) {
   if (!p || p.schema !== 1 || p.name !== name || typeof p.title !== 'string' ||
-      !p.title.trim() || Buffer.byteLength(p.title) > 120 ||
-      !['append', 'replace-persona'].includes(p.mode) ||
+      !p.title.trim() || Buffer.byteLength(p.title) > 120) {
+    throw Error('invalid prompt preset: ' + name)
+  }
+  if (p.mode === 'sections') {
+    const rules = validateRules(p.rules)
+    return { schema: 1, name, title: p.title.trim(), mode: 'sections', rules }
+  }
+  if (!['append', 'replace-persona'].includes(p.mode) ||
       typeof p.text !== 'string' || !p.text.trim() || Buffer.byteLength(p.text) > LIMIT)
     throw Error('invalid prompt preset: ' + name)
   if (/{{[^{}]*}}/.test(p.text)) throw Error('DSH {{variable}} syntax is not supported in custom prompts')
   return { schema: 1, name, title: p.title.trim(), mode: p.mode, text: p.text }
+}
+/** Rules are limited to Reverse-owned sections and its Persona.
+ * Tool schemas, host identity, approval policies and other sections are immutable.
+ */
+export function validateRules(rules) {
+  if (!Array.isArray(rules) || rules.length < 1 || rules.length > 8)
+    throw Error('section preset must contain 1..8 rules')
+  const names = new Set()
+  const validated = []
+  for (const rule of rules) {
+    if (!rule || !['insert-after', 'replace'].includes(rule.action) ||
+        typeof rule.text !== 'string' || !rule.text.trim() ||
+        Buffer.byteLength(rule.text) > LIMIT || /{{[^{}]*}}/.test(rule.text))
+      throw Error('invalid section rule')
+    if (rule.action === 'replace') {
+      if (rule.section !== 'deployment:persona-prefix')
+        throw Error('only the Reverse persona is replaceable')
+      if (names.has(rule.section)) throw Error('duplicate section rule')
+      names.add(rule.section)
+      validated.push({ action: 'replace', section: rule.section, text: rule.text })
+      continue
+    }
+    if (typeof rule.section !== 'string' ||
+        !/^reverse:user-[a-z][a-z0-9-]{0,39}$/.test(rule.section) ||
+        names.has(rule.section) ||
+        !(rule.after === 'deployment:persona-prefix' || names.has(rule.after)))
+      throw Error('insert requires a unique reverse:user-* section and an existing approved anchor')
+    names.add(rule.section)
+    validated.push({ action: 'insert-after', section: rule.section, after: rule.after, text: rule.text })
+  }
+  if (Buffer.byteLength(JSON.stringify(validated)) > LIMIT)
+    throw Error('section rules exceed maximum combined size')
+  return validated
 }
 function builtIn(name) { return join(builtinRoot, slug(name) + '.json') }
 function userFile(name, home) { return join(root(home), 'presets', slug(name) + '.json') }
@@ -63,7 +102,7 @@ export function readActive(home) {
   const state = readState(home)
   return { state, preset: state.enabled ? loadPreset(state.active, home) : null }
 }
-function atomic(path, contents) {
+export function atomic(path, contents) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   if (existsSync(path) && !lstatSync(path).isFile()) throw Error('unsafe destination')
   const tmp = path + '.' + randomUUID() + '.tmp'
@@ -101,7 +140,7 @@ export function removePreset(name, home) {
   unlinkSync(path)
 }
 export function fingerprint(p) {
-  return createHash('sha256').update(p.mode + '\n' + p.text).digest('hex').slice(0, 16)
+  return createHash('sha256').update(p.mode + '\n' + (p.mode === 'sections' ? JSON.stringify(p.rules) : p.text)).digest('hex').slice(0, 16)
 }
 /** Both runtime and offline previews use this immutable transformer. */
 export function applyPreset(sections, preset) {
@@ -112,6 +151,22 @@ export function applyPreset(sections, preset) {
     return { changed: false, reason: 'Reverse persona changed or missing', sections }
   if (sections.some(row => row?.name === SECTION))
     return { changed: false, reason: 'guidance section already exists', sections }
+  if (preset.mode === 'sections') {
+    const rules = validateRules(preset.rules)
+    let applied = sections.slice()
+    for (const rule of rules) {
+      if (rule.action === 'replace') {
+        const idx = applied.findIndex(row => row.name === 'deployment:persona-prefix')
+        applied = applied.map((row, i) => i === idx ? { ...row, text: rule.text } : row)
+        continue
+      }
+      const idx = applied.findIndex(row => row.name === rule.after)
+      if (idx < 0 || applied.some(row => row.name === rule.section))
+        return { changed: false, reason: 'section anchor missing or duplicate', sections }
+      applied.splice(idx + 1, 0, { name: rule.section, text: rule.text, interpolate: false })
+    }
+    return { changed: true, sections: applied }
+  }
   if (preset.mode === 'replace-persona') {
     return { changed: true, sections: sections.map((row, i) => i === n ? { ...row, text: preset.text } : row) }
   }
@@ -119,4 +174,50 @@ export function applyPreset(sections, preset) {
   const merged = sections.slice()
   merged.splice(n + 1, 0, { name: SECTION, text: preset.text })
   return { changed: true, sections: merged }
+}
+
+
+/** Only user-owned presets can be edited; snapshot previous versions privately. */
+export function saveSectionPreset(name, rules, home, title = name) {
+  name = slug(name)
+  if (existsSync(builtIn(name))) throw Error('built-in presets are read-only')
+  const preset = normalizePreset({ schema: 1, name, title, mode: 'sections', rules }, name)
+  const path = userFile(name, home)
+  const previous = readSmall(path)
+  if (previous !== undefined) {
+    const backup = join(root(home), 'history', name, String(Date.now()) + '-' + randomUUID() + '.json')
+    atomic(backup, JSON.stringify(previous, null, 2) + '\n')
+    const versions = listVersions(name, home)
+    for (const stale of versions.slice(8)) unlinkSync(join(root(home), 'history', name, stale))
+  }
+  atomic(path, JSON.stringify(preset, null, 2) + '\n')
+  return preset
+}
+export function listVersions(name, home) {
+  name = slug(name)
+  const folder = join(root(home), 'history', name)
+  if (!existsSync(folder)) return []
+  if (!lstatSync(folder).isDirectory()) throw Error('invalid prompt history directory')
+  return readdirSync(folder)
+    .filter(entry => /^\d{13}-[0-9a-f-]{36}\.json$/.test(entry))
+    .sort().reverse()
+}
+export function restoreVersion(name, revision, home) {
+  name = slug(name)
+  if (existsSync(builtIn(name))) throw Error('built-in presets are read-only')
+  if (typeof revision !== 'string' || !/^\d{13}-[0-9a-f-]{36}\.json$/.test(revision))
+    throw Error('invalid revision id')
+  const prior = readSmall(join(root(home), 'history', name, revision))
+  if (!prior) throw Error('revision does not exist')
+  const verified = normalizePreset(prior, name)
+  const file = userFile(name, home)
+  const current = readSmall(file)
+  if (current !== undefined) {
+    const backup = join(root(home), 'history', name, String(Date.now()) + '-' + randomUUID() + '.json')
+    atomic(backup, JSON.stringify(current, null, 2) + '\n')
+  }
+  atomic(file, JSON.stringify(verified, null, 2) + '\n')
+  for (const stale of listVersions(name, home).slice(8))
+    unlinkSync(join(root(home), 'history', name, stale))
+  return verified
 }

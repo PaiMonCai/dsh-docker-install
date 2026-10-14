@@ -125,3 +125,17 @@ test('Reverse native Prompt Manager is scoped, rollback-safe and image-owned',()
  assert.ok(read('reverse/prompt-manager/index.mjs').includes("'reverse-engineering'"))
  assert.doesNotMatch(read('docker-compose.yml'),/DSH_REVERSE_PROMPT/)
 })
+
+
+test('Reverse Prompt Manager supports live snapshot and bounded section editor',()=>{
+  const overlay=read('reverse/cordis.patch.yml')
+  const docker=read('reverse/Dockerfile')
+  const workflow=read('.github/workflows/build-reverse.yml')
+  for(const p of ['reverse/prompt-manager/inspect.mjs',
+    'reverse/prompt-manager/test/image-audit.mjs']) assert.ok(fs.existsSync(path.join(root,p)),p)
+  assert.match(docker,/prompt-manager\/inspect\.mjs/)
+  assert.match(workflow,/prompt-manager\/test\/image-audit\.mjs/)
+  assert.match(overlay,/dsh-reverse-prompt-manager/)
+  assert.ok(read('reverse/prompt-manager/core.mjs').includes('reverse:user-'))
+  assert.ok(read('reverse/prompt-manager/index.mjs').includes('recordAssembly'))
+})

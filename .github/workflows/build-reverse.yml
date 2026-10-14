@@ -108,6 +108,8 @@ jobs:
           node --check reverse/prompt-manager/core.mjs
           node --check reverse/prompt-manager/index.mjs
           node --check reverse/prompt-manager/cli.mjs
+          node --check reverse/prompt-manager/inspect.mjs
+          node --check reverse/prompt-manager/test/image-audit.mjs
           node --test reverse/prompt-manager/test/prompt-manager.test.mjs
           node --check reverse/preset-smoke.mjs
           node --check reverse/service-health.mjs
@@ -196,8 +198,7 @@ jobs:
             for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-prompt; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
-            grep -Eq enabled.*false /tmp/reverse-prompt-status.json
-            grep -Fq evidence /tmp/reverse-prompt-list.json
+            node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs
             /opt/dsh-reverse/venv/bin/python -c "import lief, capa"
             test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
             reverse-triage --help >/dev/null
