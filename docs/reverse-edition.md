@@ -120,3 +120,12 @@ docker exec dsh-reverse reverse-prompt rollback custom-guidance REVISION.json
 默认只记录真实组装时分块名称、大小和 SHA-256，不持久记录完整 System Prompt。完整原始 Section 文本仅在明确执行 capture-next 后采集一次，5 分钟内有效，采集上限 512 KiB；不会记录用户消息、变量值或工具 schema。采集文件位于私有 Reverse DSH_HOME 内且权限为 0600，直到 capture-clear 才删除。采集文本可能包含敏感系统指令，请勿公开。
 
 注意：这是运行时实际观察到的 System Prompt Sections，在 DSH 最终渲染插值之前；不代表完整最终模型请求。当前为本地 CLI 配置和检查，尚未开发 Web 可视化编辑器。
+
+
+### 原生 Web 可视化 Prompt Manager
+
+Reverse 镜像通过 DSH Client Modules 向「设置 → 逆向提示词」注册 React 设置分区，不替换 DOM、不嵌入 iframe、不依赖 HMR。该界面提供预设列表、启用/恢复默认、用户预设创建与编辑、限定范围内的分块 JSON 规则、历史回滚、真实组装元数据检查和显式单次采集。数据处理仍使用同一套 `core.mjs` 与 `inspect.mjs`，与 `reverse-prompt` CLI 保持一致。
+
+Host 接口使用已登录 Web Client 的 `/api` RPC、仅允许 loopback 权限级别的拦截，不额外暴露公开管理路由。默认只显示 section 元信息；完整正文需要明确采集并展开，随时可以删除。页面采用 DSH 主题变量；只针对 Reverse Agent，Standard 和其他会话不受影响。
+
+**注意**：此功能必须在 PR 合并并发布新版 `:reverse` 镜像后才出现在 Web 设置页。上游 Web Client 插件加载能力可能随 DSH 版本变化，须以真实容器 UI 验证为准。

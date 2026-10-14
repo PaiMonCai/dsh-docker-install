@@ -139,3 +139,14 @@ test('Reverse Prompt Manager supports live snapshot and bounded section editor',
   assert.ok(read('reverse/prompt-manager/core.mjs').includes('reverse:user-'))
   assert.ok(read('reverse/prompt-manager/index.mjs').includes('recordAssembly'))
 })
+
+test('Reverse native Prompt Manager settings module is image-owned',()=>{
+  const overlay=read('reverse/cordis.patch.yml')
+  const workflow=read('.github/workflows/build-reverse.yml')
+  const manifest=JSON.parse(read('reverse/prompt-manager/web/package.json'))
+  assert.match(overlay,/dsh-reverse-prompt-web/)
+  assert.equal(manifest.name,'dsh-reverse-prompt-web')
+  assert.equal(manifest.dsh.client.platform,'web')
+  assert.match(read('reverse/prompt-manager/web/client.js'),/settings.section/)
+  assert.match(workflow,/prompt-manager\/web\/web.test.mjs/)
+})
