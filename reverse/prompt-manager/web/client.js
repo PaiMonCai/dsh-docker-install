@@ -76,6 +76,7 @@ window.__ModuleLoader__.load({
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
+      const [manifest,setManifest]=useState(null)
       const [openedReport,setOpenedReport]=useState(null)
       const [selectedFunction,setSelectedFunction]=useState('')
       const [functionSearch,setFunctionSearch]=useState('')
@@ -180,6 +181,20 @@ window.__ModuleLoader__.load({
               setSelectedJob(await invoke('workbenchTaskDetail',{id:job.id}))
             })},'查看状态'))),
           selectedJob ? h('pre',{style:css.pre},JSON.stringify(selectedJob,null,2)) : null,
+          h('div',{style:css.line},
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setManifest(await invoke('workbenchManifest',{path:reportPath}))
+            })},'读取并校验证据索引'),
+            manifest ? h('span',{style:css.muted},'已验证 '+manifest.verified+' / '+manifest.total) : null),
+          manifest ? h('div',{style:css.card},
+            ...manifest.reports.map(row=>h('div',{key:row.path,style:css.line},
+              h('span',{style:css.muted},(row.verified?'校验通过':'校验失败')+' · '+row.schema),
+              h('code',null,row.path),
+              h(Control,{disabled:busy||!row.verified,onClick:()=>run(async()=>{
+                setSelectedFunction('');setFunctionSearch('')
+                setReportPath(row.path)
+                setOpenedReport(await invoke('workbenchReport',{path:row.path}))
+              })},'打开证据')))) : null,
           h('div',{style:css.line},
             h(Field,{value:reportPath,onChange:setReportPath,placeholder:'工作区内 JSON 报告相对路径'}),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
