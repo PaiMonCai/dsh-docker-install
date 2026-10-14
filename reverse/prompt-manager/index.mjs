@@ -1,37 +1,54 @@
-/** Reverse-only system prompt assembly listener: never alters other Agents. */
+/** Scoped Reverse Prompt Manager; real assembly metadata and opt-in one-shot inspection. */
 import { applyPreset, readActive } from './core.mjs'
+import { recordAssembly } from './inspect.mjs'
 export const name = 'dsh-reverse-prompt-manager'
 export const inject = ['agentPresets']
 export function apply(ctx) {
   let lastWarning = ''
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const original = await next()
-    if (!context?.agent) return original
-    let presetId
-    try { presetId = ctx.agentPresets.composedPreset(context.agent.ctx) }
+    const agent = context?.agent
+    if (!agent) return original
+    let agentId
+    try { agentId = ctx.agentPresets.composedPreset(agent.ctx) }
     catch { return original }
-    if (presetId !== 'reverse-engineering') return original
+    if (agentId !== 'reverse-engineering') return original
+
+    let applied = original
+    const details = { enabled: false, injected: false, preset: null, reason: null }
     try {
-      const { preset } = readActive()
-      if (!preset) return original
-      const modified = applyPreset(original.sections, preset)
-      if (!modified.changed) {
-        if (modified.reason !== lastWarning) {
-          lastWarning = modified.reason
-          ctx.logger?.warn?.('Reverse Prompt Manager: %s; retaining original prompt', modified.reason)
+      const { state, preset } = readActive()
+      details.enabled = state.enabled
+      details.preset = preset?.name ?? null
+      if (preset) {
+        const transformed = applyPreset(original.sections, preset)
+        if (transformed.changed) {
+          applied = { ...original, sections: transformed.sections }
+          details.injected = true
+          lastWarning = ''
+        } else {
+          details.reason = transformed.reason
+          if (lastWarning !== transformed.reason) {
+            lastWarning = transformed.reason
+            ctx.logger?.warn?.('Reverse Prompt Manager: %s; original preserved', transformed.reason)
+          }
         }
-        return original
       }
-      lastWarning = ''
-      return { ...original, sections: modified.sections }
     } catch (error) {
-      const warning = String(error?.message ?? error)
-      if (warning !== lastWarning) {
-        lastWarning = warning
-        ctx.logger?.warn?.('Reverse Prompt Manager: %s; retaining original prompt', warning)
+      const msg = String(error?.message ?? error)
+      details.reason = 'invalid preset or state'
+      if (lastWarning !== msg) {
+        lastWarning = msg
+        ctx.logger?.warn?.('Reverse Prompt Manager: %s; original preserved', msg)
       }
-      return original
     }
+    // Diagnostic persistence must NEVER interrupt model requests.
+    try { recordAssembly(original, applied, details) }
+    catch (error) {
+      ctx.logger?.warn?.('Reverse Prompt Manager diagnostic write unavailable: %s',
+        String(error?.message ?? error))
+    }
+    return applied
   })
 }
 export default { name, inject, apply }
