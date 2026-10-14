@@ -180,6 +180,7 @@ window.__ModuleLoader__.load({
       const [linkRef,setLinkRef]=useState('')
       const [taskKind,setTaskKind]=useState('triage')
       const [taskInputs,setTaskInputs]=useState('')
+      const [runConfirm,setRunConfirm]=useState('')
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
@@ -249,9 +250,21 @@ window.__ModuleLoader__.load({
               setProjectLinks(results.links)
               setMessage('已同步 '+results.added.length+' 份报告；未找到 '+results.skipped.length+' 份')
             })},'同步已完成任务的证据'),
+            h('p',{style:css.muted},'Web 执行默认关闭。部署者开启后，在下方输入 EXECUTE_ONE_PROJECT_TASK 才能手动执行全局队首的项目任务。'),
+            h(Field,{value:runConfirm,onChange:setRunConfirm,placeholder:'执行确认短语'}),
             ...(projectLinks?.entries||[]).map((entry,i)=>h('div',{key:entry.kind+entry.ref+i,style:css.line},
               h('span',{style:css.muted},entry.kind+' · '+(entry.valid?'有效':'失效')),
               h('code',null,entry.ref),
+              entry.kind==='task'&&entry.valid&&entry.state==='queued'?h(Control,{
+                disabled:busy||runConfirm!=='EXECUTE_ONE_PROJECT_TASK',
+                onClick:()=>run(async()=>{
+                  const result=await invoke('workbenchProjectRunOnce',{id:activeProject.id,
+                    taskId:entry.ref,confirmation:runConfirm})
+                  setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
+                  setJobs(await invoke('workbenchTasks'))
+                  setRunConfirm('')
+                  setMessage('任务执行结果：'+result.state)
+                })},'执行队首任务'):null,
               entry.kind==='evidence'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
                 setReportPath(entry.ref)
                 setOpenedReport(await invoke('workbenchReport',{path:entry.ref}))

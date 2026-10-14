@@ -116,7 +116,7 @@ def invocation(task):
         cmd = [tool, "verify", paths[0]]
     return cmd, timeout
 
-def worker_once():
+def worker_once(expected_id=None):
     STORE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(STORE / ".worker.lock", "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -131,6 +131,8 @@ def worker_once():
         if not pending:
             return {"status": "idle"}
         task = sorted(pending, key=lambda t: (t["created_at"], t["id"]))[0]
+        if expected_id is not None and task["id"] != expected_id:
+            raise ValueError("expected task is not at the head of the queue")
         task["state"] = "running"
         task["attempts"] += 1
         task["updated_at"] = timestamp()
@@ -193,7 +195,8 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("id")
     sub.add_parser("list")
-    sub.add_parser("run-once")
+    once = sub.add_parser("run-once")
+    once.add_argument("--expected-id")
     sub.add_parser("recover")
     args = p.parse_args()
     try:
@@ -208,7 +211,7 @@ def main():
         elif args.mode == "recover":
             result = recover()
         else:
-            result = worker_once()
+            result = worker_once(args.expected_id)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, BlockingIOError, json.JSONDecodeError) as error:
