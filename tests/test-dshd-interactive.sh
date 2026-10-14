@@ -58,7 +58,7 @@ grep -Fq '[06] Web 登录 Token 管理' "$TMP/config-category.out"
 grep -q '容器 .*端口 ' "$TMP/menu.out"
 grep -q '版本 .*● ' "$TMP/menu.out"
 menu_render_main >"$TMP/menu-header.out"
-if grep -Fq 
+if grep -Fq $'\033[' "$TMP/menu-header.out"; then
   echo "重定向输出不应包含 ANSI 颜色控制符"; exit 1
 fi
 
