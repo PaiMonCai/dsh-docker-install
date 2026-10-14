@@ -23,20 +23,38 @@ export async function runProjectTask(id,taskId,confirmation) {
   return await new Promise((done,reject)=>{
     const worker=spawn('reverse-task',['run-once','--expected-id',taskId],{
       cwd:ROOT,env:{...process.env,DSH_REVERSE_WORKSPACE_ROOT:ROOT},
-      stdio:['ignore','pipe','pipe'],shell:false
+      stdio:['ignore','pipe','pipe'],shell:false,detached:true
     })
     let out='',err='',finished=false
-    const timeout=setTimeout(()=>worker.kill('SIGTERM'),960000)
+    // The CLI starts the analysis tool in this process group. Kill the entire
+    // group on timeout, not just the Python queue supervisor.
+    let expired=false
+    let escalation
+    const signalGroup=signal=>{
+      if(worker.pid && Number.isSafeInteger(worker.pid)) {
+        try {process.kill(-worker.pid,signal)} catch(error) {
+          if(error.code!=='ESRCH') throw error
+        }
+      }
+    }
+    const timeout=setTimeout(()=>{
+      expired=true
+      signalGroup('SIGTERM')
+      escalation=setTimeout(()=>signalGroup('SIGKILL'),5000)
+      escalation.unref()
+    },960000)
+    timeout.unref()
+    const cleanup=()=>{clearTimeout(timeout);if(!expired)clearTimeout(escalation)}
     worker.stdout.on('data',chunk=>{out=(out+chunk.toString()).slice(-5000)})
     worker.stderr.on('data',chunk=>{err=(err+chunk.toString()).slice(-2000)})
-    worker.on('error',error=>{if(!finished){finished=true;clearTimeout(timeout);reject(error)}})
+    worker.on('error',error=>{if(!finished){finished=true;cleanup();reject(error)}})
     worker.on('close',code=>{
       if(finished)return
-      finished=true;clearTimeout(timeout)
+      finished=true;cleanup()
       try {
         const after=taskDetail(taskId)
         done({id:taskId,state:after.state,exit_code:after.exit_code,
-          worker_exit_code:code})
+          worker_exit_code:code,timed_out:expired})
       }catch(error){reject(error)}
     })
   })

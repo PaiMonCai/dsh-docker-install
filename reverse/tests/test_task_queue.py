@@ -31,15 +31,35 @@ class ReverseTaskTest(unittest.TestCase):
         job = self.mod["enqueue"]("triage", [str(self.source)])
         class Process:
             returncode = 0
-            stdout = '{"status":"ok"}'
-            stderr = ''
-        with patch.object(self.mod["worker_once"].__globals__["subprocess"], "run", return_value=Process()) as runner:
+            def communicate(self, timeout=None):
+                return b'{"status":"ok"}', b''
+        with patch.object(self.mod["worker_once"].__globals__["subprocess"], "Popen", return_value=Process()) as runner:
             output = self.mod["worker_once"]()
         self.assertEqual(output["state"], "succeeded")
         argv = runner.call_args.args[0]
         self.assertEqual(argv[0], "reverse-triage")
         self.assertFalse(runner.call_args.kwargs["shell"])
+        self.assertTrue(runner.call_args.kwargs["start_new_session"])
         self.assertEqual(self.mod["read_task"](job["id"])["attempts"], 1)
+
+    def test_timeout_kills_child_process_group(self):
+        from subprocess import TimeoutExpired
+        job = self.mod["enqueue"]("triage", [str(self.source)])
+        class Process:
+            pid = 12345
+            returncode = -15
+            calls = 0
+            def communicate(self, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise TimeoutExpired("reverse-triage", timeout)
+                return b"", b""
+        with patch.object(self.mod["worker_once"].__globals__["subprocess"], "Popen", return_value=Process()):
+            with patch.object(self.mod["worker_once"].__globals__["os"], "killpg") as kill:
+                result = self.mod["worker_once"]()
+        self.assertEqual(result["state"], "failed")
+        self.assertEqual(result["last_error"], "TimeoutExpired")
+        kill.assert_called_once_with(12345, self.mod["worker_once"].__globals__["signal"].SIGTERM)
 
     def test_failed_and_interrupted_require_explicit_retry(self):
         job = self.mod["enqueue"]("triage", [str(self.source)])

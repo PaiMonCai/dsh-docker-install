@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -139,13 +140,32 @@ def worker_once(expected_id=None):
         atomic(task_path(task["id"]), task)
         try:
             cmd, timeout = invocation(task)
-            result = subprocess.run(cmd, cwd=ROOT, shell=False, capture_output=True,
-                                    text=True, errors="replace", timeout=timeout, check=False)
-            task["result"] = {"exit_code": result.returncode,
-                              "stdout": result.stdout[-MAX_LOG:],
-                              "stderr": result.stderr[-MAX_LOG:]}
-            task["state"] = "succeeded" if result.returncode == 0 else "failed"
-            task["last_error"] = None if result.returncode == 0 else "tool exited unsuccessfully"
+            process = subprocess.Popen(cmd, cwd=ROOT, shell=False,
+                                       stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       start_new_session=True)
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+                raise
+            out = stdout.decode("utf-8", errors="replace")[-MAX_LOG:]
+            err = stderr.decode("utf-8", errors="replace")[-MAX_LOG:]
+            task["result"] = {"exit_code": process.returncode,
+                              "stdout": out, "stderr": err}
+            task["state"] = "succeeded" if process.returncode == 0 else "failed"
+            task["last_error"] = None if process.returncode == 0 else "tool exited unsuccessfully"
         except (OSError, ValueError, subprocess.TimeoutExpired) as error:
             task["state"] = "failed"
             task["last_error"] = type(error).__name__
