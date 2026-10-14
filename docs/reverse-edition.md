@@ -148,3 +148,22 @@ Host 接口使用已登录 Web Client 的 `/api` RPC、仅允许 loopback 权限
 新增 `reverse-workspace index /workspace/a/report.json /workspace/b/functions.json --output /workspace/reverse-index.json` 以生成统一 `dsh-reverse-workspace/v1` 证据索引，记录已完成静态报告的相对路径、schema、文件大小及 SHA-256。`reverse-workspace verify /workspace/reverse-index.json` 可检查文件是否被修改或丢失。支持初检、Ghidra v2、Electron/JS、diff 等四类已知报告；最多 100 个、单文件不超过 8 MiB、总量不超过 32 MiB，跳过重复路径、拒绝外部路径和符号链接。只读报告本体，不执行代码；索引文件不会默认覆盖已有记录。
 
 这是第四批证据平台的第一层数据协议，**不是完整工作台**。独立 UI 函数浏览、证据检索、任务恢复还需要基于该协议继续开发，并且不得把索引文件当作结论真实性证明。
+
+
+
+## 第三批任务队列：持久化、可恢复、显式执行
+
+新增 `reverse-task` 管理逆向静态分析任务。支持五类固定任务：`triage`、`js-triage`、`ghidra`、`diff`、`verify`。不接受任意命令、不经 Shell 执行、不运行输入样本；参数限定工作区路径，工作状态存入 `/workspace/.reverse-tasks/*.json`，重启后保留。
+
+```bash
+reverse-task enqueue triage /workspace/sample.elf
+reverse-task enqueue ghidra /workspace/sample.elf
+reverse-task enqueue js-triage /workspace/my-electron-app
+reverse-task list
+reverse-task run-once   # 显式处理一个待办任务，带超时
+reverse-task show TASK_ID
+reverse-task recover    # 中断的 running 任务变为 interrupted，不自动重跑
+reverse-task retry TASK_ID  # 仅显式重试 failed/interrupted，最多 3 次
+```
+
+任务采用独占工作者锁，避免多次 `run-once` 并发处理；每条任务保留退出状态、截断的 stdout/stderr 和时间戳。运行中断后不会自动重试或执行外部命令；`recover` 只转换状态。当前没有后台守护进程或定时调度，适合先验收持久性、安全边界和任务状态模型，后续再接到 Web 工作台与调度服务。重试可能导致分析输出与旧产物冲突，需检查结果后再操作。

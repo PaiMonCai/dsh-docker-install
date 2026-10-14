@@ -174,3 +174,14 @@ test('Reverse Phase 4 evidence manifest tool packaged',()=>{
  assert.match(read('reverse/bin/reverse-workspace'),/dsh-reverse-workspace\/v1/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_workspace.py')))
 })
+
+
+test('Reverse task queue is allowlisted and does not execute through shell',()=> {
+ const script=read('reverse/bin/reverse-task')
+ const docker=read('reverse/Dockerfile')
+ assert.match(script,/shell=False/)
+ assert.match(script,/fcntl\.flock/)
+ assert.match(script,/dsh-reverse-task\/v1/)
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-task/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_task_queue.py')))
+})

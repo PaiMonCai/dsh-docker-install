@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Reverse Edition offline task queue: explicit worker, durable JSON, allowlisted tools."""
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import uuid
+
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+STORE = ROOT / ".reverse-tasks"
+TOOLS = {
+    "triage": ("reverse-triage", 180, 1, 2),
+    "js-triage": ("reverse-js-triage", 90, 1, 2),
+    "ghidra": ("reverse-ghidra", 930, 1, 2),
+    "diff": ("reverse-diff", 60, 2, 2),
+    "verify": ("reverse-workspace", 90, 1, 1),
+}
+MAX_TASKS = 300
+MAX_LOG = 10000
+
+def timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
+def atomic(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, tmp = tempfile.mkstemp(prefix=".task-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            os.fchmod(file.fileno(), 0o600)
+            json.dump(value, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+def safe_path(value):
+    source = Path(value).expanduser()
+    if source.is_symlink():
+        raise ValueError("symlinks are not allowed")
+    path = source.resolve(strict=True)
+    if not path.is_relative_to(ROOT) or not path.is_file() and not path.is_dir():
+        raise ValueError("task input must be a workspace file or directory")
+    return str(path)
+
+def task_path(task_id):
+    try:
+        if str(uuid.UUID(task_id)) != task_id:
+            raise ValueError()
+    except (ValueError, AttributeError):
+        raise ValueError("invalid task identifier")
+    return STORE / (task_id + ".json")
+
+def read_task(task_id):
+    path = task_path(task_id)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 30000:
+        raise ValueError("task not found or unsafe")
+    data = json.loads(path.read_text("utf-8"))
+    if data.get("schema") != "dsh-reverse-task/v1" or data.get("id") != task_id:
+        raise ValueError("invalid task record")
+    return data
+
+def all_tasks():
+    if not STORE.exists():
+        return []
+    return sorted(
+        (entry for entry in STORE.iterdir() if entry.name.endswith(".json") and not entry.is_symlink()),
+        key=lambda entry: entry.name
+    )[:MAX_TASKS + 1]
+
+def enqueue(kind, inputs):
+    if kind not in TOOLS:
+        raise ValueError("unsupported task kind")
+    tool, timeout, low, high = TOOLS[kind]
+    if not low <= len(inputs) <= high:
+        raise ValueError("invalid task input count")
+    arguments = [safe_path(x) for x in inputs]
+    if len(all_tasks()) >= MAX_TASKS:
+        raise ValueError("task queue has reached capacity")
+    task_id = str(uuid.uuid4())
+    record = {"schema": "dsh-reverse-task/v1", "id": task_id, "kind": kind,
+              "inputs": arguments, "state": "queued", "attempts": 0,
+              "created_at": timestamp(), "updated_at": timestamp(),
+              "result": None, "last_error": None}
+    atomic(task_path(task_id), record)
+    return record
+
+def invocation(task):
+    kind, files = task["kind"], task["inputs"]
+    if kind not in TOOLS:
+        raise ValueError("unknown task kind")
+    tool, timeout, low, high = TOOLS[kind]
+    if not low <= len(files) <= high:
+        raise ValueError("invalid stored task input count")
+    paths = [safe_path(p) for p in files]
+    # Only these fixed subcommands exist. No shell, user-defined options or executable paths.
+    if kind == "triage":
+        cmd = [tool, paths[0]]
+    elif kind == "js-triage":
+        cmd = [tool, paths[0]]
+    elif kind == "ghidra":
+        dest = ROOT / "reverse-analysis" / ("task-" + task["id"])
+        dest.mkdir(parents=True, exist_ok=True, mode=0o700)
+        cmd = [tool, paths[0], "--output", str(dest), "--timeout", "300", "--max-functions", "40"]
+    elif kind == "diff":
+        cmd = [tool] + paths
+    else:
+        cmd = [tool, "verify", paths[0]]
+    return cmd, timeout
+
+def worker_once():
+    STORE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(STORE / ".worker.lock", "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        pending = []
+        for file in all_tasks():
+            try:
+                task = read_task(file.stem)
+                if task["state"] == "queued":
+                    pending.append(task)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        if not pending:
+            return {"status": "idle"}
+        task = sorted(pending, key=lambda t: (t["created_at"], t["id"]))[0]
+        task["state"] = "running"
+        task["attempts"] += 1
+        task["updated_at"] = timestamp()
+        atomic(task_path(task["id"]), task)
+        try:
+            cmd, timeout = invocation(task)
+            result = subprocess.run(cmd, cwd=ROOT, shell=False, capture_output=True,
+                                    text=True, errors="replace", timeout=timeout, check=False)
+            task["result"] = {"exit_code": result.returncode,
+                              "stdout": result.stdout[-MAX_LOG:],
+                              "stderr": result.stderr[-MAX_LOG:]}
+            task["state"] = "succeeded" if result.returncode == 0 else "failed"
+            task["last_error"] = None if result.returncode == 0 else "tool exited unsuccessfully"
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            task["state"] = "failed"
+            task["last_error"] = type(error).__name__
+        task["updated_at"] = timestamp()
+        atomic(task_path(task["id"]), task)
+        return task
+
+def recover():
+    """Recover crashed workers conservatively; nothing executes until run-once."""
+    STORE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(STORE / ".worker.lock", "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        recovered = []
+        for file in all_tasks():
+            try:
+                task = read_task(file.stem)
+                if task["state"] != "running":
+                    continue
+                task["state"] = "interrupted"
+                task["last_error"] = "worker interrupted; operator must explicitly retry"
+                task["updated_at"] = timestamp()
+                atomic(task_path(task["id"]), task)
+                recovered.append(task["id"])
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        return {"interrupted": recovered}
+
+def retry(task_id):
+    record = read_task(task_id)
+    if record["state"] not in ("failed", "interrupted"):
+        raise ValueError("only failed or interrupted tasks can be retried")
+    if record["attempts"] >= 3:
+        raise ValueError("retry limit reached")
+    record["state"] = "queued"
+    record["updated_at"] = timestamp()
+    record["last_error"] = None
+    atomic(task_path(task_id), record)
+    return record
+
+def main():
+    p = argparse.ArgumentParser(description="Durable, explicit-worker Reverse analysis tasks")
+    sub = p.add_subparsers(dest="mode", required=True)
+    q = sub.add_parser("enqueue")
+    q.add_argument("kind", choices=sorted(TOOLS))
+    q.add_argument("inputs", nargs="+")
+    for name in ("show", "retry"):
+        s = sub.add_parser(name)
+        s.add_argument("id")
+    sub.add_parser("list")
+    sub.add_parser("run-once")
+    sub.add_parser("recover")
+    args = p.parse_args()
+    try:
+        if args.mode == "enqueue":
+            result = enqueue(args.kind, args.inputs)
+        elif args.mode == "show":
+            result = read_task(args.id)
+        elif args.mode == "retry":
+            result = retry(args.id)
+        elif args.mode == "list":
+            result = [read_task(x.stem) for x in all_tasks()]
+        elif args.mode == "recover":
+            result = recover()
+        else:
+            result = worker_once()
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    except (OSError, ValueError, BlockingIOError, json.JSONDecodeError) as error:
+        print("reverse-task: " + str(error), file=sys.stderr)
+        return 2
+
+if __name__ == "__main__":
+    sys.exit(main())
