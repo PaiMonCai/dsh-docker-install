@@ -230,7 +230,13 @@ jobs:
               docker logs "$name"; exit 1
             fi
             if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_SESSION_CREATED"; then
-              test "$(docker inspect --format '{{.State.Health.Status}}' "$name")" = healthy || { docker logs "$name"; exit 1; }
+              for health_attempt in {1..70}; do
+                health="$(docker inspect --format '{{.State.Health.Status}}' "$name")"
+                [[ "$health" == healthy ]] && break
+                [[ "$health" == unhealthy ]] && { docker inspect "$name" --format '{{json .State.Health.Log}}'; docker logs "$name"; exit 1; }
+                sleep 1
+              done
+              [[ "$(docker inspect --format '{{.State.Health.Status}}' "$name")" == healthy ]] || { docker logs "$name"; exit 1; }
               docker exec "$name" bash -c '
                 for id in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
