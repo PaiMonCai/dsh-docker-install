@@ -269,7 +269,8 @@ jobs:
                 done
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
-              echo "Reverse Agent registry, live session/create, sessionController health and Skills confirmed"
+              docker exec "$name" node /usr/local/bin/test-dsh-core-routes.js
+              echo "Reverse Agent registry, internal core API routing, sessionController health and Skills confirmed"
               exit 0
             fi
             sleep 1
