@@ -172,6 +172,9 @@ window.__ModuleLoader__.load({
     }
 
     function WorkbenchPanel({call}) {
+      const [projects,setProjects]=useState([])
+      const [projectName,setProjectName]=useState('')
+      const [activeProject,setActiveProject]=useState(null)
       const [jobs,setJobs]=useState([])
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
@@ -192,9 +195,26 @@ window.__ModuleLoader__.load({
         catch (error) { setMessage(String(error?.message??error)) }
         finally { setBusy(false) }
       }
+      useEffect(()=>{invoke('workbenchProjects').then(setProjects).catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchTasks').then(setJobs)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       return h('div',{style:css.shell},
+        h(Section,{title:'分析项目'},
+          h('p',{style:css.muted},'项目元数据持久保存于 Reverse 工作区；样本与报告目前仍按工作区路径管理。'),
+          h('div',{style:css.line},
+            h(Field,{value:projectName,onChange:setProjectName,placeholder:'新项目名称'}),
+            h(Control,{disabled:busy||!projectName.trim(),onClick:()=>run(async()=>{
+              const created=await invoke('workbenchProjectCreate',{name:projectName})
+              setActiveProject(created);setProjectName('')
+              setProjects(await invoke('workbenchProjects'))
+            })},'创建项目'),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>setProjects(await invoke('workbenchProjects')))},'刷新')),
+          ...projects.slice(0,30).map(p=>h('div',{key:p.id,style:css.line},
+            h('strong',null,p.name),
+            h('span',{style:css.muted},p.created_at),
+            h(Control,{disabled:busy,onClick:()=>setActiveProject(p)},'查看'))),
+          activeProject?h('p',{style:css.muted},'当前项目：'+activeProject.name+' · '+activeProject.id):null
+        ),
         h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
           h('div',{style:css.line},
