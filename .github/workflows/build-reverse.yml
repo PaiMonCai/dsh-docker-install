@@ -104,9 +104,8 @@ jobs:
       - name: Validate reverse isolation and bundled Skills
         run: |
           set -euo pipefail
-          node --check reverse/generate-overlay.mjs
           node --check reverse/skills-bootstrap.mjs
-          node --check reverse/purge-ui/index.js
+          node --check reverse/preset-smoke.mjs
           bash -n docker/entrypoint.sh
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
@@ -179,7 +178,7 @@ jobs:
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
-      - name: Audit installed engines, full preset and bundled Skills
+      - name: Audit installed engines, native preset and bundled Skills
         if: github.event_name == 'pull_request'
         env:
           IMAGE: ${{ steps.vars.outputs.image }}:reverse
@@ -196,17 +195,15 @@ jobs:
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-purge-reverse dsh-purge-redteam dsh-reverse-purge-ui dsh-reverse-skill-bootstrap dsh-reverse-preset-declaration; do
+            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap reverse-engineering rea-mcp session-controller; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
-            node --test /opt/dsh-reverse/purge/tests/reverse-preset.test.mjs
-            node --input-type=module -e "
-              import(\"/opt/dsh-reverse/purge/lib/redteam/preset-composition.js\").then(m=>{
-                const p=m.readPresetDefinition(\"reverse-engineering\",\"/opt/dsh-reverse/purge/presets/reverse-engineering\");
-                const t=p.plugins.find(x=>x.id===\"reverse-workflow-tools\");
-                if(!t?.name?.endsWith(\"/opt/dsh-reverse/purge/lib/reverse/tools.js\"))process.exit(1)
-              })
-            "
+            if grep -Eiq "dsh-purge|dsh-reverse-redteam" /tmp/reverse-config.yml; then
+              echo "::error::Retired third-party plugins are still active"
+              exit 1
+            fi
+            test ! -e /opt/dsh-reverse/purge
+            test ! -e /opt/dsh-reverse/purge-ui
           '
 
       - name: Boot Web and assert Reverse Agent registration

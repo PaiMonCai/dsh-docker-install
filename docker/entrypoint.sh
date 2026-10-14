@@ -122,10 +122,9 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}" "Icon Dock"
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
     append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}" "Web Search"
-    # An optional, host-level FULL dsh-purge overlay ONLY on Reverse Edition.
-    # Standard does not define DSH_REVERSE_PURGE_PATCH and remains unchanged.
-    if [[ -n "${DSH_REVERSE_PURGE_PATCH:-}" ]]; then
-        append_native_web_patch "${DSH_REVERSE_PURGE_PATCH}" "${DSH_PURGE_ENABLED:-true}" "Reverse Edition dsh-purge"
+    # Reverse's image-owned, native Agent preset overlay. Not used by Standard.
+    if [[ -n "${DSH_REVERSE_AGENT_PATCH:-}" ]]; then
+        append_native_web_patch "${DSH_REVERSE_AGENT_PATCH}" "true" "Reverse Edition Agent"
     fi
 
     # Migrate only legacy bundled plugin selections; dependencies, third-party
