@@ -1,7 +1,7 @@
 /** Enqueue allowlisted offline tasks for a selected Reverse project.
  * Enqueue only: the operator still runs reverse-task run-once explicitly. */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, lstatSync, readdirSync, openSync, writeFileSync, closeSync, unlinkSync, readFileSync } from 'node:fs'
+import { mkdirSync, lstatSync, readdirSync, openSync, writeFileSync, closeSync, unlinkSync, readFileSync, fsyncSync, renameSync } from 'node:fs'
 import { resolve, relative, sep, join, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
@@ -40,15 +40,58 @@ export function createProjectTask(projectId,kind,inputs) {
   const paths=inputs.map(boundedInput)
   validateTaskStore()
   const id=randomUUID(),now=new Date().toISOString()
-  const data={schema:'dsh-reverse-task/v1',id,kind,inputs:paths,state:'queued',
+  const data={schema:'dsh-reverse-task/v1',id,kind,inputs:paths,state:'staging',
     attempts:0,created_at:now,updated_at:now,result:null,last_error:null}
   const file=join(STORE,id+'.json')
   const fd=openSync(file,'wx',0o600)
-  try {writeFileSync(fd,JSON.stringify(data,null,2)+'\n')}
+  try {writeFileSync(fd,JSON.stringify(data,null,2)+'\n');fsyncSync(fd)}
   finally {closeSync(fd)}
+  // Only queued tasks are executable; linking happens while the task is staged.
+  // If the process crashes, recovery can decide whether to commit or discard.
   try {attachProjectItem(projectId,'task',id)}
   catch(e){unlinkSync(file);throw e}
+  publishQueued(file,data)
   return {id,kind,state:'queued',project_id:projectId}
+}
+
+function publishQueued(file,data) {
+  const temp=file+'.'+randomUUID()+'.tmp'
+  const fd=openSync(temp,'wx',0o600)
+  try {
+    writeFileSync(fd,JSON.stringify({...data,state:'queued',updated_at:new Date().toISOString()},null,2)+'\n')
+    fsyncSync(fd)
+    closeSync(fd)
+    renameSync(temp,file)
+  } catch(e) {
+    try{closeSync(fd)}catch{}
+    try{unlinkSync(temp)}catch{}
+    throw e
+  }
+}
+/** Operator-triggered recovery, limited to staged tasks belonging to this project. */
+export function recoverProjectTasks(projectId) {
+  const links=projectLinks(projectId)
+  const ids=new Set(links.entries.filter(x=>x.kind==='task').map(x=>x.ref))
+  const recovered=[],skipped=[]
+  for(const id of ids) {
+    try {
+      const file=join(STORE,id+'.json')
+      const stat=lstatSync(file)
+      if(!stat.isFile()||stat.size>30000)throw Error('unsafe task')
+      const data=JSON.parse(readFileSync(file,'utf8'))
+      if(data.id!==id||data.schema!=='dsh-reverse-task/v1'||data.state!=='staging')continue
+      if(!Array.isArray(data.inputs)||data.inputs.length!==ALLOW[data.kind])throw Error('invalid task inputs')
+      data.inputs.forEach(value=>{
+        // Original absolute input paths must still be workspace-confined.
+        const rel=relative(ROOT,value)
+        if(rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel))throw Error('unsafe input')
+        boundedInput(rel)
+      })
+      publishQueued(file,data)
+      recovered.push(id)
+    }catch {skipped.push(id)}
+  }
+  return {recovered,skipped}
 }
 
 /** Explicit reconciliation: existing successful reports only, never executes tasks. */

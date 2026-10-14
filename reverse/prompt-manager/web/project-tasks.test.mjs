@@ -6,7 +6,7 @@ import { join } from 'node:path'
 const home=mkdtempSync(join(tmpdir(),'reverse-project-queue-'))
 process.env.DSH_REVERSE_WORKSPACE_ROOT=home
 const {createProject}=await import('./projects.mjs')
-const {createProjectTask,reconcileProjectResults}=await import('./project-tasks.mjs')
+const {createProjectTask,reconcileProjectResults,recoverProjectTasks}=await import('./project-tasks.mjs')
 const {projectLinks}=await import('./project-links.mjs')
 const p=createProject('Queued Analysis')
 test('enqueue creates durable task and links it to project without executing',()=>{
@@ -36,5 +36,15 @@ test('reject invalid work, unknown project, traversal and no implicit execution'
  assert.throws(()=>createProjectTask(p.id,'diff',['sample.bin']))
  assert.throws(()=>createProjectTask(p.id, 'triage', ["../outside"]))
  assert.throws(()=>createProjectTask('bad','triage',['sample.bin']))
+})
+test('recovery commits only linked staged records after validation',()=>{
+ const task=createProjectTask(p.id,'triage',['sample.bin'])
+ const file=join(home,'.reverse-tasks',task.id+'.json')
+ const data=JSON.parse(readFileSync(file,'utf8'))
+ data.state='staging'
+ writeFileSync(file,JSON.stringify(data))
+ assert.equal(recoverProjectTasks(p.id).recovered.includes(task.id),true)
+ assert.equal(JSON.parse(readFileSync(file,'utf8')).state,'queued')
+ assert.deepEqual(recoverProjectTasks(p.id).recovered,[])
 })
 test.after(()=>rmSync(home,{force:true,recursive:true}))

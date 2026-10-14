@@ -246,6 +246,12 @@ window.__ModuleLoader__.load({
                 setLinkRef('')
               })},'关联到项目')),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              const recovery=await invoke('workbenchProjectTasksRecover',{id:activeProject.id})
+              setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
+              setJobs(await invoke('workbenchTasks'))
+              setMessage('已恢复暂存任务 '+recovery.recovered.length+' 个，跳过 '+recovery.skipped.length+' 个')
+            })},'恢复中断的任务登记'),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
               const results=await invoke('workbenchProjectResultsSync',{id:activeProject.id})
               setProjectLinks(results.links)
               setMessage('已同步 '+results.added.length+' 份报告；未找到 '+results.skipped.length+' 份')
