@@ -73,6 +73,9 @@ export function recordAssembly(original, applied, details = {}, home) {
   // The actual DSH final render happens after the assembly hook.
   const raw = { schema: 1, capturedAt: record.capturedAt, agentPreset: 'reverse-engineering',
     preset: record.preset, enabled: record.enabled, injected: record.injected,
+    pristineSections: (original?.sections ?? []).map(s => ({
+      name: String(s.name), text: String(s.text), interpolate: s.interpolate !== false
+    })),
     sections: (applied?.sections ?? []).map(s => ({
       name: String(s.name), text: String(s.text), interpolate: s.interpolate !== false
     })),

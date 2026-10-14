@@ -12,7 +12,7 @@ function usage() {
   process.stdout.write([
     'reverse-prompt status | list | show NAME | activate NAME | disable',
     'reverse-prompt import NAME FILE [--replace-persona] | remove NAME',
-    'reverse-prompt preview [NAME] | inspect | capture-next | capture-show | capture-clear',
+    'reverse-prompt preview [NAME] | preview-live [NAME] | inspect | doctor | capture-next | capture-show | capture-clear',
     'reverse-prompt section-set NAME SECTION FILE [AFTER] | section-remove NAME SECTION',
     'reverse-prompt section-list NAME | history NAME | rollback NAME REVISION',
   ].join('\n') + '\n')
@@ -34,7 +34,8 @@ function editable(name) {
 }
 try {
   const [cmd, a, b, c] = process.argv.slice(2)
-  const state = readState()
+  let state, stateError = null
+  try { state = readState() } catch (err) { stateError = String(err?.message ?? err); if (cmd !== 'doctor') throw err }
   switch (cmd) {
     case 'status': {
       const current = readActive()
@@ -72,6 +73,33 @@ try {
       break
     }
     case 'inspect': say(getSnapshot()); break
+    case 'preview-live': {
+      const captured = getSnapshot(undefined, true)
+      if (!captured.available) throw Error(captured.note)
+      const p = loadPreset(a || state.active)
+      const result = applyPreset(captured.pristineSections, p)
+      say({ note: 'Applied to actual previously captured pre-render sections. NOT a future request or final model input.',
+        capturedAt: captured.capturedAt, preset: p.name, fingerprint: fingerprint(p),
+        changed: result.changed, reason: result.reason, sections: result.sections })
+      break
+    }
+    case 'doctor': {
+      let active = null, error = null
+      try { active = readActive().preset } catch (e) { error = String(e?.message ?? e) }
+      let snapshot
+      try { snapshot = getSnapshot() } catch (err) { error = String(err?.message ?? err); snapshot = { available: false } }
+      if (stateError) error = stateError
+      say({ healthy: error === null && (!snapshot.available || !snapshot.enabled || snapshot.injected),
+        enabled: state?.enabled ?? false, active: active?.name ?? null, error,
+        latestAssembly: snapshot.available ? {
+          timestamp: snapshot.capturedAt, injected: snapshot.injected,
+          reason: snapshot.reason, beforeSections: snapshot.before?.length,
+          afterSections: snapshot.after?.length
+        } : null,
+        note: snapshot.available ? 'Diagnosis based on the last Reverse Agent assembly.'
+          : 'Run a Reverse Agent request before checking live injection.' })
+      break
+    }
     case 'capture-next': say(requestCapture()); break
     case 'capture-show': say(getSnapshot(undefined, true)); break
     case 'capture-clear': say(clearCapture()); break

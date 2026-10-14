@@ -204,16 +204,20 @@ export function listVersions(name, home) {
 }
 export function restoreVersion(name, revision, home) {
   name = slug(name)
+  if (existsSync(builtIn(name))) throw Error('built-in presets are read-only')
   if (typeof revision !== 'string' || !/^\d{13}-[0-9a-f-]{36}\.json$/.test(revision))
     throw Error('invalid revision id')
-  const path = join(root(home), 'history', name, revision)
-  const previous = readSmall(path)
-  if (!previous) throw Error('revision does not exist')
-  const verified = normalizePreset(previous, name)
-  return saveSectionPreset(name, verified.rules ?? [{
-    action: verified.mode === 'replace-persona' ? 'replace' : 'insert-after',
-    section: verified.mode === 'replace-persona' ? 'deployment:persona-prefix' : 'reverse:user-restored',
-    ...(verified.mode === 'replace-persona' ? {} : { after: 'deployment:persona-prefix' }),
-    text: verified.text
-  }], home, verified.title)
+  const prior = readSmall(join(root(home), 'history', name, revision))
+  if (!prior) throw Error('revision does not exist')
+  const verified = normalizePreset(prior, name)
+  const file = userFile(name, home)
+  const current = readSmall(file)
+  if (current !== undefined) {
+    const backup = join(root(home), 'history', name, String(Date.now()) + '-' + randomUUID() + '.json')
+    atomic(backup, JSON.stringify(current, null, 2) + '\n')
+  }
+  atomic(file, JSON.stringify(verified, null, 2) + '\n')
+  for (const stale of listVersions(name, home).slice(8))
+    unlinkSync(join(root(home), 'history', name, stale))
+  return verified
 }
