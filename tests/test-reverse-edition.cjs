@@ -158,3 +158,11 @@ test('Reverse Phase 2 ships read-only Electron and JS triage',()=>{
  assert.match(read('reverse/bin/reverse-js-triage'),/MAX_FILES = 250/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_js_triage.py')))
 })
+
+
+test('Reverse Phase 3 offline diff packaged with no execution',()=>{
+ const docker=read('reverse/Dockerfile')
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-diff/)
+ assert.match(read('reverse/bin/reverse-diff'),/dsh-reverse-diff\/v1/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_diff.py')))
+})

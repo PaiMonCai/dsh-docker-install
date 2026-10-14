@@ -86,6 +86,7 @@ COPY reverse/reverse-healthcheck.cjs /opt/dsh-reverse/reverse-healthcheck.cjs
 COPY --chmod=0755 reverse/bin/reverse-triage /usr/local/bin/reverse-triage
 COPY --chmod=0755 reverse/bin/reverse-ghidra /usr/local/bin/reverse-ghidra
 COPY --chmod=0755 reverse/bin/reverse-js-triage /usr/local/bin/reverse-js-triage
+COPY --chmod=0755 reverse/bin/reverse-diff /usr/local/bin/reverse-diff
 COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN ln -s /opt/dsh-reverse/prompt-manager/cli.mjs /usr/local/bin/reverse-prompt \
@@ -103,6 +104,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && reverse-triage --help >/dev/null \
  && reverse-ghidra --help >/dev/null \
  && reverse-js-triage --help >/dev/null \
+ && reverse-diff --help >/dev/null \
  && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);for(const n of m.SKILLS){if(!fs.existsSync(home+'/reverse-engineering/skills/'+n+'/SKILL.md'))process.exit(1)}})" \
  && bash -n /usr/local/bin/dsh-entrypoint \
  && test ! -e /opt/dsh-reverse/purge \

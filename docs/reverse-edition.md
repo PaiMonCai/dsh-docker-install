@@ -134,3 +134,10 @@ Host 接口使用已登录 Web Client 的 `/api` RPC、仅允许 loopback 权限
 ### Electron/JS 静态初检
 
 新增 `reverse-js-triage /workspace/project` 命令：递归扫描工作区内 `.js/.cjs/.mjs/.ts/.tsx/.jsx/.json` 文件（排除 node_modules、构建输出、符号链接），识别 Electron 主进程、IPC、网络、动态代码执行等静态关键词；不运行 JS，也不尝试加载或执行 ASAR。上限 250 文件、累计 8 MiB、单文件 256 KiB。可选 `--output /workspace/reverse-analysis/js-report.json` 输出 JSON 报告。该命令是启发式初检，不保证完整解析代码或证明运行行为。
+
+
+## 第三批启动：跨版本静态报告对比
+
+`reverse-diff /workspace/v1/functions.json /workspace/v2/functions.json` 比较两份 `dsh-reverse-ghidra/v2` 静态报告，给出新增、删除、修改的函数和调用边。对比基于地址，重新链接后的偏移变化可能产生大量假阳性，结果需人工确认。两个输入限定工作区、各不超过 8 MiB，不运行任何程序。
+
+动态调试接口、网络协议会话抓取与调度队列尚未进入本次实现；它们必须有独立的授权确认、隔离边界、超时/资源限制和恢复策略。第四批可视化逆向工作台待任务、证据 API 约定和数据持久性验证后推进。
