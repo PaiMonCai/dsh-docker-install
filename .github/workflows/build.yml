@@ -111,6 +111,7 @@ jobs:
           node --check docker/dsh-plugin-doctor.js
           node tests/test-plugin-doctor.cjs
           node --check tests/test-web-browser-e2e.cjs
+          node --test tests/test-web-browser-onboarding.cjs
           node tests/test-connection-rpc-routes.js
           node --test tests/test-remote-settings-patch.cjs
           node --test tests/test-upstream-patches.cjs

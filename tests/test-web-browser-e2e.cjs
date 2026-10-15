@@ -8,6 +8,7 @@ const path = require('node:path')
 const net = require('node:net')
 const { chromium } = require('/usr/local/lib/node_modules/playwright')
 const { resolveBindHost } = require('/usr/local/bin/resolve-bind-host.js')
+const { openCredentialForm } = require('./web-browser-onboarding.cjs')
 
 const tokenFile = path.join(process.env.DSH_HOME || '/root/.dsh',
   '.dshd-web-login-token.json')
@@ -66,8 +67,7 @@ async function run() {
   await welcome.waitFor({ state: 'visible', timeout: 20000 })
   await welcome.getByRole('button', { name: '继续' }).click()
   await welcome.waitFor({ state: 'detached', timeout: 15000 })
-  const credential = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
-  await credential.waitFor({ state: 'visible', timeout: 15000 })
+  const credential = await openCredentialForm(page)
   await credential.getByLabel('API 密钥', { exact: true }).fill(
     'dsh_ci_only_fake_credential_no_network')
   await credential.getByRole('button', { name: '保存并继续' }).click()

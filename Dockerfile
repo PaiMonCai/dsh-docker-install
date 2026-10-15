@@ -216,6 +216,7 @@ COPY docker/dsh-healthcheck.js /usr/local/bin/dsh-healthcheck.js
 COPY docker/test-dsh-core-routes.js /usr/local/bin/test-dsh-core-routes.js
 COPY docker/dsh-plugin-doctor.js /usr/local/bin/dsh-plugin-doctor.js
 COPY tests/test-web-browser-e2e.cjs /usr/local/bin/test-dsh-web-browser-e2e.cjs
+COPY tests/web-browser-onboarding.cjs /usr/local/bin/web-browser-onboarding.cjs
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
