@@ -236,3 +236,25 @@ Web 创建任务时先写入 `staging`（队列工作者不会执行该状态）
 ### DSH 核心 API 404 回归检测（新建会话与目录选择器）
 
 针对浏览器新建会话时报 `/api/session/create HTTP 404`，以及工作目录选择器报 `/api/directoryPicker/list HTTP 404`，Reverse CI 新增运行中容器的核心 API 路由检测：以未登录 POST 分别检查两条路径及 `workspaceFiles/list`，期望到达 Web Connection 的身份验证入口（HTTP 401），而不是被错误地路由为 404/405。该检查属于**后端路由存在性诊断**，不能证明已登录的实际创建/列目录操作成功，也不能判断用户域名上的 Nginx/Caddy 转发是否正确。部署时需比对直接容器端口与反代域名下同一请求的状态码，避免错误地通过重建项目数据处理网关故障。
+
+
+## Standard Web 插件动态继承与发布门禁
+
+Reverse 使用 Standard 镜像作为 `FROM`，内置 Web 插件的权威清单是 Standard 镜像中
+`/opt/dsh/plugins/*/package.json` 的 `dsh.client.platform=web` 声明及其
+`/usr/local/bin/dsh-entrypoint` 启动补丁；不再在 Reverse CI 中维护固定插件名称列表。
+
+- PR 若修改 Standard Dockerfile、`docker/plugins/**` 或启动/插件加载逻辑，
+  Reverse CI 先从当前 PR 构建候选 Standard 镜像，再构建 Reverse；否则可复用已发布的 Standard。
+- CI 对比 Standard 和 Reverse 内置插件目录、文件 SHA-256、插件身份与补丁声明；
+  并在隔离的 Reverse 容器里将 Standard 声明的插件开关全部打开，核对实际 Web
+  启动参数及登录后的客户端模块图。
+- 发布到 GHCR 前执行相同的 amd64 审计与 Chromium 浏览器冒烟测试；审核失败不推送新的
+  Reverse 多架构标签。来自 Standard 自动发布的构建仍必须传入不可变 digest。
+- 本地 `docker compose -f docker-compose.reverse.yml up -d --build` 会主动拉取更新的
+  Standard 基础镜像，防止缓存的 `:latest` 长期不更新。
+
+**边界**：这里的“继承”仅涵盖镜像内自带的插件和相关文件。
+Standard 的 `/root/.dsh` 持久卷与 Reverse 独立；用户额外安装在 Standard Web
+Profile 的第三方插件、凭证或选项不会自动迁移。新插件若采用新的非标准加载机制，
+需要扩展此校验协议，不能把绿色的文件检查解释成所有 UI 功能都已通过交互验收。
