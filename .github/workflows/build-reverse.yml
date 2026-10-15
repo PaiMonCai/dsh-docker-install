@@ -213,7 +213,7 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          if git diff --quiet "$PR_BASE_SHA" HEAD -- Dockerfile docker/plugins docker/entrypoint.sh docker/prepare-native-web-plugins.js docker/dsh-plugin-doctor.js; then
+          if git diff --quiet "$PR_BASE_SHA" HEAD -- Dockerfile .dockerignore docker/plugins docker/entrypoint.sh docker/prepare-native-web-plugins.js docker/dsh-plugin-doctor.js; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             status=$?
