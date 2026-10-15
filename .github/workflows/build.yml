@@ -110,6 +110,7 @@ jobs:
           node tests/test-plugin-doctor.cjs
           node --check tests/test-web-browser-e2e.cjs
           node tests/test-connection-rpc-routes.js
+          node --test tests/test-remote-settings-patch.cjs
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js
           node tests/test-web-token.js
@@ -138,6 +139,18 @@ jobs:
           bash tests/test-dshd-reverse-install.sh
           node --test tests/test-reverse-edition.cjs
           node tests/test-semver-max.mjs
+
+      # Regression for upstream 0.2.1-alpha.3, where Host persistence is native.
+      # Test the published bundle rather than assuming source and bundle match.
+      - name: Verify published DSH alpha.3 Settings compatibility
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          archive="$(npm pack '@deepseek-ai/dsh-client-ui-settings@0.2.1-alpha.3' --silent --pack-destination "$tmp")"
+          package_dir="$tmp/npm-root/@deepseek-ai/dsh-client-ui-settings"
+          mkdir -p "$package_dir"
+          tar -xzf "$tmp/$archive" -C "$package_dir" --strip-components=1
+          DSH_SETTINGS_NPM_ROOT="$tmp/npm-root" node docker/patch-remote-settings.js
 
       - name: Resolve dsh version
         id: ver
