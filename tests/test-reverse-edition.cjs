@@ -238,3 +238,49 @@ test('Workbench guarded single task execution',()=>{
  assert.match(read('reverse/bin/reverse-task'),/--expected-id/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/task-runner.test.mjs')))
 })
+
+test('Reverse keeps Standard image-owned Web plugins and compose toggles in parity', () => {
+ const standard=read('docker-compose.yml')
+ const reverse=read('docker-compose.reverse.yml')
+ const docker=read('reverse/Dockerfile')
+ const entry=read('docker/entrypoint.sh')
+ const workflow=read('.github/workflows/build-reverse.yml')
+ assert.match(reverse,/dockerfile: reverse\/Dockerfile/)
+ assert.match(reverse,/^\s+pull: true$/m)
+ for(const key of ['DSH_REASONING_EDITOR','DSH_ICON_DOCK_ENABLED','DSH_SESSION_MANAGER_WEB','DSH_SEARCH_ENABLED']) {
+   assert.match(standard,new RegExp(key + ':'))
+   assert.match(reverse,new RegExp(key + ':'))
+ }
+ for(const name of ['dsh-reasoning-editor','dsh-icon-dock','dsh-session-manager-web','dsh-web-search']) {
+   assert.ok(entry.includes('/opt/dsh/plugins/' + name + '/cordis.patch.yml'),name)
+   assert.match(docker,/COPY ci\/reverse-web-parity\.cjs \/usr\/local\/bin\/reverse-web-parity\.cjs/)
+ }
+ assert.match(workflow,/dsh-plugin-doctor\.js --json/)
+ assert.match(workflow,/test-dsh-web-browser-e2e\.cjs/)
+ assert.match(workflow,/reverse-web-parity\.cjs env/)
+ assert.match(workflow,/reverse-web-parity\.cjs compare/)
+ assert.match(workflow,/verify-runtime \/tmp\/standard-web-plugins\.json/)
+ assert.match(workflow,/Detect changed Standard base on PR/)
+ assert.match(workflow,/docker build --pull -f Dockerfile -t dsh-standard-ci:reverse/)
+ assert.match(workflow,/docker\/plugins\/\*\*/)
+
+ assert.match(workflow,/client-graph/)
+})
+
+test('Reverse validates dynamically discovered Standard clients before a release push', () => {
+ const workflow = read('.github/workflows/build-reverse.yml')
+ const docker = read('reverse/Dockerfile')
+ const ignore = read('.dockerignore')
+ const standard = read('.github/workflows/build.yml')
+ assert.ok(workflow.indexOf('Compare every inherited Standard plugin') >= 0)
+ assert.ok(workflow.indexOf('Publish multi-arch Reverse only after passing runtime parity') >
+   workflow.indexOf('Boot Web and assert Reverse Agent registration'))
+ assert.match(workflow,/Build Reverse release audit image before any GHCR push/)
+ assert.match(workflow,/Build candidate Standard and Reverse together/)
+ assert.match(workflow,/ci\/reverse-web-parity\.cjs/)
+ assert.match(workflow,/docker\/plugins\/\*\*/)
+ assert.match(workflow,/docker\/prepare-native-web-plugins\.js/)
+ assert.match(docker,/reverse-web-parity\.cjs snapshot/)
+ assert.match(ignore,/!ci\/reverse-web-parity\.cjs/)
+ assert.match(standard,/Verify complete Standard Web plugin inventory/)
+})

@@ -6,12 +6,22 @@ on:
       - reverse/**
       - docker-compose.reverse.yml
       - .github/workflows/build-reverse.yml
+      - ci/reverse-web-parity.cjs
+      - .dockerignore
   pull_request:
     branches: [main]
     paths:
       - reverse/**
       - docker-compose.reverse.yml
       - docker/entrypoint.sh
+      - docker/plugins/**
+      - docker/prepare-native-web-plugins.js
+      - docker/dsh-plugin-doctor.js
+      - docker-compose.yml
+      - Dockerfile
+      - .dockerignore
+      - ci/reverse-web-parity.cjs
+      - tests/test-reverse-plugin-parity.cjs
       - tests/test-reverse-edition.cjs
       - ci/reverse-push-gate.sh
       - .github/workflows/build-reverse.yml
@@ -101,6 +111,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
       - name: Validate reverse isolation and bundled Skills
         run: |
           set -euo pipefail
@@ -136,6 +147,9 @@ jobs:
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
+          node --test tests/test-plugin-doctor.cjs
+          node --test tests/test-reverse-plugin-parity.cjs
+          node --check tests/test-web-browser-e2e.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
 
       - name: Resolve image and matching Standard version
@@ -143,6 +157,7 @@ jobs:
         shell: bash
         env:
           REQUESTED_BASE: ${{ inputs.base_image }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
           REQUESTED_VERSION: ${{ inputs.dsh_version }}
           REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
           RAW_IMAGE: ${{ env.IMAGE_NAME }}
@@ -152,6 +167,12 @@ jobs:
           version="$REQUESTED_VERSION"
           if [[ -z "$version" ]]; then
             version="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
+          fi
+          # A Standard-triggered release must use the exact published manifest,
+          # not a mutable version tag. PR/standalone runs retain version fallback.
+          if [[ -n "$REQUESTED_SOURCE_SHA" && ! "$REQUESTED_BASE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Standard-triggered Reverse release requires the immutable Standard base_image digest"
+            exit 1
           fi
           base="${REQUESTED_BASE:-$image:$version}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
@@ -182,6 +203,49 @@ jobs:
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+
+      # If this PR updates the Standard base, test Reverse against that exact
+      # candidate rather than the older already-published Standard tag.
+      - name: Detect changed Standard base on PR
+        if: github.event_name == 'pull_request'
+        id: standard_diff
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet "$PR_BASE_SHA" HEAD -- Dockerfile .dockerignore docker/plugins docker/entrypoint.sh docker/prepare-native-web-plugins.js docker/dsh-plugin-doctor.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            [[ "$status" == 1 ]] || exit "$status"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Select Standard base for this build
+        id: effective_base
+        env:
+          ORIGINAL_BASE: ${{ steps.vars.outputs.base }}
+          CHANGED: ${{ steps.standard_diff.outputs.changed }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$CHANGED" == true ]]; then
+            echo "image=dsh-standard-ci:reverse" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=$ORIGINAL_BASE" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Docker driver is intentional here: the daemon-built candidate is then
+      # visible as FROM dsh-standard-ci:reverse to the following Docker build.
+      - name: Build candidate Standard and Reverse together
+        if: github.event_name == 'pull_request' && steps.standard_diff.outputs.changed == 'true'
+        env:
+          REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+        run: |
+          set -euo pipefail
+          docker build --pull -f Dockerfile -t dsh-standard-ci:reverse .
+          docker build --pull=false -f reverse/Dockerfile \
+            --build-arg BASE_IMAGE=dsh-standard-ci:reverse \
+            -t "$REVERSE_IMAGE" .
+
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
@@ -189,25 +253,70 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Reverse image and publish only after Standard
+      - name: Build Reverse PR image from published Standard
+        if: github.event_name == 'pull_request' && steps.standard_diff.outputs.changed != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: linux/amd64
           pull: true
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: false
+          load: true
           build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.base }}
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
-      - name: Audit installed engines, native preset and bundled Skills
-        if: github.event_name == 'pull_request'
+      - name: Build Reverse release audit image before any GHCR push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: false
+          load: true
+          build-args: |
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
+          tags: dsh-reverse-ci:audit
+          cache-from: type=gha,scope=dsh-reverse
+          cache-to: type=gha,mode=max,scope=dsh-reverse
+
+      - name: Select image for plugin and runtime audit
+        id: audit_image
         env:
-          IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          PR_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            echo "name=$PR_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=dsh-reverse-ci:audit" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare every inherited Standard plugin against the actual base image
+        env:
+          BASE_IMAGE: ${{ steps.effective_base.outputs.image }}
+          REVERSE_IMAGE: ${{ steps.audit_image.outputs.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Evaluate the scanner *inside* the immutable Standard source image;
+          # no fixed plugin names, or guessing from DSH version labels.
+          docker run --rm -i --entrypoint node "$BASE_IMAGE" - snapshot \
+            < ci/reverse-web-parity.cjs > "$RUNNER_TEMP/standard-web-plugins.json"
+          docker run --rm --entrypoint node "$REVERSE_IMAGE" \
+            /usr/local/bin/reverse-web-parity.cjs snapshot \
+            > "$RUNNER_TEMP/reverse-web-plugins.json"
+          node ci/reverse-web-parity.cjs compare \
+            "$RUNNER_TEMP/standard-web-plugins.json" \
+            "$RUNNER_TEMP/reverse-web-plugins.json"
+
+      - name: Audit installed engines, native preset and bundled Skills
+        env:
+          IMAGE: ${{ steps.audit_image.outputs.name }}
         run: |
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
@@ -240,14 +349,19 @@ jobs:
           '
 
       - name: Boot Web and assert Reverse Agent registration
-        if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          IMAGE: ${{ steps.audit_image.outputs.name }}
         run: |
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
           trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$name" -e DSH_REVERSE_CI_VERIFY_PRESET=1 "$IMAGE" >/dev/null
+          # Read all current Standard plugin switches from the *actual* base.
+          # Optional built-ins are enabled only in this disposable CI profile.
+          mapfile -t plugin_env < <(node ci/reverse-web-parity.cjs env "$RUNNER_TEMP/standard-web-plugins.json")
+          plugin_args=()
+          for assignment in "${plugin_env[@]}"; do plugin_args+=(-e "$assignment"); done
+          docker run -d --name "$name" \
+            -e DSH_REVERSE_CI_VERIFY_PRESET=1 "${plugin_args[@]}" "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
@@ -274,7 +388,45 @@ jobs:
               # stage this PR-only smoke script inside the ephemeral container.
               docker cp docker/test-dsh-core-routes.js "$name:/usr/local/bin/test-dsh-core-routes.js"
               docker exec "$name" node /usr/local/bin/test-dsh-core-routes.js
-              echo "Reverse Agent registry, internal core API routing, sessionController health and Skills confirmed"
+              docker cp "$RUNNER_TEMP/standard-web-plugins.json" "$name:/tmp/standard-web-plugins.json"
+              docker exec "$name" node /usr/local/bin/reverse-web-parity.cjs \
+                verify-runtime /tmp/standard-web-plugins.json
+
+              # Preserve the detailed existing API and UI checks for legacy
+              # built-ins too; the dynamic parity check above covers additions.
+              doctor_report="$(mktemp)"
+              if ! docker exec "$name" node /usr/local/bin/dsh-plugin-doctor.js --json > "$doctor_report"; then
+                cat "$doctor_report"
+                rm -f "$doctor_report"
+                echo "::error::Reverse lost an inherited Standard Web plugin"
+                exit 1
+              fi
+              node - "$doctor_report" <<'NODE'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+          assert.equal(report.healthy, true, 'Reverse plugin doctor must be healthy')
+          const states = new Map(report.checks.map(c => [c.code, c.state]))
+          for (const id of [
+            'dsh-docker-icon-dock',
+            'dsh-docker-session-manager',
+            'dsh-docker-reasoning-editor',
+            'dsh-docker-web-search',
+            'client-graph',
+            'api:dsh-docker-session-manager',
+          ]) assert.equal(states.get(id), 'ok', 'Reverse missing Standard client/API: ' + id)
+          console.log('Reverse inherits all four Standard Web plugins in live browser boot graph')
+          NODE
+              rm -f "$doctor_report"
+
+              # Same Chromium UI regression suite as Standard; this catches
+              # plugins that appear in HTML but never register their controls.
+              if ! docker exec "$name" node /usr/local/bin/test-dsh-web-browser-e2e.cjs; then
+                docker cp "$name:/tmp/dsh-web-e2e-failed.png" ./reverse-web-e2e-failed.png 2>/dev/null || true
+                echo "::error::Reverse browser failed Standard Web plugin UI regression"
+                exit 1
+              fi
+              echo "Reverse Agent, native Standard plugins, Chromium UI and API routing verified"
               exit 0
             fi
             sleep 1
@@ -282,3 +434,21 @@ jobs:
           docker logs "$name"
           echo "::error::Reverse session/create not confirmed in running DSH"
           exit 1
+
+      # Never push a multi-arch Reverse tag before the exact inherited Standard
+      # plugin set and real authenticated Chromium UI have passed the audit.
+      - name: Publish multi-arch Reverse only after passing runtime parity
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          push: true
+          load: false
+          build-args: |
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha,scope=dsh-reverse
+          cache-to: type=gha,mode=max,scope=dsh-reverse

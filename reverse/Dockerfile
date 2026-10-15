@@ -93,6 +93,10 @@ COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN ln -s /opt/dsh-reverse/prompt-manager/cli.mjs /usr/local/bin/reverse-prompt \
  && chmod 0755 /opt/dsh-reverse/prompt-manager/cli.mjs
+# Validate the complete Standard-built plugin set, not a hardcoded list.
+# This scanner also verifies that every installed Web client has a launcher patch.
+COPY ci/reverse-web-parity.cjs /usr/local/bin/reverse-web-parity.cjs
+RUN node /usr/local/bin/reverse-web-parity.cjs snapshot >/dev/null
 RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/core.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/index.mjs \

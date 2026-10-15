@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .dockerignore
       - docker/**
       - ci/**
       - dshd
@@ -22,6 +23,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .dockerignore
       - docker/**
       - ci/**
       - dshd
@@ -111,6 +113,7 @@ jobs:
           node --check tests/test-web-browser-e2e.cjs
           node tests/test-connection-rpc-routes.js
           node --test tests/test-remote-settings-patch.cjs
+          node --test tests/test-reverse-plugin-parity.cjs
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js
           node tests/test-web-token.js
@@ -212,6 +215,22 @@ jobs:
           tags: dsh-ci:pr
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Image-owned Web modules are discovered from their package manifests.
+      # Adding one without declaring its native launcher patch must fail here.
+      - name: Verify complete Standard Web plugin inventory
+        run: |
+          set -euo pipefail
+          docker run --rm -i --entrypoint node dsh-ci:pr - snapshot \
+            < ci/reverse-web-parity.cjs > "$RUNNER_TEMP/standard-web-plugins.json"
+          node - "$RUNNER_TEMP/standard-web-plugins.json" <<'NODE'
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+          if (!report.plugins.length || !report.overlays.length) process.exit(1)
+          console.log('Discovered ' + report.plugins.length + ' Standard plugin bundles; ' +
+            report.plugins.filter(p => p.web).length + ' Web clients, ' +
+            report.overlays.length + ' native launcher overlays')
+          NODE
 
       # A source-level test cannot catch missing Python shared libraries or
       # a broken Granian/SearXNG install. Probe the actual built image offline.

@@ -6,6 +6,8 @@ services:
     build:
       context: .
       dockerfile: reverse/Dockerfile
+      # Refresh the Standard base when rebuilding locally, not a stale cached :latest.
+      pull: true
       args:
         BASE_IMAGE: "${DSH_REVERSE_BASE_IMAGE:-ghcr.io/paimoncai/dsh-docker-install:latest}"
     image: "${DSH_REVERSE_IMAGE:-dsh:reverse}"
@@ -18,6 +20,16 @@ services:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DSH_TRUSTED_HOSTS: "${DSH_REVERSE_TRUSTED_HOSTS:-}"
       DSH_REVERSE_AGENT_PATCH: /opt/dsh-reverse/cordis.patch.yml
+      # Match Standard's image-owned Web extension switches; Reverse keeps an
+      # isolated DSH_HOME, so Standard's profile preferences do not carry over.
+      DSH_REASONING_EDITOR: "${DSH_REASONING_EDITOR:-true}"
+      DSH_ICON_DOCK_ENABLED: "${DSH_ICON_DOCK_ENABLED:-true}"
+      DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
+      DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
+      DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"
+      DSH_SEARCH_BRAVE_ENABLED: "${DSH_SEARCH_BRAVE_ENABLED:-false}"
+      DSH_SEARCH_BRAVE_DAILY_LIMIT: "${DSH_SEARCH_BRAVE_DAILY_LIMIT:-50}"
+      DSH_SEARCH_CACHE_ENABLED: "${DSH_SEARCH_CACHE_ENABLED:-true}"
       DSH_DOCKER_RESTART: container
       NPM_CONFIG_CACHE: /tmp/npm-cache
       TZ: "${DSH_TIMEZONE:-Asia/Shanghai}"

@@ -1,6 +1,8 @@
 .git
 .gitignore
 .github
-ci
+# CI logic is excluded except for the plugin parity verifier installed in Reverse.
+ci/*
+!ci/reverse-web-parity.cjs
 dsh-docker
 *.md
