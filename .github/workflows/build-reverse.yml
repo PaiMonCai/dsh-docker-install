@@ -137,6 +137,7 @@ jobs:
           bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
           node --test tests/test-plugin-doctor.cjs
+          node --test tests/test-reverse-plugin-parity.cjs
           node --check tests/test-web-browser-e2e.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
 
@@ -213,6 +214,25 @@ jobs:
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
+      - name: Compare every inherited Standard plugin against the actual base image
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_IMAGE: ${{ steps.vars.outputs.base }}
+          REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Evaluate the scanner *inside* the immutable Standard source image;
+          # no fixed plugin names, or guessing from DSH version labels.
+          docker run --rm -i --entrypoint node "$BASE_IMAGE" - snapshot \
+            < ci/reverse-web-parity.cjs > "$RUNNER_TEMP/standard-web-plugins.json"
+          docker run --rm --entrypoint node "$REVERSE_IMAGE" \
+            /usr/local/bin/reverse-web-parity.cjs snapshot \
+            > "$RUNNER_TEMP/reverse-web-plugins.json"
+          node ci/reverse-web-parity.cjs compare \
+            "$RUNNER_TEMP/standard-web-plugins.json" \
+            "$RUNNER_TEMP/reverse-web-plugins.json"
+
       - name: Audit installed engines, native preset and bundled Skills
         if: github.event_name == 'pull_request'
         env:
@@ -256,13 +276,13 @@ jobs:
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
           trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-          # Force all four image-owned Standard extensions on in this isolated CI
-          # profile, including optional Web Search (disabled by default).
+          # Read all current Standard plugin switches from the *actual* base.
+          # Optional built-ins are enabled only in this disposable CI profile.
+          mapfile -t plugin_env < <(node ci/reverse-web-parity.cjs env "$RUNNER_TEMP/standard-web-plugins.json")
+          plugin_args=()
+          for assignment in "${plugin_env[@]}"; do plugin_args+=(-e "$assignment"); done
           docker run -d --name "$name" \
-            -e DSH_REVERSE_CI_VERIFY_PRESET=1 \
-            -e DSH_REASONING_EDITOR=true -e DSH_ICON_DOCK_ENABLED=true \
-            -e DSH_SESSION_MANAGER_WEB=true -e DSH_SEARCH_ENABLED=true \
-            "$IMAGE" >/dev/null
+            -e DSH_REVERSE_CI_VERIFY_PRESET=1 "${plugin_args[@]}" "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
@@ -289,10 +309,12 @@ jobs:
               # stage this PR-only smoke script inside the ephemeral container.
               docker cp docker/test-dsh-core-routes.js "$name:/usr/local/bin/test-dsh-core-routes.js"
               docker exec "$name" node /usr/local/bin/test-dsh-core-routes.js
+              docker cp "$RUNNER_TEMP/standard-web-plugins.json" "$name:/tmp/standard-web-plugins.json"
+              docker exec "$name" node /usr/local/bin/reverse-web-parity.cjs \
+                verify-runtime /tmp/standard-web-plugins.json
 
-              # Static file presence is insufficient. The inherited Standard
-              # modules must be mounted by the real Reverse launcher and
-              # present in the authenticated browser boot graph.
+              # Preserve the detailed existing API and UI checks for legacy
+              # built-ins too; the dynamic parity check above covers additions.
               doctor_report="$(mktemp)"
               if ! docker exec "$name" node /usr/local/bin/dsh-plugin-doctor.js --json > "$doctor_report"; then
                 cat "$doctor_report"
