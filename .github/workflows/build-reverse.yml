@@ -6,6 +6,8 @@ on:
       - reverse/**
       - docker-compose.reverse.yml
       - .github/workflows/build-reverse.yml
+      - ci/reverse-web-parity.cjs
+      - .dockerignore
   pull_request:
     branches: [main]
     paths:
@@ -13,7 +15,11 @@ on:
       - docker-compose.reverse.yml
       - docker/entrypoint.sh
       - docker/plugins/**
+      - docker/prepare-native-web-plugins.js
+      - docker/dsh-plugin-doctor.js
+      - docker-compose.yml
       - Dockerfile
+      - .dockerignore
       - ci/reverse-web-parity.cjs
       - tests/test-reverse-plugin-parity.cjs
       - tests/test-reverse-edition.cjs
@@ -247,27 +253,53 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Reverse image and publish only after Standard
-        if: github.event_name != 'pull_request' || steps.standard_diff.outputs.changed != 'true'
+      - name: Build Reverse PR image from published Standard
+        if: github.event_name == 'pull_request' && steps.standard_diff.outputs.changed != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: linux/amd64
           pull: true
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: false
+          load: true
           build-args: |
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
+      - name: Build Reverse release audit image before any GHCR push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: false
+          load: true
+          build-args: |
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
+          tags: dsh-reverse-ci:audit
+          cache-from: type=gha,scope=dsh-reverse
+          cache-to: type=gha,mode=max,scope=dsh-reverse
+
+      - name: Select image for plugin and runtime audit
+        id: audit_image
+        env:
+          PR_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            echo "name=$PR_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=dsh-reverse-ci:audit" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compare every inherited Standard plugin against the actual base image
-        if: github.event_name == 'pull_request'
         env:
           BASE_IMAGE: ${{ steps.effective_base.outputs.image }}
-          REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          REVERSE_IMAGE: ${{ steps.audit_image.outputs.name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -283,9 +315,8 @@ jobs:
             "$RUNNER_TEMP/reverse-web-plugins.json"
 
       - name: Audit installed engines, native preset and bundled Skills
-        if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          IMAGE: ${{ steps.audit_image.outputs.name }}
         run: |
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
@@ -318,9 +349,8 @@ jobs:
           '
 
       - name: Boot Web and assert Reverse Agent registration
-        if: github.event_name == 'pull_request'
         env:
-          IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          IMAGE: ${{ steps.audit_image.outputs.name }}
         run: |
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
@@ -404,3 +434,21 @@ jobs:
           docker logs "$name"
           echo "::error::Reverse session/create not confirmed in running DSH"
           exit 1
+
+      # Never push a multi-arch Reverse tag before the exact inherited Standard
+      # plugin set and real authenticated Chromium UI have passed the audit.
+      - name: Publish multi-arch Reverse only after passing runtime parity
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          push: true
+          load: false
+          build-args: |
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha,scope=dsh-reverse
+          cache-to: type=gha,mode=max,scope=dsh-reverse
