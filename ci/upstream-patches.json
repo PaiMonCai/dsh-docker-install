@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "patches": [
+    {
+      "id": "remote-settings",
+      "file": "docker/patch-remote-settings.js",
+      "risk": "medium",
+      "phase": "docker-build",
+      "dependency": "dsh-client-ui-settings client.js",
+      "strategy": "legacy rewrite or upstream Host-only detection",
+      "validation": "Remote Settings regression and published alpha.3 check",
+      "exitCriteria": "Host persistence supported in all maintained versions"
+    },
+    {
+      "id": "connection-rpc-routes",
+      "file": "docker/patch-connection-rpc-routes.js",
+      "risk": "high",
+      "phase": "docker-build",
+      "dependency": "client-connection rpc-host.js",
+      "strategy": "source rewrite",
+      "validation": "RPC patch self-test and runtime smoke",
+      "exitCriteria": "Upstream route registration extension"
+    },
+    {
+      "id": "web-launch-token",
+      "file": "docker/patch-web-launch-token.js",
+      "risk": "high",
+      "phase": "docker-build",
+      "dependency": "browser launch-token generator",
+      "strategy": "source rewrite",
+      "validation": "token patch self-test and Web login smoke",
+      "exitCriteria": "Upstream persistent token configuration"
+    },
+    {
+      "id": "workspace-picker-home",
+      "file": "docker/patch-workspace-picker-home.js",
+      "risk": "medium",
+      "phase": "docker-build",
+      "dependency": "workspace picker homedir()",
+      "strategy": "source rewrite",
+      "validation": "Docker build and workspace smoke",
+      "exitCriteria": "Upstream workspace root setting"
+    },
+    {
+      "id": "plugin-hub-origin",
+      "file": "docker/patch-plugin-hub-origin.js",
+      "risk": "high",
+      "phase": "runtime-profile",
+      "dependency": "dsh-plugin profile routes",
+      "strategy": "source rewrite",
+      "validation": "plugin patch self-test and reverse proxy smoke",
+      "exitCriteria": "Upstream trusted proxy configuration"
+    },
+    {
+      "id": "dsh-market-container-restart",
+      "file": "docker/patch-dsh-market-container-restart.js",
+      "risk": "high",
+      "phase": "runtime-profile",
+      "dependency": "dshmarket profile restart/origin",
+      "strategy": "source rewrite",
+      "validation": "market patch self-test and restart smoke",
+      "exitCriteria": "Upstream container-aware restart support"
+    }
+  ]
+}
