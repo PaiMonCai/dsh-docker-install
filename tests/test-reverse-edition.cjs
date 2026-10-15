@@ -238,3 +238,23 @@ test('Workbench guarded single task execution',()=>{
  assert.match(read('reverse/bin/reverse-task'),/--expected-id/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/task-runner.test.mjs')))
 })
+
+test('Reverse keeps Standard image-owned Web plugins and compose toggles in parity', () => {
+ const standard=read('docker-compose.yml')
+ const reverse=read('docker-compose.reverse.yml')
+ const docker=read('reverse/Dockerfile')
+ const entry=read('docker/entrypoint.sh')
+ const workflow=read('.github/workflows/build-reverse.yml')
+ for(const key of ['DSH_REASONING_EDITOR','DSH_ICON_DOCK_ENABLED','DSH_SESSION_MANAGER_WEB','DSH_SEARCH_ENABLED']) {
+   assert.match(standard,new RegExp(key + ':'))
+   assert.match(reverse,new RegExp(key + ':'))
+ }
+ for(const name of ['dsh-reasoning-editor','dsh-icon-dock','dsh-session-manager-web','dsh-web-search']) {
+   assert.ok(entry.includes('/opt/dsh/plugins/' + name + '/cordis.patch.yml'),name)
+   assert.ok(docker.includes('for plugin in dsh-reasoning-editor dsh-icon-dock dsh-session-manager-web dsh-web-search'),name)
+ }
+ assert.match(workflow,/dsh-plugin-doctor\.js --json/)
+ assert.match(workflow,/test-dsh-web-browser-e2e\.cjs/)
+ assert.match(workflow,/DSH_SEARCH_ENABLED=true/)
+ assert.match(workflow,/client-graph/)
+})
