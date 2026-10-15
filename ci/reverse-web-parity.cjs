@@ -170,7 +170,7 @@ async function main() {
   } else throw Error('usage: reverse-web-parity.cjs snapshot | compare STANDARD REVERSE | env STANDARD | verify-runtime STANDARD')
 }
 
-if (require.main === module) main().catch(error => {
+if (require.main === module || process.argv[1] === '-') main().catch(error => {
   // Never print cookies or the login token.
   process.stderr.write('reverse-web-parity: ' + error.message + '\n')
   process.exitCode = 1
