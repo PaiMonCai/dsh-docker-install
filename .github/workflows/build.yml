@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .dockerignore
       - docker/**
       - ci/**
       - dshd
@@ -22,6 +23,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .dockerignore
       - docker/**
       - ci/**
       - dshd
