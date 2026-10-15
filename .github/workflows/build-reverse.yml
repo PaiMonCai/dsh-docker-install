@@ -269,6 +269,10 @@ jobs:
                 done
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
+              # Reverse PR builds start from an already-published Standard image.
+              # The added Dockerfile COPY is not included in that base yet, so
+              # stage this PR-only smoke script inside the ephemeral container.
+              docker cp docker/test-dsh-core-routes.js "$name:/usr/local/bin/test-dsh-core-routes.js"
               docker exec "$name" node /usr/local/bin/test-dsh-core-routes.js
               echo "Reverse Agent registry, internal core API routing, sessionController health and Skills confirmed"
               exit 0
