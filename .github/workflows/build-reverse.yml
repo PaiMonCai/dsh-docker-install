@@ -136,6 +136,8 @@ jobs:
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
+          node --test tests/test-plugin-doctor.cjs
+          node --check tests/test-web-browser-e2e.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
 
       - name: Resolve image and matching Standard version
@@ -143,6 +145,7 @@ jobs:
         shell: bash
         env:
           REQUESTED_BASE: ${{ inputs.base_image }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
           REQUESTED_VERSION: ${{ inputs.dsh_version }}
           REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
           RAW_IMAGE: ${{ env.IMAGE_NAME }}
@@ -152,6 +155,12 @@ jobs:
           version="$REQUESTED_VERSION"
           if [[ -z "$version" ]]; then
             version="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
+          fi
+          # A Standard-triggered release must use the exact published manifest,
+          # not a mutable version tag. PR/standalone runs retain version fallback.
+          if [[ -n "$REQUESTED_SOURCE_SHA" && ! "$REQUESTED_BASE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Standard-triggered Reverse release requires the immutable Standard base_image digest"
+            exit 1
           fi
           base="${REQUESTED_BASE:-$image:$version}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
@@ -247,7 +256,13 @@ jobs:
           set -euo pipefail
           name="dsh-reverse-smoke-$GITHUB_RUN_ID"
           trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$name" -e DSH_REVERSE_CI_VERIFY_PRESET=1 "$IMAGE" >/dev/null
+          # Force all four image-owned Standard extensions on in this isolated CI
+          # profile, including optional Web Search (disabled by default).
+          docker run -d --name "$name" \
+            -e DSH_REVERSE_CI_VERIFY_PRESET=1 \
+            -e DSH_REASONING_EDITOR=true -e DSH_ICON_DOCK_ENABLED=true \
+            -e DSH_SESSION_MANAGER_WEB=true -e DSH_SEARCH_ENABLED=true \
+            "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
@@ -274,7 +289,43 @@ jobs:
               # stage this PR-only smoke script inside the ephemeral container.
               docker cp docker/test-dsh-core-routes.js "$name:/usr/local/bin/test-dsh-core-routes.js"
               docker exec "$name" node /usr/local/bin/test-dsh-core-routes.js
-              echo "Reverse Agent registry, internal core API routing, sessionController health and Skills confirmed"
+
+              # Static file presence is insufficient. The inherited Standard
+              # modules must be mounted by the real Reverse launcher and
+              # present in the authenticated browser boot graph.
+              doctor_report="$(mktemp)"
+              if ! docker exec "$name" node /usr/local/bin/dsh-plugin-doctor.js --json > "$doctor_report"; then
+                cat "$doctor_report"
+                rm -f "$doctor_report"
+                echo "::error::Reverse lost an inherited Standard Web plugin"
+                exit 1
+              fi
+              node - "$doctor_report" <<'NODE'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+          assert.equal(report.healthy, true, 'Reverse plugin doctor must be healthy')
+          const states = new Map(report.checks.map(c => [c.code, c.state]))
+          for (const id of [
+            'dsh-docker-icon-dock',
+            'dsh-docker-session-manager',
+            'dsh-docker-reasoning-editor',
+            'dsh-docker-web-search',
+            'client-graph',
+            'api:dsh-docker-session-manager',
+          ]) assert.equal(states.get(id), 'ok', 'Reverse missing Standard client/API: ' + id)
+          console.log('Reverse inherits all four Standard Web plugins in live browser boot graph')
+          NODE
+              rm -f "$doctor_report"
+
+              # Same Chromium UI regression suite as Standard; this catches
+              # plugins that appear in HTML but never register their controls.
+              if ! docker exec "$name" node /usr/local/bin/test-dsh-web-browser-e2e.cjs; then
+                docker cp "$name:/tmp/dsh-web-e2e-failed.png" ./reverse-web-e2e-failed.png 2>/dev/null || true
+                echo "::error::Reverse browser failed Standard Web plugin UI regression"
+                exit 1
+              fi
+              echo "Reverse Agent, native Standard plugins, Chromium UI and API routing verified"
               exit 0
             fi
             sleep 1
