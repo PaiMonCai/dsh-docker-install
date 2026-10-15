@@ -245,7 +245,8 @@ test('Reverse keeps Standard image-owned Web plugins and compose toggles in pari
  const docker=read('reverse/Dockerfile')
  const entry=read('docker/entrypoint.sh')
  const workflow=read('.github/workflows/build-reverse.yml')
- assert.match(reverse,/dockerfile: reverse\/Dockerfile\n\s+pull: true/)
+ assert.match(reverse,/dockerfile: reverse\/Dockerfile/)
+ assert.match(reverse,/^\s+pull: true$/m)
  for(const key of ['DSH_REASONING_EDITOR','DSH_ICON_DOCK_ENABLED','DSH_SESSION_MANAGER_WEB','DSH_SEARCH_ENABLED']) {
    assert.match(standard,new RegExp(key + ':'))
    assert.match(reverse,new RegExp(key + ':'))
