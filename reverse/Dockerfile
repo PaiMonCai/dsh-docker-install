@@ -93,17 +93,10 @@ COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN ln -s /opt/dsh-reverse/prompt-manager/cli.mjs /usr/local/bin/reverse-prompt \
  && chmod 0755 /opt/dsh-reverse/prompt-manager/cli.mjs
-# Fail closed if the selected Standard base does not actually contain its
-# image-owned Web plugins. A successful npm/REA build is not Web parity.
-RUN set -eu; \
-    for plugin in dsh-reasoning-editor dsh-icon-dock dsh-session-manager-web dsh-web-search; do \
-      for file in package.json index.js client.js cordis.patch.yml; do \
-        test -s "/opt/dsh/plugins/$plugin/$file" || { echo "Missing inherited Standard plugin: $plugin/$file" >&2; exit 1; }; \
-      done; \
-    done; \
-    test -s /usr/local/bin/dsh-plugin-doctor.js; \
-    test -s /usr/local/bin/test-dsh-web-browser-e2e.cjs; \
-    test -s /usr/local/bin/prepare-dsh-native-web-plugins.js
+# Validate the complete Standard-built plugin set, not a hardcoded list.
+# This scanner also verifies that every installed Web client has a launcher patch.
+COPY ci/reverse-web-parity.cjs /usr/local/bin/reverse-web-parity.cjs
+RUN node /usr/local/bin/reverse-web-parity.cjs snapshot >/dev/null
 RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/core.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/index.mjs \
