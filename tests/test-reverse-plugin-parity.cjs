@@ -47,7 +47,7 @@ test('missing, renamed or tampered inherited plugin fails closed', t => {
   fs.writeFileSync(path.join(f.pluginRoot, 'alpha/client.js'), 'modified plugin code')
   assert.throws(() => compare(before, f.take()), /changed inherited Standard plugin files/)
   fs.rmSync(path.join(f.pluginRoot, 'alpha'), { recursive: true })
-  assert.throws(() => f.take(), /launcher references missing Web plugin/)
+  assert.throws(() => f.take(), /no Web client plugins discovered|launcher references missing Web plugin/)
 })
 
 test('an unregistered future Web plugin is not silently ignored', t => {
@@ -63,7 +63,7 @@ test('an unregistered future Web plugin is not silently ignored', t => {
 test('dynamic launcher parser rejects unsupported switches and duplicate patches', () => {
   const patch = '/opt/dsh/plugins/alpha/cordis.patch.yml'
   assert.throws(() => declaredPatches('append_native_web_patch "' + patch + '" "$UNKNOWN" "UI"'),
-    /no native Web plugins/)
+    /unsupported native plugin toggle/)
   const item = 'append_native_web_patch "' + patch + '" "true" "UI"\n'
   assert.throws(() => declaredPatches(item + item), /duplicate native Web patch declaration/)
 })
