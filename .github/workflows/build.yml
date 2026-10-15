@@ -116,6 +116,8 @@ jobs:
           node --test tests/test-reverse-plugin-parity.cjs
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js
+          node docker/patch-web-launch-token.js --self-test
+          node docker/patch-connection-rpc-routes.js --self-test
           node tests/test-web-token.js
           bash -n docker/entrypoint.sh
           node --check docker/prepare-native-web-plugins.js
@@ -155,6 +157,22 @@ jobs:
           tar -xzf "$tmp/$archive" -C "$package_dir" --strip-components=1
           DSH_SETTINGS_NPM_ROOT="$tmp/npm-root" node docker/patch-remote-settings.js
 
+      # Exercise the published Connection bundle with the same source adapters
+      # used by Docker builds. This catches upstream layout drift before image build.
+      - name: Verify published DSH alpha.3 Connection adapters
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          archive="$(npm pack '@deepseek-ai/dsh-client-connection@0.2.1-alpha.3' --silent --pack-destination "$tmp")"
+          package_dir="$tmp/npm-root/@deepseek-ai/dsh-client-connection"
+          mkdir -p "$package_dir"
+          tar -xzf "$tmp/$archive" -C "$package_dir" --strip-components=1
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-connection-rpc-routes.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-web-launch-token.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-connection-rpc-routes.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-web-launch-token.js
+
       - name: Resolve dsh version
         id: ver
         run: |
@@ -164,6 +182,32 @@ jobs:
           fi
           echo "Building with DSH_VERSION=$V"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      # Early candidate gate: probe exactly the release under test (including
+      # workflow_call preflight updates), not only a historical regression tag.
+      - name: Verify selected DSH version source adapters
+        env:
+          DSH_CANDIDATE_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DSH_CANDIDATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unexpected DSH version: $DSH_CANDIDATE_VERSION" >&2
+            exit 1
+          fi
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          for package in dsh-client-ui-settings dsh-client-connection; do
+            archive="$(npm pack "@deepseek-ai/${package}@${DSH_CANDIDATE_VERSION}" --silent --pack-destination "$tmp")"
+            package_dir="$tmp/npm-root/@deepseek-ai/$package"
+            mkdir -p "$package_dir"
+            tar -xzf "$tmp/$archive" -C "$package_dir" --strip-components=1
+          done
+          DSH_SETTINGS_NPM_ROOT="$tmp/npm-root" node docker/patch-remote-settings.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-connection-rpc-routes.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-web-launch-token.js
+          # Connection adapters must be safe to apply twice to the same bundle.
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-connection-rpc-routes.js
+          DSH_PATCH_NPM_ROOT="$tmp/npm-root" node docker/patch-web-launch-token.js
 
       - name: Normalize image name
         id: img
