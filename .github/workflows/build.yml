@@ -110,6 +110,7 @@ jobs:
           node tests/test-plugin-doctor.cjs
           node --check tests/test-web-browser-e2e.cjs
           node tests/test-connection-rpc-routes.js
+           node --test tests/test-remote-settings-patch.cjs
           node --check docker/dsh-web-token.js
           node --check docker/patch-web-launch-token.js
           node tests/test-web-token.js
