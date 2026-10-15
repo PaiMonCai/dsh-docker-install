@@ -23,6 +23,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     outputs:
+      current: ${{ steps.check.outputs.current }}
       updated: ${{ steps.check.outputs.updated }}
       latest: ${{ steps.check.outputs.latest }}
       channels: ${{ steps.check.outputs.channels }}
@@ -66,6 +67,10 @@ jobs:
       preflight_only: true
     permissions:
       contents: read
+      # The called build job requires these scopes even in preflight_only mode.
+      # A reusable workflow cannot elevate its caller's GITHUB_TOKEN rights.
+      packages: write
+      actions: write
 
   commit:
     needs: [check, preflight]
