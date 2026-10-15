@@ -6,6 +6,8 @@ services:
     build:
       context: .
       dockerfile: reverse/Dockerfile
+      # Refresh the Standard base when rebuilding locally, not a stale cached :latest.
+      pull: true
       args:
         BASE_IMAGE: "${DSH_REVERSE_BASE_IMAGE:-ghcr.io/paimoncai/dsh-docker-install:latest}"
     image: "${DSH_REVERSE_IMAGE:-dsh:reverse}"
