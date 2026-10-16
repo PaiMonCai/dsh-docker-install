@@ -119,3 +119,24 @@ test('case detail resolves live queue task states without copying stdout',async(
   assert.ok(after.tasks.some(t=>t.id===taskId&&t.state==='succeeded'))
   assert.ok(!JSON.stringify(after).includes('SECRET_EXECUTION_LOG'))
 })
+
+test('task audit sanitizes output and treats legacy records as history-free',async()=>{
+ const {taskAudit}=await import('./workbench.mjs')
+ const folder=join(home,'.reverse-tasks')
+ const id='3b8e0c0a-7360-4c43-8d92-f05e06ad77f7'
+ const file=join(folder,id+'.json')
+ writeFileSync(file,JSON.stringify({schema:'dsh-reverse-task/v1',id,kind:'triage',
+   state:'succeeded',result:{stdout:'SENSITIVE_TOOL_OUTPUT'}}))
+ assert.deepEqual(taskAudit(id).events,[])
+ assert.equal(taskAudit(id).recorded,false)
+ writeFileSync(file,JSON.stringify({schema:'dsh-reverse-task/v1',id,kind:'triage',
+   state:'failed',result:{stderr:'SENSITIVE_TOOL_OUTPUT'},
+   events:[{at:'2026-10-16T00:00:00Z',state:'failed',action:'failed',note:'SENSITIVE_TOOL_OUTPUT'},
+    {at:'2026-10-16T00:01:00Z',state:'failed',action:'some-user-injected-command'}]}))
+ const audit=taskAudit(id)
+ assert.equal(audit.recorded,true)
+ assert.equal(audit.events.length,1)
+ assert.equal(audit.events[0].action,'failed')
+ assert.ok(!JSON.stringify(audit).includes('SENSITIVE_TOOL_OUTPUT'))
+ assert.throws(()=>taskAudit('../../etc/passwd'))
+})
