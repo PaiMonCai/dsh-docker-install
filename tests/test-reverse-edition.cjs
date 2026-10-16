@@ -51,13 +51,14 @@ test('Reverse pins the published analysis engines',()=>{
  for(const token of ['REA_VERSION=6.4.0','GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db','JADX_MCP_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75','REA_JADX_MCP_JAR','JADX_SHA256=8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec','pwntools==4.15.0','frida-tools==14.11.0','gdb-multiarch','apktool'])assert.ok(f.includes(token),token)
  assert.doesNotMatch(f,/apt-get install[^\n]*ida-pro|hopper/)
 })
-test('Nine advanced reverse Skills exclude Android and preserve user edits',async t=>{
+test('Ten reverse Skills include universal core, exclude legacy Android and preserve user edits',async t=>{
  const {pathToFileURL}=require('node:url')
  const module=await import(pathToFileURL(path.join(root,'reverse/skills-bootstrap.mjs')).href)
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-reverse-skilltest-'))
  t.after(()=>fs.rmSync(home,{recursive:true,force:true}))
- assert.equal(module.SKILLS.length,9)
- assert.equal(new Set(module.SKILLS).size,9)
+ assert.equal(module.SKILLS.length,10)
+ assert.equal(new Set(module.SKILLS).size,10)
+ assert.ok(module.SKILLS.includes('universal-reverse-core'))
  assert.ok(!module.SKILLS.includes('android-apk-analysis'))
  assert.equal(fs.existsSync(path.join(root,'reverse/skills/android-apk-analysis')),false)
  const dest=path.join(home,'reverse-engineering','skills')
@@ -84,6 +85,7 @@ test('Nine advanced reverse Skills exclude Android and preserve user edits',asyn
  for(const id of module.SKILLS){
    assert.ok(fs.existsSync(path.join(dest,id,'SKILL.md')))
  }
+ assert.ok(fs.existsSync(path.join(dest,'universal-reverse-core','references','routing.md')))
  module.installSkills(home,path.join(root,'reverse/skills'))
  assert.equal(fs.readFileSync(path.join(existing,'SKILL.md'),'utf8'),'user-custom-skill')
 })
@@ -183,6 +185,8 @@ test('Reverse task queue is allowlisted and does not execute through shell',()=>
  assert.match(script,/fcntl\.flock/)
  assert.match(script,/dsh-reverse-task\/v1/)
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-task/)
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-doctor/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_doctor.py')))
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_task_queue.py')))
 })
 
