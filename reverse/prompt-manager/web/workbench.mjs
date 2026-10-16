@@ -169,6 +169,12 @@ function caseRecord(id){
     throw Error('invalid case record')
   return item
 }
+// Case identity is independent of the queue. Projects only validate references,
+// not whether task metadata is currently readable or up to date.
+export function caseIdentity(id){
+  const item=caseRecord(id)
+  return {id:item.id,revision:item.revision}
+}
 export function caseDetail(id){
   const item=caseRecord(id)
   const gates={}
