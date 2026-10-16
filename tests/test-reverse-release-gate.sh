@@ -41,6 +41,16 @@ echo "docs2" > "$tmp/docs/ci.md"
 git -C "$tmp" commit -qam docs
 docs_sha="$(git -C "$tmp" rev-parse HEAD)"
 assert_gate false "$reverse_only" "$docs_sha"
+mapfile -t paths < <(node "$root/ci/release.mjs" paths standard)
+for path in "${paths[@]}"; do
+  case "$path" in docker|ci|docs|tests) path="$path/gate-probe.txt" ;; esac
+  previous="$(git -C "$tmp" rev-parse HEAD)"
+  mkdir -p "$tmp/$(dirname "$path")"
+  printf 'changed\n' >> "$tmp/$path"
+  git -C "$tmp" add -- "$path"
+  git -C "$tmp" commit -qm "change $path"
+  assert_gate false "$previous" "$(git -C "$tmp" rev-parse HEAD)"
+done
 assert_gate true "0000000000000000000000000000000000000000" "$docs_sha"
 if (cd "$tmp"; bash "$gate" not-a-sha "$docs_sha") >/dev/null 2>&1; then
   echo "gate accepted invalid SHA" >&2

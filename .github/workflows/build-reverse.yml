@@ -26,6 +26,15 @@ on:
       - ci/reverse-push-gate.sh
       - .github/workflows/build-reverse.yml
       - .github/workflows/build.yml
+      - docker/**
+      - ci/**
+      - dshd
+      - install.sh
+      - .env.example
+      - docs/**
+      - tests/**
+      - .github/workflows/promote-release.yml
+      - .github/workflows/dispatch-edition.yml
   workflow_dispatch:
     inputs:
       base_image:
@@ -41,7 +50,7 @@ on:
         required: false
         type: string
       source_sha:
-        description: Pinned source commit from successful Standard publish
+        description: Standard source provenance; edition source always matches its workflow
         required: false
         type: string
   workflow_call:
@@ -62,11 +71,6 @@ on:
         type: string
         required: false
         default: ""
-
-concurrency:
-  group: reverse-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
   packages: write
@@ -78,12 +82,20 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      run_reverse: ${{ steps.gate.outputs.run_reverse }}
+      run_reverse: ${{ steps.gate.outputs.run_reverse == 'true' && steps.base.outputs.ready != 'false' }}
+      candidate: ${{ steps.candidate.outputs.candidate }}
+      image: ${{ steps.base.outputs.image }}
+      base_image: ${{ steps.base.outputs.base_image }}
+      digest: ${{ steps.base.outputs.digest }}
+      candidate_suffix: ${{ steps.base.outputs.candidate_suffix }}
+      version: ${{ steps.base.outputs.version }}
+      channels: ${{ steps.base.outputs.channels }}
+      tree: ${{ steps.base.outputs.tree }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Avoid racing a mixed Standard and Reverse push
         id: gate
         shell: bash
@@ -102,15 +114,53 @@ jobs:
             echo "Mixed Standard + Reverse commit: wait for Standard digest dispatch."
           fi
 
+      - name: Detect changed Standard base on PR
+        id: candidate
+        if: github.event_name == 'pull_request' && steps.gate.outputs.run_reverse == 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed="$(bash ci/reverse-push-gate.sh "$PR_BASE_SHA" "$GITHUB_SHA")"
+          if [[ "$changed" == false ]]; then
+            echo "candidate=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve one immutable Standard contract
+        id: base
+        if: steps.gate.outputs.run_reverse == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_IMAGE: ${{ env.IMAGE_NAME }}
+          REQUESTED_BASE: ${{ inputs.base_image }}
+          REQUESTED_VERSION: ${{ inputs.dsh_version }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
+          CANDIDATE: ${{ steps.candidate.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          echo "image=${RELEASE_IMAGE,,}" >> "$GITHUB_OUTPUT"
+          echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          node ci/release.mjs tree reverse
+          if [[ "$CANDIDATE" == true ]]; then
+            echo "base_image=dsh-standard-ci:reverse" >> "$GITHUB_OUTPUT"
+            echo "version=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)" >> "$GITHUB_OUTPUT"
+            echo "channels=" >> "$GITHUB_OUTPUT"
+          else
+            node ci/release.mjs resolve
+          fi
+
   build:
     needs: prepare
     if: needs.prepare.outputs.run_reverse == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Validate reverse isolation and bundled Skills
         run: |
@@ -155,89 +205,26 @@ jobs:
 
       - name: Resolve image and matching Standard version
         id: vars
-        shell: bash
         env:
-          REQUESTED_BASE: ${{ inputs.base_image }}
-          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
-          REQUESTED_VERSION: ${{ inputs.dsh_version }}
-          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
-          RAW_IMAGE: ${{ env.IMAGE_NAME }}
+          RELEASE_IMAGE: ${{ needs.prepare.outputs.image }}
+          RELEASE_BASE: ${{ needs.prepare.outputs.base_image }}
         run: |
-          set -euo pipefail
-          image="${RAW_IMAGE,,}"
-          version="$REQUESTED_VERSION"
-          if [[ -z "$version" ]]; then
-            version="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
-          fi
-          # A Standard-triggered release must use the exact published manifest,
-          # not a mutable version tag. PR/standalone runs retain version fallback.
-          if [[ -n "$REQUESTED_SOURCE_SHA" && ! "$REQUESTED_BASE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]; then
-            echo "::error::Standard-triggered Reverse release requires the immutable Standard base_image digest"
-            exit 1
-          fi
-          base="${REQUESTED_BASE:-$image:$version}"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "channels=$REQUESTED_CHANNELS" >> "$GITHUB_OUTPUT"
-          echo "Base image: $base"
-
-      - name: Compose Reverse tags, aligned with Standard
-        id: tags
-        shell: bash
-        env:
-          IMAGE: ${{ steps.vars.outputs.image }}
-          VERSION: ${{ steps.vars.outputs.version }}
-          CHANNELS: ${{ steps.vars.outputs.channels }}
-        run: |
-          set -euo pipefail
-          {
-            echo "$IMAGE:reverse"
-            bash ci/image-tags.sh "$IMAGE" "$VERSION" "$CHANNELS" \
-              --prefix reverse- --no-latest
-          } | tee /tmp/reverse-tags
-          {
-            echo "list<<REVERSE_TAGS"
-            cat /tmp/reverse-tags
-            echo "REVERSE_TAGS"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      # If this PR updates the Standard base, test Reverse against that exact
-      # candidate rather than the older already-published Standard tag.
-      - name: Detect changed Standard base on PR
-        if: github.event_name == 'pull_request'
-        id: standard_diff
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet "$PR_BASE_SHA" HEAD -- Dockerfile .dockerignore docker/plugins docker/entrypoint.sh docker/prepare-native-web-plugins.js docker/dsh-plugin-doctor.js; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            status=$?
-            [[ "$status" == 1 ]] || exit "$status"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          echo "image=$RELEASE_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "base=$RELEASE_BASE" >> "$GITHUB_OUTPUT"
 
       - name: Select Standard base for this build
         id: effective_base
         env:
-          ORIGINAL_BASE: ${{ steps.vars.outputs.base }}
-          CHANGED: ${{ steps.standard_diff.outputs.changed }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$CHANGED" == true ]]; then
-            echo "image=dsh-standard-ci:reverse" >> "$GITHUB_OUTPUT"
-          else
-            echo "image=$ORIGINAL_BASE" >> "$GITHUB_OUTPUT"
-          fi
+          RELEASE_BASE: ${{ needs.prepare.outputs.base_image }}
+        run: echo "image=$RELEASE_BASE" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       # Docker driver is intentional here: the daemon-built candidate is then
       # visible as FROM dsh-standard-ci:reverse to the following Docker build.
       - name: Build candidate Standard and Reverse together
-        if: github.event_name == 'pull_request' && steps.standard_diff.outputs.changed == 'true'
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
         env:
           REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
         run: |
@@ -255,7 +242,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Reverse PR image from published Standard
-        if: github.event_name == 'pull_request' && steps.standard_diff.outputs.changed != 'true'
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -266,7 +253,7 @@ jobs:
           load: true
           build-args: |
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
-          tags: ${{ steps.tags.outputs.list }}
+          tags: ${{ steps.vars.outputs.image }}:reverse
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
@@ -450,6 +437,24 @@ jobs:
           load: false
           build-args: |
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
-          tags: ${{ steps.tags.outputs.list }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.caicailo.dsh.version=${{ needs.prepare.outputs.version }}
+            io.caicailo.dsh.edition=reverse
+            io.caicailo.dsh.source.tree=${{ needs.prepare.outputs.tree }}
+            io.caicailo.dsh.base.digest=${{ needs.prepare.outputs.digest }}
+            io.caicailo.dsh.channels=${{ needs.prepare.outputs.channels }}
+          tags: ${{ needs.prepare.outputs.image }}:candidate-reverse-${{ needs.prepare.outputs.candidate_suffix }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
+
+  promote:
+    needs: build
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/promote-release.yml
+    with:
+      edition: reverse
+      candidate_suffix: ${{ needs.build.outputs.candidate_suffix }}
+    permissions:
+      contents: read
+      packages: write

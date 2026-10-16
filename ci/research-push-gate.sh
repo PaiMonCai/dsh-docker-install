@@ -18,18 +18,9 @@ if [[ "$before" == 0000000000000000000000000000000000000000 ]]; then
 fi
 git cat-file -e "$before^{commit}"
 git cat-file -e "$after^{commit}"
-standard_paths=(
-  Dockerfile
-  docker
-  ci
-  dshd
-  install.sh
-  docker-compose.yml
-  .env.example
-  docs
-  tests
-  .github/workflows/build.yml
-)
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mapfile -t standard_paths < <(node "$root/release.mjs" paths standard)
+(( ${#standard_paths[@]} > 0 )) || { echo "Missing Standard paths" >&2; exit 1; }
 if git diff --quiet "$before" "$after" -- "${standard_paths[@]}"; then
   echo true
 else

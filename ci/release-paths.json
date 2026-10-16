@@ -1,0 +1,30 @@
+{
+  "standard": [
+    "Dockerfile",
+    ".dockerignore",
+    "docker",
+    "ci",
+    "dshd",
+    "install.sh",
+    "docker-compose.yml",
+    ".env.example",
+    "docs",
+    "tests",
+    ".github/workflows/build.yml",
+    ".github/workflows/promote-release.yml",
+    ".github/workflows/dispatch-edition.yml"
+  ],
+  "research": [
+    "research",
+    "ci",
+    ".github/workflows/build-research.yml"
+  ],
+  "reverse": [
+    "reverse",
+    "ci",
+    "docker",
+    "tests",
+    "docker-compose.reverse.yml",
+    ".github/workflows/build-reverse.yml"
+  ]
+}

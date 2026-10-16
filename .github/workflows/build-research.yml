@@ -11,22 +11,35 @@ on:
     paths:
       - research/**
       - .github/workflows/build-research.yml
+      - Dockerfile
+      - .dockerignore
+      - docker/**
+      - ci/**
+      - .github/workflows/build.yml
+      - .github/workflows/promote-release.yml
+      - dshd
+      - install.sh
+      - docker-compose.yml
+      - .env.example
+      - docs/**
+      - tests/**
+      - .github/workflows/dispatch-edition.yml
   workflow_dispatch:
     inputs:
       base_image:
-        description: 覆盖 Research 基础镜像（留空则使用当前 latest）
+        description: Standard 镜像；留空解析成功发布的 latest 并固定 digest
         required: false
         type: string
       dsh_version:
-        description: 覆盖 dsh 版本（研究镜像 tag 跟随它；留空则读 Dockerfile 的 DSH_VERSION）
+        description: 可选的 Standard 版本约束；实际版本从基础镜像合同读取
         required: false
         type: string
       channel_tags:
-        description: 额外通道 tag，逗号分隔（如 alpha）；留空则按上游 npm dist-tag 自动推导
+        description: 可选通道约束；默认继承 Standard 发布时记录的通道
         required: false
         type: string
       source_sha:
-        description: 固定科研版使用的源码 commit；Standard 自动触发时传入
+        description: Standard 镜像的源码 commit，用于验证基础镜像溯源
         required: false
         type: string
   workflow_call:
@@ -37,26 +50,23 @@ on:
         type: string
         default: ""
       dsh_version:
-        description: 基础镜像实际包住的 dsh 版本；留空则读 Dockerfile 的 DSH_VERSION
+        description: 可选的 Standard 版本约束
         required: false
         type: string
         default: ""
       channel_tags:
-        description: 上游通道名，逗号分隔；留空则按上游 npm dist-tag 自动推导
+        description: 可选通道约束；默认继承 Standard 发布时记录的通道
         required: false
         type: string
         default: ""
       source_sha:
-        description: 固定 Research 源码 commit；留空使用当前提交
+        description: Standard 镜像的源码 commit；不会改变 Research checkout
         required: false
         type: string
         default: ""
-
-concurrency:
-  # Called workflows inherit the caller's github.workflow value. Use a
-  # dedicated prefix so Research cannot cancel its own base-image caller.
-  group: research-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
+  packages: read
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
@@ -69,12 +79,20 @@ jobs:
     name: Determine Research build trigger
     runs-on: ubuntu-latest
     outputs:
-      run_research: ${{ steps.gate.outputs.run_research }}
+      run_research: ${{ steps.gate.outputs.run_research == 'true' && steps.base.outputs.ready != 'false' }}
+      candidate: ${{ steps.candidate.outputs.candidate }}
+      image: ${{ steps.base.outputs.image }}
+      base_image: ${{ steps.base.outputs.base_image }}
+      digest: ${{ steps.base.outputs.digest }}
+      candidate_suffix: ${{ steps.base.outputs.candidate_suffix }}
+      version: ${{ steps.base.outputs.version }}
+      channels: ${{ steps.base.outputs.channels }}
+      tree: ${{ steps.base.outputs.tree }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Skip mixed push until Standard publishes
         id: gate
         shell: bash
@@ -93,11 +111,49 @@ jobs:
             echo "Same push changed Standard and Research: wait for Standard dispatch."
           fi
 
+      - name: Detect changed Standard base on PR
+        id: candidate
+        if: github.event_name == 'pull_request' && steps.gate.outputs.run_research == 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed="$(bash ci/research-push-gate.sh "$PR_BASE_SHA" "$GITHUB_SHA")"
+          if [[ "$changed" == false ]]; then
+            echo "candidate=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve one immutable Standard contract
+        id: base
+        if: steps.gate.outputs.run_research == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_IMAGE: ${{ env.IMAGE_NAME }}
+          REQUESTED_BASE: ${{ inputs.base_image }}
+          REQUESTED_VERSION: ${{ inputs.dsh_version }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
+          CANDIDATE: ${{ steps.candidate.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          echo "image=${RELEASE_IMAGE,,}" >> "$GITHUB_OUTPUT"
+          echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          node ci/release.mjs tree research
+          if [[ "$CANDIDATE" == true ]]; then
+            echo "base_image=dsh-standard-ci:research" >> "$GITHUB_OUTPUT"
+            echo "version=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)" >> "$GITHUB_OUTPUT"
+            echo "channels=" >> "$GITHUB_OUTPUT"
+          else
+            node ci/release.mjs resolve
+          fi
+
   build:
     name: build (${{ matrix.tag }})
     needs: prepare
     if: ${{ needs.prepare.outputs.run_research == 'true' }}
     runs-on: ubuntu-latest
+    outputs:
+      candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Validate Research scripts
         run: |
@@ -143,6 +199,7 @@ jobs:
           bash -n research/adapter/dsh-wrapper
           bash -n research/adapter/smoke-web.sh
           bash research/tests/test-adapter-smoke.sh
+          bash research/tests/test-quarto-smoke.sh
           node research/tests/test-adapter.mjs
           bash research/tests/test-adapter-wrapper.sh
           grep -q '^schema: 2$' research/templates/default/research.yaml
@@ -167,71 +224,26 @@ jobs:
 
       - name: Normalize image name
         id: img
-        run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=$RELEASE_IMAGE" >> "$GITHUB_OUTPUT"
         env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-
-      - name: Resolve dsh version
-        id: dsh
-        env:
-          REQUESTED_DSH_VERSION: ${{ inputs.dsh_version }}
-        run: |
-          # 研究镜像的发布 tag 跟随它实际包住的 dsh 版本，而不是 research/VERSION
-          # （后者只标识研究层自身版本，见下面 Read Research version）。
-          version="$REQUESTED_DSH_VERSION"
-          if [ -z "$version" ]; then
-            version=$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)
-          fi
-          if [ -z "$version" ]; then
-            echo "::error::无法确定 dsh 版本（Dockerfile 里没有 DSH_VERSION？）"
-            exit 1
-          fi
-          echo "镜像 tag 跟随 dsh 版本: $version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Compose image tags
-        id: tags
-        env:
-          RESOLVED_IMAGE: ${{ steps.img.outputs.name }}
-          RESOLVED_DSH_VERSION: ${{ steps.dsh.outputs.version }}
-          REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
-          TAG_PREFIX: ${{ matrix.tag }}-
-        run: |
-          # :research / :research-economics 是浮动 tag，等价于标准镜像的 :latest；
-          # 版本与通道 tag 带上前缀，使研究镜像 tag 与它包住的 dsh 版本对齐：
-          #   :research-0.2.1-alpha.1、:research-alpha
-          set -euo pipefail
-          tags_file="${RUNNER_TEMP:-/tmp}/dsh-research-tags-${{ matrix.tag }}.txt"
-          {
-            echo "$RESOLVED_IMAGE:${{ matrix.tag }}"
-            bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_DSH_VERSION" "$REQUESTED_CHANNELS" \
-              --prefix "$TAG_PREFIX" --no-latest
-          } | tee "$tags_file"
-          {
-            echo "list<<DSH_RESEARCH_TAGS"
-            cat "$tags_file"
-            echo "DSH_RESEARCH_TAGS"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Resolve Research base image
-        id: base
-        shell: bash
-        env:
-          REQUESTED_BASE_IMAGE: ${{ inputs.base_image }}
-          DEFAULT_BASE_IMAGE: ${{ steps.img.outputs.name }}:${{ steps.dsh.outputs.version }}
-        run: |
-          # Independent Research builds must use the matching versioned Standard
-          # image, not a mutable :latest that may contain another DSH release.
-          base="$REQUESTED_BASE_IMAGE"
-          if [ -z "$base" ]; then
-            base="$DEFAULT_BASE_IMAGE"
-          fi
-          echo "Research base image: $base"
-          echo "image=$base" >> "$GITHUB_OUTPUT"
+          RELEASE_IMAGE: ${{ needs.prepare.outputs.image }}
 
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
+
+      - name: Build candidate Standard and Research together
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
+        env:
+          AUDIT_IMAGE: ${{ needs.prepare.outputs.image }}:${{ matrix.tag }}
+          RESEARCH_VERSION: ${{ steps.ver.outputs.version }}
+          RESEARCH_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          docker build --pull -f Dockerfile -t dsh-standard-ci:research .
+          docker build --pull=false -f research/Dockerfile --target "$RESEARCH_TARGET" \
+            --build-arg BASE_IMAGE=dsh-standard-ci:research \
+            --build-arg RESEARCH_VERSION="$RESEARCH_VERSION" -t "$AUDIT_IMAGE" .
 
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
@@ -241,6 +253,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        if: needs.prepare.outputs.candidate != 'true'
         with:
           context: .
           file: research/Dockerfile
@@ -250,9 +263,16 @@ jobs:
           load: ${{ github.event_name == 'pull_request' }}
           pull: true
           build-args: |
-            BASE_IMAGE=${{ steps.base.outputs.image }}
+            BASE_IMAGE=${{ needs.prepare.outputs.base_image }}
             RESEARCH_VERSION=${{ steps.ver.outputs.version }}
-          tags: ${{ steps.tags.outputs.list }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.caicailo.dsh.version=${{ needs.prepare.outputs.version }}
+            io.caicailo.dsh.edition=${{ matrix.tag }}
+            io.caicailo.dsh.source.tree=${{ needs.prepare.outputs.tree }}
+            io.caicailo.dsh.base.digest=${{ needs.prepare.outputs.digest }}
+            io.caicailo.dsh.channels=${{ needs.prepare.outputs.channels }}
+          tags: ${{ needs.prepare.outputs.image }}:${{ github.event_name == 'pull_request' && matrix.tag || format('candidate-{0}-{1}', matrix.tag, needs.prepare.outputs.candidate_suffix) }}
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
 
@@ -284,3 +304,14 @@ jobs:
             printf '%s\n' "$paths"
             echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    needs: build
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/promote-release.yml
+    with:
+      edition: research
+      candidate_suffix: ${{ needs.build.outputs.candidate_suffix }}
+    permissions:
+      contents: read
+      packages: write

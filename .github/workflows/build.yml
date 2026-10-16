@@ -19,6 +19,8 @@ on:
       - docs/**
       - tests/**
       - .github/workflows/build.yml
+      - .github/workflows/promote-release.yml
+      - .github/workflows/dispatch-edition.yml
   pull_request:
     branches: [main]
     paths:
@@ -33,6 +35,8 @@ on:
       - docs/**
       - tests/**
       - .github/workflows/build.yml
+      - .github/workflows/promote-release.yml
+      - .github/workflows/dispatch-edition.yml
   workflow_dispatch:
     inputs:
       dsh_version:
@@ -44,7 +48,23 @@ on:
         required: false
         type: string
   workflow_call:
+    outputs:
+      promoted:
+        value: ${{ jobs.promote.outputs.promoted }}
+      base_image:
+        value: ${{ jobs.promote.outputs.base_image }}
+      version:
+        value: ${{ jobs.promote.outputs.version }}
+      source_sha:
+        value: ${{ jobs.promote.outputs.source_sha }}
+      channels:
+        value: ${{ jobs.promote.outputs.channels }}
     inputs:
+      dispatch_editions:
+        description: Queue derivatives after promotion (updater reconciles them separately)
+        required: false
+        type: boolean
+        default: true
       preflight_only:
         description: Validate upstream DSH without publishing images
         required: false
@@ -60,7 +80,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -69,6 +89,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      candidate_suffix: ${{ steps.metadata.outputs.candidate_suffix }}
     permissions:
       contents: read
       packages: write
@@ -141,6 +163,8 @@ jobs:
           bash tests/test-image-tags.sh
           bash tests/test-research-release-gate.sh
           node tests/test-release-workflows.mjs
+          node --test tests/test-release-contract.mjs
+          bash research/tests/test-quarto-smoke.sh
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
           bash tests/test-dshd-reverse-install.sh
@@ -217,31 +241,17 @@ jobs:
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
 
-      - name: Compose image tags
-        id: tags
+      - name: Resolve release metadata once
+        id: metadata
         env:
-          RESOLVED_IMAGE: ${{ steps.img.outputs.name }}
           RESOLVED_VERSION: ${{ steps.ver.outputs.version }}
           REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
         run: |
-          # :latest 始终指向最新一次构建；通道 tag（alpha / next / …）与上游
-          # npm dist-tag 对齐，使 `docker pull <image>:alpha` 与
-          # `npm i @deepseek-ai/dsh@alpha` 语义一致。查不到上游通道时只发布
-          # 版本号与 latest，不阻断构建。
-          #
-          # 通道只解析一次：先取通道名（转发给 Research 构建，保证两边的通道一致），
-          # 再用同一份通道组装标准镜像的 tag。
           set -euo pipefail
+          node ci/release.mjs tree standard
+          echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           channels="$(bash ci/image-tags.sh --channels-only "$RESOLVED_VERSION" "$REQUESTED_CHANNELS")"
-          echo "channels: ${channels:-<none>}"
-          tags_file="${RUNNER_TEMP:-/tmp}/dsh-image-tags.txt"
-          bash ci/image-tags.sh "$RESOLVED_IMAGE" "$RESOLVED_VERSION" "$channels" | tee "$tags_file"
-          {
-            echo "list<<DSH_IMAGE_TAGS"
-            cat "$tags_file"
-            echo "DSH_IMAGE_TAGS"
-            echo "channels=$channels"
-          } >> "$GITHUB_OUTPUT"
+          echo "channels=$channels" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -631,70 +641,52 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             DSH_VERSION=${{ steps.ver.outputs.version }}
-          tags: ${{ steps.tags.outputs.list }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.caicailo.dsh.standard.revision=${{ github.sha }}
+            io.caicailo.dsh.source.tree=${{ steps.metadata.outputs.tree }}
+            io.caicailo.dsh.channels=${{ steps.metadata.outputs.channels }}
+          tags: ${{ steps.img.outputs.name }}:candidate-standard-${{ steps.metadata.outputs.candidate_suffix }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
 
-      # A GITHUB_TOKEN workflow_dispatch triggers an independent run.
-      # This is intentionally a dispatch step, NOT a reusable Research job:
-      # Standard's success no longer waits for Research/Economics.
-      - name: Queue independent Research release
-        if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_IMAGE: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          RELEASE_CHANNELS: ${{ steps.tags.outputs.channels }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$RELEASE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Standard 推送没有返回有效 digest: $RELEASE_IMAGE"
-            exit 1
-          fi
-          gh workflow run build-research.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main \
-            --field "base_image=$RELEASE_IMAGE" \
-            --field "dsh_version=$RELEASE_VERSION" \
-            --field "channel_tags=$RELEASE_CHANNELS" \
-            --field "source_sha=$SOURCE_SHA"
-          {
-            echo "### Standard 发布完成，Research 已单独排队"
-            echo
-            echo "- Standard: $RELEASE_IMAGE"
-            echo "- Research: Build & Publish Research Image (independent workflow)"
-            echo "- Source SHA: $SOURCE_SHA"
-          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Queue independent Reverse release
-        if: ${{ github.event_name != 'pull_request' && inputs.preflight_only != true }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_IMAGE: ${{ steps.img.outputs.name }}@${{ steps.publish.outputs.digest }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          RELEASE_CHANNELS: ${{ steps.tags.outputs.channels }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$RELEASE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Standard 推送没有返回有效 digest: $RELEASE_IMAGE"
-            exit 1
-          fi
-          gh workflow run build-reverse.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main \
-            --field "base_image=$RELEASE_IMAGE" \
-            --field "dsh_version=$RELEASE_VERSION" \
-            --field "channel_tags=$RELEASE_CHANNELS" \
-            --field "source_sha=$SOURCE_SHA"
-          {
-            echo "### Standard 发布完成，Reverse 已单独排队"
-            echo
-            echo "- Standard: $RELEASE_IMAGE"
-            echo "- Reverse: Build & Publish Reverse Image (independent workflow)"
-            echo "- Source SHA: $SOURCE_SHA"
-          } >> "$GITHUB_STEP_SUMMARY"
+  promote:
+    needs: build
+    if: github.event_name != 'pull_request' && inputs.preflight_only != true
+    uses: ./.github/workflows/promote-release.yml
+    with:
+      edition: standard
+      candidate_suffix: ${{ needs.build.outputs.candidate_suffix }}
+    permissions:
+      contents: read
+      packages: write
+
+  dispatch-research:
+    needs: promote
+    if: needs.promote.outputs.promoted == 'true' && inputs.dispatch_editions != false
+    uses: ./.github/workflows/dispatch-edition.yml
+    with:
+      edition: research
+      base_image: ${{ needs.promote.outputs.base_image }}
+      version: ${{ needs.promote.outputs.version }}
+      source_sha: ${{ needs.promote.outputs.source_sha }}
+      channels: ${{ needs.promote.outputs.channels }}
+    permissions:
+      contents: read
+      actions: write
+
+  dispatch-reverse:
+    needs: promote
+    if: needs.promote.outputs.promoted == 'true' && inputs.dispatch_editions != false
+    uses: ./.github/workflows/dispatch-edition.yml
+    with:
+      edition: reverse
+      base_image: ${{ needs.promote.outputs.base_image }}
+      version: ${{ needs.promote.outputs.version }}
+      source_sha: ${{ needs.promote.outputs.source_sha }}
+      channels: ${{ needs.promote.outputs.channels }}
+    permissions:
+      contents: read
+      actions: write

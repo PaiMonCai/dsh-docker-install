@@ -174,4 +174,11 @@ check_fails "channels-only rejects extra args" 2 --channels-only "0.1.7-rc.2" "a
 check_fails "unknown option rejected" 2 "$IMAGE" "0.1.7-rc.2" --nope
 check_fails "prefix without value rejected" 2 "$IMAGE" "0.1.7-rc.2" --prefix
 
+export DSH_CHANNELS_RESOLVED=1
+check "resolved empty channels do not re-query npm" \
+"$IMAGE:0.2.1-alpha.1
+$IMAGE:latest" "$IMAGE" "0.2.1-alpha.1" ""
+check "resolved empty channels-only snapshot" "" --channels-only "0.2.1-alpha.1" ""
+unset DSH_CHANNELS_RESOLVED
+
 echo "image tag channel checks passed"

@@ -1,0 +1,60 @@
+name: Dispatch independent edition
+on:
+  workflow_call:
+    inputs:
+      edition:
+        type: string
+        required: true
+      base_image:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      channels:
+        type: string
+        required: false
+        default: ""
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue edition with the published Standard contract
+        id: queue
+        # The Standard artifact is already published. A dispatch outage is
+        # reported here and retried by scheduled artifact reconciliation.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EDITION: ${{ inputs.edition }}
+          RELEASE_IMAGE: ${{ inputs.base_image }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SOURCE: ${{ inputs.source_sha }}
+          RELEASE_CHANNELS: ${{ inputs.channels }}
+        run: |
+          set -euo pipefail
+          [[ "$EDITION" == research || "$EDITION" == reverse ]]
+          [[ "$RELEASE_IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]
+          for attempt in 1 2 3; do
+            if gh workflow run "build-${EDITION}.yml" --repo "$GITHUB_REPOSITORY" --ref main \
+              --field "base_image=$RELEASE_IMAGE" \
+              --field "dsh_version=$RELEASE_VERSION" \
+              --field "source_sha=$RELEASE_SOURCE" \
+              --field "channel_tags=$RELEASE_CHANNELS"; then
+              echo "Queued $EDITION for $RELEASE_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep "$((attempt * 5))"
+          done
+          exit 1
+      - name: Record dispatch failure for reconciliation
+        if: steps.queue.outcome == 'failure'
+        run: |
+          echo "::warning::Edition dispatch failed after retries; scheduled reconciliation will retry."
+          echo "Dispatch failed; the next Check dsh Updates run will retry the missing edition." >> "$GITHUB_STEP_SUMMARY"

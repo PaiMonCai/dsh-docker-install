@@ -29,6 +29,7 @@
 # 环境变量:
 #   DSH_REGISTRY_URL   覆盖 npm registry 元数据地址
 #   DSH_REGISTRY_JSON  直接读取本地 JSON 文件（离线测试用），跳过网络
+#   DSH_CHANNELS_RESOLVED=1  通道已固定；空字符串也不重新查询上游
 #
 # 退出码: 0 正常（含无法查询上游时的降级）；2 参数非法；1 版本号不能作为 tag。
 
@@ -125,7 +126,7 @@ detect_channels() {
 # 解析本次要用的通道：$1=version，$2=调用方给的通道（可空）。输出逗号分隔一行。
 resolve_channels() {
   local version="$1" raw="$2" resolved=""
-  if [[ -z "$raw" ]]; then
+  if [[ -z "$raw" && "${DSH_CHANNELS_RESOLVED:-0}" != 1 ]]; then
     raw="$(detect_channels "$version")"
     if [[ -n "${raw//[[:space:]]/}" ]]; then
       info "上游 dist-tag 指向 $version 的通道: $(printf '%s' "$raw" | tr '\n' ' ')"

@@ -155,10 +155,10 @@ RUN chmod 0755 \
         'mainfont: "Noto Serif CJK SC"' \
         '---' \
         '' \
-        '中文排版 smoke test。' > /tmp/research-smoke.qmd; \
-      quarto render /tmp/research-smoke.qmd --to pdf; \
-      test -s /tmp/research-smoke.pdf; \
-      rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf; \
+        '中文排版 smoke test。' > /tmp/research-smoke.qmd \
+      && quarto render /tmp/research-smoke.qmd --to pdf \
+      && test -s /tmp/research-smoke.pdf \
+      && rm -f /tmp/research-smoke.qmd /tmp/research-smoke.pdf; \
     else \
       echo "Skipping Quarto render smoke under emulation: ${BUILDPLATFORM} -> ${TARGETPLATFORM}"; \
     fi \

@@ -56,6 +56,9 @@ ARG DOCKER_APT_BASE=https://download.docker.com/linux/ubuntu
 LABEL org.opencontainers.image.title="DeepSeek Harness (dsh)" \
       org.opencontainers.image.description="Ubuntu 24.04 DSH development container with Node.js, Python, Go, Docker CLI and Chromium" \
       org.opencontainers.image.source="https://github.com/PaiMonCai/dsh-docker-install" \
+      org.opencontainers.image.version="${DSH_VERSION}" \
+      io.caicailo.dsh.version="${DSH_VERSION}" \
+      io.caicailo.dsh.edition="standard" \
       org.opencontainers.image.licenses="MIT AND AGPL-3.0-or-later"
 
 ENV DSH_HOME=/root/.dsh \

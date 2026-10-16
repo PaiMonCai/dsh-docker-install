@@ -1,23 +1,18 @@
 name: Check dsh Updates
 
-# 定时检查 npm registry 上 @deepseek-ai/dsh 的最新版本（含 alpha/rc 预发布通道，
-# 上游目前只发预发布版，latest dist-tag 不代表最新版本）：
-# 有更新 -> 修改 Dockerfile / compose / README 中的版本号并提交 -> 调用 build 工作流构建。
-# 同时把指向该版本的 npm dist-tag 通道名（alpha / next / latest）一并以检测时的快照
-# 传给 build，让发布的镜像也打上与上游同名的通道 tag。
-#
-# 注意：用 GITHUB_TOKEN 提交的 push 不会触发其他工作流（GitHub 防递归限制），
-# 所以这里用 reusable workflow（uses:）显式调用 build，并把新版本号作为输入传入，
-# 不依赖 push 事件触发。
-
 on:
   schedule:
-    # 每天 UTC 02:23（北京时间 10:23）
     - cron: "23 2 * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write   # 提交版本变更
+  contents: write
+  packages: read
+
+concurrency:
+  group: dsh-update-reconciliation
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   check:
@@ -27,67 +22,77 @@ jobs:
       updated: ${{ steps.check.outputs.updated }}
       latest: ${{ steps.check.outputs.latest }}
       channels: ${{ steps.check.outputs.channels }}
+      build: ${{ steps.plan.outputs.build }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Compare versions
+      - name: Compare upstream versions
         id: check
         run: |
-          # 上游所有版本（含 alpha/rc）都是预发布，latest dist-tag 会滞后，
-          # 因此从 npm 全量版本列表里取 semver 最大者，而不是查 latest 标签。
           set -euo pipefail
           CURRENT="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
           curl -fsSL --retry 3 --connect-timeout 10 --max-time 50 \
-            https://registry.npmjs.org/@deepseek-ai/dsh \
-            -o "${RUNNER_TEMP}/dsh-registry.json"
-          mapfile -t DETECTED < <(node ci/semver-max.mjs "$CURRENT" < "${RUNNER_TEMP}/dsh-registry.json")
+            https://registry.npmjs.org/@deepseek-ai/dsh -o "$RUNNER_TEMP/dsh-registry.json"
+          mapfile -t DETECTED < <(node ci/semver-max.mjs "$CURRENT" < "$RUNNER_TEMP/dsh-registry.json")
           read -r LATEST IS_NEWER <<<"${DETECTED[0]:-}"
           CHANNELS="${DETECTED[1]:-}"
-          if [[ -z "$LATEST" || ( "$IS_NEWER" != 'true' && "$IS_NEWER" != 'false' ) ]]; then
-            echo "::error::无法解析 npm 注册表返回的 DSH 版本，请检查 registry 或 semver 输出"
-            exit 1
+          [[ -n "$LATEST" && ( "$IS_NEWER" == true || "$IS_NEWER" == false ) ]]
+          if [[ "$IS_NEWER" == false && "$LATEST" != "$CURRENT" ]]; then
+            LATEST="$CURRENT"
+            CHANNELS=""
           fi
-          echo "current:  $CURRENT"
-          echo "latest:   $LATEST"
-          echo "channels: ${CHANNELS:-<none>}"
           {
             echo "current=$CURRENT"
             echo "latest=$LATEST"
             echo "updated=$IS_NEWER"
             echo "channels=$CHANNELS"
           } >> "$GITHUB_OUTPUT"
+      - name: Check published artifact even when the version is unchanged
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}
+          TARGET_VERSION: ${{ steps.check.outputs.latest }}
+        run: node ci/release.mjs plan
 
-  # Avoid committing a potentially incompatible upstream DSH version.
-  preflight:
+  # Runtime/browser audits and publication must succeed before recording the
+  # source version. Equal-version checks still repair missing Standard images.
+  build:
     needs: check
-    if: needs.check.outputs.updated == 'true'
+    if: needs.check.outputs.build == 'true'
     uses: ./.github/workflows/build.yml
     with:
       dsh_version: ${{ needs.check.outputs.latest }}
-      preflight_only: true
+      channel_tags: ${{ needs.check.outputs.channels }}
+      dispatch_editions: false
     permissions:
       contents: read
-      # The called build job requires these scopes even in preflight_only mode.
-      # A reusable workflow cannot elevate its caller's GITHUB_TOKEN rights.
       packages: write
       actions: write
 
   commit:
-    needs: [check, preflight]
-    if: needs.check.outputs.updated == 'true'
+    needs: [check, build]
+    if: >-
+      always() && !cancelled() && needs.check.result == 'success' &&
+      needs.check.outputs.updated == 'true' &&
+      (needs.build.outputs.promoted == 'true' || needs.check.outputs.build == 'false')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bump version and commit
+        with:
+          ref: main
+      - name: Record the successfully published version
+        env:
+          CURRENT: ${{ needs.check.outputs.current }}
+          LATEST: ${{ needs.check.outputs.latest }}
+          TARGET_VERSION: ${{ needs.check.outputs.latest }}
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          CURRENT="${{ needs.check.outputs.current }}"
-          LATEST="${{ needs.check.outputs.latest }}"
+          node ci/release.mjs verify
           actual="$(grep -oP 'ARG DSH_VERSION=\K\S+' Dockerfile)"
-          if [[ "$actual" != "$CURRENT" ]]; then
-            echo "::error::DSH version changed during preflight: expected $CURRENT, found $actual"
-            exit 1
-          fi
+          if [[ "$actual" == "$LATEST" ]]; then exit 0; fi
+          [[ "$actual" == "$CURRENT" ]] || { echo "::error::Version changed during publication"; exit 1; }
           sed -i "s/^ARG DSH_VERSION=.*/ARG DSH_VERSION=${LATEST}/" Dockerfile
           sed -i "s/^\(\s*DSH_VERSION: \)[\"']*${CURRENT}[\"']*$/\1\"${LATEST}\"/" docker-compose.yml
           sed -i "s/dsh:${CURRENT}/dsh:${LATEST}/g" docker-compose.yml README.md
@@ -95,19 +100,58 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Dockerfile docker-compose.yml README.md
-          git diff --cached --quiet && { echo "::error::No version changes staged"; exit 1; }
+          git diff --cached --quiet && exit 0
           git commit -m "chore: bump dsh ${CURRENT} -> ${LATEST}"
-          git push
+          git push origin HEAD:main
 
+  reconcile:
+    needs: [check, build, commit]
+    if: >-
+      always() && !cancelled() && needs.check.result == 'success' &&
+      (needs.build.outputs.promoted == 'true' || needs.check.outputs.build == 'false')
+    runs-on: ubuntu-latest
+    outputs:
+      research: ${{ steps.state.outputs.research }}
+      reverse: ${{ steps.state.outputs.reverse }}
+      base_image: ${{ steps.state.outputs.base_image }}
+      version: ${{ steps.state.outputs.version }}
+      source_sha: ${{ steps.state.outputs.source_sha }}
+      channels: ${{ steps.state.outputs.channels }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Find missing or outdated derivative artifacts
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_IMAGE: ghcr.io/${{ github.repository }}
+        run: node ci/release.mjs reconcile
 
-  build:
-    needs: [check, commit]
-    if: needs.check.outputs.updated == 'true'
-    uses: ./.github/workflows/build.yml
+  dispatch-research:
+    needs: reconcile
+    if: always() && needs.reconcile.result == 'success' && needs.reconcile.outputs.research == 'true'
+    uses: ./.github/workflows/dispatch-edition.yml
     with:
-      dsh_version: ${{ needs.check.outputs.latest }}
-      channel_tags: ${{ needs.check.outputs.channels }}
+      edition: research
+      base_image: ${{ needs.reconcile.outputs.base_image }}
+      version: ${{ needs.reconcile.outputs.version }}
+      source_sha: ${{ needs.reconcile.outputs.source_sha }}
+      channels: ${{ needs.reconcile.outputs.channels }}
     permissions:
       contents: read
-      packages: write
-      actions: write # called Standard workflow dispatches independent Research
+      actions: write
+
+  dispatch-reverse:
+    needs: reconcile
+    if: always() && needs.reconcile.result == 'success' && needs.reconcile.outputs.reverse == 'true'
+    uses: ./.github/workflows/dispatch-edition.yml
+    with:
+      edition: reverse
+      base_image: ${{ needs.reconcile.outputs.base_image }}
+      version: ${{ needs.reconcile.outputs.version }}
+      source_sha: ${{ needs.reconcile.outputs.source_sha }}
+      channels: ${{ needs.reconcile.outputs.channels }}
+    permissions:
+      contents: read
+      actions: write
