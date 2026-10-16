@@ -247,7 +247,13 @@ test('Workbench project-scoped queued tasks and evidence reconciliation',()=>{
 
 
 test('Workbench guarded single task execution',()=>{
- assert.match(read('reverse/prompt-manager/web/task-runner.mjs'),/DSH_REVERSE_WEB_EXECUTION/)
+ const runner=read('reverse/prompt-manager/web/task-runner.mjs')
+ const policy=read('reverse/prompt-manager/web/execution-policy.mjs')
+ assert.match(policy,/DSH_REVERSE_WEB_EXECUTION/)
+ assert.match(policy,/EXECUTE_ONE_PROJECT_TASK/)
+ assert.match(policy,/web-queue-only/)
+ assert.match(runner,/assertWebQueueExecution/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/execution-policy.test.mjs')))
  assert.match(read('reverse/bin/reverse-task'),/--expected-id/)
  assert.ok(fs.existsSync(path.join(root,'reverse/prompt-manager/web/task-runner.test.mjs')))
 })
