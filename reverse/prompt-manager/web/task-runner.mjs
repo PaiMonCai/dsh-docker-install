@@ -1,18 +1,17 @@
 /** One-shot operator-confirmed execution: no shell, disabled unless explicitly enabled. */
 import { spawn } from 'node:child_process'
+import { assertWebQueueExecution } from './execution-policy.mjs'
 import { projectLinks } from './project-links.mjs'
 import { taskDetail } from './workbench.mjs'
 import { resolve } from 'node:path'
 const ROOT=resolve(process.env.DSH_REVERSE_WORKSPACE_ROOT||'/workspace')
-const TOKEN='EXECUTE_ONE_PROJECT_TASK'
 export async function runProjectTask(id,taskId,confirmation) {
-  if(process.env.DSH_REVERSE_WEB_EXECUTION!=='1')
-    throw Error('Web execution disabled; set DSH_REVERSE_WEB_EXECUTION=1 to enable')
-  if(confirmation!==TOKEN)throw Error('explicit execution confirmation required')
+  assertWebQueueExecution(confirmation)
   const links=projectLinks(id)
   if(!links.entries.some(x=>x.kind==='task'&&x.ref===taskId&&x.valid))
     throw Error('task is not linked to this project')
   const selected=taskDetail(taskId)
+  assertWebQueueExecution(confirmation,selected.kind)
   if(selected.state!=='queued')throw Error('only queued tasks can be executed')
   // The CLI queue worker operates on the oldest queued task globally.
   // Do not claim this would run taskId: block when any other queued task exists.

@@ -65,3 +65,19 @@ test('authenticated workbench command supports independent Hook configuration',(
   assert.throws(()=>command('hookSave',{enabled:true,text:''}))
   assert.equal(command('hookSave',{enabled:false,text:saved.text}).enabled,false)
 })
+
+test('execution policy RPC is read-only and describes only Web queue surface',()=>{
+  const old=process.env.DSH_REVERSE_WEB_EXECUTION
+  delete process.env.DSH_REVERSE_WEB_EXECUTION
+  try {
+    const p=command('workbenchExecutionPolicy')
+    assert.equal(p.scope,'web-queue-only')
+    assert.equal(p.web_execution_enabled,false)
+    assert.equal(p.agent_direct_tools,'outside-this-policy')
+    process.env.DSH_REVERSE_WEB_EXECUTION='1'
+    assert.equal(command('workbenchExecutionPolicy').web_execution_enabled,true)
+  }finally {
+    if(old===undefined)delete process.env.DSH_REVERSE_WEB_EXECUTION
+    else process.env.DSH_REVERSE_WEB_EXECUTION=old
+  }
+})

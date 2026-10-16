@@ -108,6 +108,8 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/cli.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/inspect.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/web/knowledge.mjs \
+ && node /opt/dsh-reverse/prompt-manager/web/build-client.mjs --check \
+ && node --check /opt/dsh-reverse/prompt-manager/web/execution-policy.mjs \
  && node --check /opt/dsh-reverse/knowledge/cli.mjs \
  && reverse-knowledge search wasm --platform wasm >/tmp/reverse-knowledge-smoke.json \
  && reverse-prompt list >/dev/null \
