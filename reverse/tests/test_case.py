@@ -65,6 +65,21 @@ class CaseEngineTest(unittest.TestCase):
             self.m["mutate"](key, lambda c: self.m["assess"](c, "H999", "refuted", ["E001"], "wrong"))
         self.assertEqual(self.m["read_case"](key)["revision"], 2)
 
+    def test_directory_target_has_reproducible_hash_and_detects_new_files(self):
+        folder = self.root / "electron"
+        folder.mkdir()
+        (folder / "main.js").write_text("console.log('hello')", encoding="utf-8")
+        case = self.m["create"](str(folder), "map IPC", "call graph")
+        self.assertEqual(case["target"]["kind"], "directory")
+        self.assertEqual(case["target"]["file_count"], 1)
+        self.assertTrue(self.m["verify"](case)["passed"])
+        (folder / "worker.js").write_text("module.exports = 1", encoding="utf-8")
+        self.assertFalse(self.m["verify"](case)["passed"])
+        case2 = self.m["create"](str(folder), "map IPC", "call graph")
+        self.assertTrue(self.m["verify"](case2)["passed"])
+        (folder / "linked").symlink_to(self.target)
+        self.assertFalse(self.m["verify"](case2)["passed"])
+
     def test_workspace_symlink_and_outside_rejected(self):
         with self.assertRaises(ValueError):
             self.m["create"]("/etc/hosts", "no", "report")

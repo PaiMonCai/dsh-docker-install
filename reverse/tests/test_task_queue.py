@@ -84,7 +84,8 @@ class ReverseTaskTest(unittest.TestCase):
         source = self.workspace / ".reverse-cases"
         source.mkdir()
         (source / (case_id + ".json")).write_text(json.dumps({
-            "schema": "dsh-reverse-case/v1", "id": case_id
+            "schema": "dsh-reverse-case/v1", "id": case_id,
+            "target": {"path": self.source.name}
         }), encoding="utf-8")
         self.mod["enqueue"].__globals__["CASES"] = source
         old = self.mod["enqueue"]("triage", [str(self.source)])

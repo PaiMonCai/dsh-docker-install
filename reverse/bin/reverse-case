@@ -20,6 +20,7 @@ GATES = ("G1", "G2", "G3", "G4")
 GRADES = ("observed", "inferred", "unverified", "unknown", "refuted")
 MAX_CASE_BYTES = 256 * 1024
 MAX_SAMPLE = 256 * 1024 * 1024
+MAX_TARGET_FILES = 2000
 MAX_EVIDENCE_FILE = 8 * 1024 * 1024
 MAX_CASES = 300
 MAX_ITEMS = 100
@@ -68,6 +69,60 @@ def safe_file(value, max_bytes):
     if size <= 0 or size > max_bytes:
         raise ValueError("file is empty or exceeds allowed size")
     return resolved
+
+
+def safe_target(value):
+    """Fingerprint a single file or a bounded directory tree; never follow symlinks."""
+    candidate = Path(value).expanduser().absolute()
+    try:
+        relative = candidate.relative_to(ROOT)
+    except ValueError:
+        raise ValueError("target must be in workspace") from None
+    if ".." in relative.parts or ROOT.is_symlink():
+        raise ValueError("invalid target path")
+    cursor = ROOT
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError("target symlink is forbidden")
+    path = candidate.resolve(strict=True)
+    if not path.is_relative_to(ROOT):
+        raise ValueError("target escaped workspace")
+    if path.is_file():
+        item = artifact(str(path), MAX_SAMPLE)
+        item["kind"] = "file"
+        return item
+    if not path.is_dir():
+        raise ValueError("target is not a file or directory")
+    files = []
+    total = 0
+    for base, dirs, names in os.walk(path, followlinks=False):
+        dirs.sort()
+        names.sort()
+        for name in dirs + names:
+            entry = Path(base) / name
+            if entry.is_symlink():
+                raise ValueError("directory target contains symlink")
+            if not entry.is_file() and not entry.is_dir():
+                raise ValueError("directory target contains special file")
+        for name in names:
+            item = Path(base) / name
+            size = item.stat().st_size
+            total += size
+            if total > MAX_SAMPLE:
+                raise ValueError("directory target exceeds byte budget")
+            files.append(item)
+            if len(files) > MAX_TARGET_FILES:
+                raise ValueError("directory target exceeds file budget")
+    h = hashlib.sha256()
+    for item in files:
+        path_bytes = item.relative_to(path).as_posix().encode("utf-8")
+        h.update(len(path_bytes).to_bytes(4, "big"))
+        h.update(path_bytes)
+        h.update(item.stat().st_size.to_bytes(8, "big"))
+        h.update(bytes.fromhex(digest(item)))
+    return {"kind": "directory", "path": str(path.relative_to(ROOT)),
+            "sha256": h.hexdigest(), "size": total, "file_count": len(files)}
 
 
 def digest(file):
@@ -147,7 +202,7 @@ def add_event(record, action, link):
 
 
 def create(sample, goal, deliverable):
-    source = artifact(sample, MAX_SAMPLE)
+    source = safe_target(sample)
     with case_lock():
         if count_cases() >= MAX_CASES:
             raise ValueError("case capacity reached")
@@ -303,9 +358,15 @@ def verify(case):
                           ("evidence", [e["artifact"] for e in case["evidence"]])):
         for a in entries:
             try:
-                p = safe_file(ROOT / a["path"], MAX_SAMPLE if kind == "target" else MAX_EVIDENCE_FILE)
-                ok = p.stat().st_size == a["size"] and digest(p) == a["sha256"]
-            except (OSError, ValueError):
+                if kind == "target":
+                    current = safe_target(ROOT / a["path"])
+                    ok = all(current.get(k) == a.get(k) for k in ("kind", "path", "size", "sha256"))
+                    if a.get("kind") == "directory":
+                        ok = ok and current.get("file_count") == a.get("file_count")
+                else:
+                    current = artifact(ROOT / a["path"], MAX_EVIDENCE_FILE)
+                    ok = all(current[k] == a[k] for k in ("path", "size", "sha256"))
+            except (OSError, ValueError, TypeError):
                 ok = False
             results.append({"kind": kind, "path": a["path"], "verified": ok})
     return {"schema": "dsh-reverse-case-verification/v1",

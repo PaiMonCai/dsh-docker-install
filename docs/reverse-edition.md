@@ -313,3 +313,6 @@ reverse-case sync-task <case-uuid> <task-uuid>
 Workbench RPC 新增只读 `workbenchCases` / `workbenchCase`，返回关卡、数量、假设和实验状态的**脱敏摘要**，不展示任意证据正文、任务 stdout 或实验注释。可视化假设树留待第三批。
 
 **边界**：`gate passed` 记录的是有证据关联的操作者声明，不能作为授权或设备隔离的唯一安全控制；工具运行成功只说明任务执行成功，绝不自动提升结论可信度。对静态检验，保留未做动态观察的限制，不伪造实验结果。
+
+
+目录型项目也可创建案件（例如 `reverse-case create /workspace/electron-project --goal "还原 IPC 调用关系" --deliverable "调用图"`）。引擎最多扫描 2000 个文件、累计 256 MiB；目录指纹包含相对路径、大小和内容哈希，拒绝符号链接和特殊文件。超出上限时应选择更小、明确的分析范围，不会悄悄忽略文件。

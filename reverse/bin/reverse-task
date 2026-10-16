@@ -78,7 +78,7 @@ def all_tasks():
         key=lambda entry: entry.name
     )[:MAX_TASKS + 1]
 
-def case_reference(case_id):
+def case_reference(case_id, kind, inputs):
     if not case_id:
         return None
     try:
@@ -92,6 +92,12 @@ def case_reference(case_id):
     case = json.loads(path.read_text(encoding="utf-8"))
     if case.get("schema") != "dsh-reverse-case/v1" or case.get("id") != case_id:
         raise ValueError("case reference is invalid")
+    if kind in ("triage", "ghidra", "js-triage"):
+        target = case.get("target")
+        if not isinstance(target, dict) or not isinstance(target.get("path"), str):
+            raise ValueError("case target missing")
+        if str(Path(inputs[0]).relative_to(ROOT)) != target["path"]:
+            raise ValueError("task input does not match case target")
     return case_id
 
 
@@ -102,7 +108,7 @@ def enqueue(kind, inputs, case_id=None):
     if not low <= len(inputs) <= high:
         raise ValueError("invalid task input count")
     arguments = [safe_path(x) for x in inputs]
-    bound_case = case_reference(case_id)
+    bound_case = case_reference(case_id, kind, arguments)
     if len(all_tasks()) >= MAX_TASKS:
         raise ValueError("task queue has reached capacity")
     task_id = str(uuid.uuid4())
