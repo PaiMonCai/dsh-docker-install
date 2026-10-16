@@ -62,6 +62,21 @@ export function taskDetail(id) {
     exit_code:data.result?.exit_code ?? null,
     case_id:typeof data.case_id==='string'&&UUID.test(data.case_id)?data.case_id:null }
 }
+/** Redacted, bounded operational trace. Legacy tasks have no invented past. */
+export function taskAudit(id) {
+  if(typeof id!=='string'||!UUID.test(id))throw Error('invalid task id')
+  const item=parseFile(workspaceFile('.reverse-tasks/'+id+'.json',MAX_TASK))
+  if(item.schema!=='dsh-reverse-task/v1'||item.id!==id)throw Error('invalid task record')
+  const actions=new Set(['enqueued','staged','published','started','completed','failed','interrupted','retried'])
+  const states=new Set(['staging','queued','running','succeeded','failed','interrupted'])
+  const events=Array.isArray(item.events)?item.events.slice(-24).flatMap(e=>{
+    if(!e||!actions.has(e.action)||!states.has(e.state)||
+      typeof e.at!=='string'||e.at.length>50)return []
+    return [{at:e.at,action:e.action,state:e.state}]
+  }):[]
+  return {schema:'dsh-reverse-task-audit/v1',id,recorded:Array.isArray(item.events),
+    events,detail:'Task lifecycle only; this does not verify target behavior or prove tamper resistance.'}
+}
 export function report(path) {
   const data = parseFile(workspaceFile(path, MAX_REPORT))
   if (!data || !KNOWN.has(data.schema)) throw Error('unrecognized report schema')

@@ -1,7 +1,7 @@
 /** Enqueue allowlisted offline tasks for a selected Reverse project.
  * Enqueue only: the operator still runs reverse-task run-once explicitly. */
 import { mkdirSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { queueCommand as queue } from './task-queue-client.mjs'
 import { resolve, relative, sep, join, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
@@ -12,18 +12,6 @@ const STORE=join(ROOT,'.reverse-tasks')
 const ALLOW={triage:1,'js-triage':1,ghidra:1,diff:2,verify:1}
 // The Python queue is the only writer of task lifecycle state in both CLI and Web.
 // Test builds point DSH_REVERSE_TASK_CLI at the checked-out source; images use /usr/local/bin.
-const TASK_CLI=process.env.DSH_REVERSE_TASK_CLI||'/usr/local/bin/reverse-task'
-function queue(...args) {
-  const result=spawnSync(TASK_CLI,args,{
-    cwd:ROOT,env:{...process.env,DSH_REVERSE_WORKSPACE_ROOT:ROOT},
-    encoding:'utf8',timeout:20000,maxBuffer:1024*1024,shell:false
-  })
-  if(result.error||result.status!==0)throw Error(
-    'reverse-task refused operation: '+String(result.stderr||result.error?.message||'unknown').slice(0,250))
-  const item=JSON.parse(result.stdout)
-  if(!item||typeof item!=='object')throw Error('invalid task CLI response')
-  return item
-}
 function boundedInput(value) {
   if(typeof value!=='string'||value.length>1024||!value ||
     isAbsolute(value)||value.split(/[\\/]/).includes('..')||value.includes('\0'))
@@ -88,6 +76,8 @@ export function recoverProjectTasks(projectId) {
       const data=JSON.parse(readFileSync(file,'utf8'))
       if(data.id!==id||data.schema!=='dsh-reverse-task/v1'||data.state!=='staging')continue
       if(!Array.isArray(data.inputs)||data.inputs.length!==ALLOW[data.kind])throw Error('invalid task inputs')
+      if(data.case_id&&!links.entries.some(x=>x.kind==='case'&&x.ref===data.case_id&&x.valid))
+        throw Error('staged task case is not linked to this project')
       data.inputs.forEach(value=>{
         // Original absolute input paths must still be workspace-confined.
         const rel=relative(ROOT,value)

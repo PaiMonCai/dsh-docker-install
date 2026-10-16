@@ -70,6 +70,48 @@ class ReverseTaskTest(unittest.TestCase):
         result = self.mod["retry"](job["id"])
         self.assertEqual(result["state"], "queued")
 
+    def test_peek_uses_global_oldest_queue_order_and_omits_sensitive_inputs(self):
+        older = self.mod["enqueue"]("triage", [str(self.source)])
+        staged = self.mod["enqueue"]("triage", [str(self.source)], stage=True)
+        newer = self.mod["enqueue"]("diff", [str(self.source), str(self.source)])
+        result = self.mod["peek"]()
+        self.assertEqual(result["schema"], "dsh-reverse-queue-status/v1")
+        self.assertEqual(result["head_id"], older["id"])
+        self.assertEqual(result["head_kind"], "triage")
+        self.assertEqual(result["queued_count"], 2)
+        self.assertEqual(result["staged_count"], 1)
+        self.assertNotIn(str(self.source), json.dumps(result))
+        self.assertNotIn("inputs", result)
+        self.assertNotEqual(result["head_id"], newer["id"])
+        self.assertNotEqual(result["head_id"], staged["id"])
+
+    def test_task_history_is_bounded_and_does_not_copy_tool_output(self):
+        job = self.mod["enqueue"]("triage", [str(self.source)], stage=True)
+        self.assertEqual(job["events"][0]["action"], "staged")
+        self.mod["publish"](job["id"])
+        class Process:
+            returncode = 0
+            def communicate(self, timeout=None):
+                return b"PRIVATE_OUTPUT_SHOULD_NOT_APPEAR_IN_EVENTS", b""
+        with patch.object(self.mod["worker_once"].__globals__["subprocess"], "Popen", return_value=Process()):
+            final = self.mod["worker_once"]()
+        self.assertEqual([x["action"] for x in final["events"]],
+                         ["staged", "published", "started", "completed"])
+        self.assertEqual(final["result"]["exit_code"], 0)
+        self.assertNotIn("PRIVATE_OUTPUT", json.dumps(final["events"]))
+        self.assertNotIn(str(self.source), json.dumps(final["events"]))
+
+    def test_legacy_task_records_gain_trace_only_on_new_transitions(self):
+        job = self.mod["enqueue"]("triage", [str(self.source)])
+        job.pop("events")
+        job["state"] = "failed"
+        job["attempts"] = 1
+        self.mod["atomic"](self.mod["task_path"](job["id"]), job)
+        again = self.mod["retry"](job["id"])
+        self.assertEqual(len(again["events"]), 1)
+        self.assertEqual(again["events"][0]["action"], "retried")
+        self.assertEqual(again["events"][0]["state"], "queued")
+
     def test_input_path_and_task_id_validation(self):
         with self.assertRaises(ValueError):
             self.mod["enqueue"]("shell", [str(self.source)])

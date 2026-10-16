@@ -1,5 +1,6 @@
 /** One-shot operator-confirmed execution: no shell, disabled unless explicitly enabled. */
 import { spawn } from 'node:child_process'
+import { queueStatus } from './task-queue-client.mjs'
 import { assertWebQueueExecution } from './execution-policy.mjs'
 import { projectLinks } from './project-links.mjs'
 import { taskDetail } from './workbench.mjs'
@@ -12,13 +13,12 @@ export async function runProjectTask(id,taskId,confirmation) {
     throw Error('task is not linked to this project')
   const selected=taskDetail(taskId)
   assertWebQueueExecution(confirmation,selected.kind)
+  if(selected.case_id&&!links.entries.some(x=>x.kind==='case'&&x.ref===selected.case_id&&x.valid))
+    throw Error('task case is not linked to this project')
   if(selected.state!=='queued')throw Error('only queued tasks can be executed')
-  // The CLI queue worker operates on the oldest queued task globally.
-  // Do not claim this would run taskId: block when any other queued task exists.
-  const { tasks }=await import('./workbench.mjs')
-  const queued=tasks().filter(x=>x.state==='queued')
-    .sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at))||a.id.localeCompare(b.id))
-  if(!queued.length||queued[0].id!==taskId)throw Error('another task is ahead in the global queue')
+  // Exactly the same Python queue implementation decides the oldest task;
+  // the worker rechecks --expected-id under its lock to reject races.
+  if(queueStatus().head_id!==taskId)throw Error('another task is ahead in the global queue')
   return await new Promise((done,reject)=>{
     const worker=spawn('reverse-task',['run-once','--expected-id',taskId],{
       cwd:ROOT,env:{...process.env,DSH_REVERSE_WORKSPACE_ROOT:ROOT},

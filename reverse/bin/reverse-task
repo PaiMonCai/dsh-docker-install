@@ -25,6 +25,49 @@ TOOLS = {
 CASES = ROOT / ".reverse-cases"
 MAX_TASKS = 300
 MAX_LOG = 10000
+MAX_EVENTS = 24
+
+
+def trace(task, action):
+    """Keep a compact bounded lifecycle trace in the task's authoritative JSON.
+    No arguments, sample paths, tool output, or credentials are copied here.
+    Legacy task records may start recording at the first new transition.
+    """
+    events = task.setdefault("events", [])
+    if not isinstance(events, list):
+        raise ValueError("invalid task event history")
+    event = {"at": timestamp(), "action": action, "state": task["state"]}
+    task["events"] = events[-(MAX_EVENTS - 1):] + [event]
+
+
+def peek():
+    """Authoritative queue ordering, shared by CLI and Web preflight.
+    Worker still rechecks expected-id while holding its exclusive lock.
+    """
+    pending = []
+    staged = interrupted = 0
+    for entry in all_tasks():
+        try:
+            item = read_task(entry.stem)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if item.get("state") == "queued":
+            pending.append(item)
+        elif item.get("state") == "staging":
+            staged += 1
+        elif item.get("state") == "interrupted":
+            interrupted += 1
+    ordered = sorted(pending, key=lambda t: (t["created_at"], t["id"]))
+    head = ordered[0] if ordered else None
+    return {
+        "schema": "dsh-reverse-queue-status/v1",
+        "head_id": head["id"] if head else None,
+        "head_kind": head["kind"] if head else None,
+        "queued_count": len(ordered),
+        "staged_count": staged,
+        "interrupted_count": interrupted,
+    }
+
 
 def timestamp():
     return datetime.now(timezone.utc).isoformat()
@@ -123,6 +166,7 @@ def enqueue(kind, inputs, case_id=None, stage=False):
               "result": None, "last_error": None}
     if bound_case:
         record["case_id"] = bound_case
+    trace(record, "staged" if stage else "enqueued")
     atomic(task_path(task_id), record)
     return record
 
@@ -143,6 +187,7 @@ def publish(task_id):
         case_reference(task["case_id"], task["kind"], paths)
     task["state"] = "queued"
     task["updated_at"] = timestamp()
+    trace(task, "published")
     atomic(task_path(task_id), task)
     return task
 
@@ -199,6 +244,7 @@ def worker_once(expected_id=None):
         task["state"] = "running"
         task["attempts"] += 1
         task["updated_at"] = timestamp()
+        trace(task, "started")
         atomic(task_path(task["id"]), task)
         try:
             cmd, timeout = invocation(task)
@@ -232,6 +278,7 @@ def worker_once(expected_id=None):
             task["state"] = "failed"
             task["last_error"] = type(error).__name__
         task["updated_at"] = timestamp()
+        trace(task, "completed" if task["state"] == "succeeded" else "failed")
         atomic(task_path(task["id"]), task)
         return task
 
@@ -249,6 +296,7 @@ def recover():
                 task["state"] = "interrupted"
                 task["last_error"] = "worker interrupted; operator must explicitly retry"
                 task["updated_at"] = timestamp()
+                trace(task, "interrupted")
                 atomic(task_path(task["id"]), task)
                 recovered.append(task["id"])
             except (OSError, ValueError, json.JSONDecodeError):
@@ -264,6 +312,7 @@ def retry(task_id):
     record["state"] = "queued"
     record["updated_at"] = timestamp()
     record["last_error"] = None
+    trace(record, "retried")
     atomic(task_path(task_id), record)
     return record
 
@@ -279,6 +328,7 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("id")
     sub.add_parser("list")
+    sub.add_parser("peek")
     once = sub.add_parser("run-once")
     once.add_argument("--expected-id")
     sub.add_parser("recover")
@@ -296,6 +346,8 @@ def main():
             result = discard(args.id)
         elif args.mode == "list":
             result = [read_task(x.stem) for x in all_tasks()]
+        elif args.mode == "peek":
+            result = peek()
         elif args.mode == "recover":
             result = recover()
         else:

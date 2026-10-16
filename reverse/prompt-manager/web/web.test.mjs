@@ -81,3 +81,8 @@ test('execution policy RPC is read-only and describes only Web queue surface',()
     else process.env.DSH_REVERSE_WEB_EXECUTION=old
   }
 })
+
+test('task audit rejects malformed UUID before reading disk',()=>{
+  assert.throws(()=>command('workbenchTaskAudit',{id:'../invalid'}))
+  assert.throws(()=>command('workbenchTaskAudit',{id:''}))
+})
