@@ -16,6 +16,7 @@ const METHODS = new Set(['state','list','get','activate','disable','save','remov
   'history','rollback','hookGet','hookSave','inspect','captureRequest','captureShow','captureClear',
   'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest',
   'workbenchCases','workbenchCase','workbenchKnowledgeSearch','workbenchKnowledgeEntry',
+  'workbenchOrphanTasks','workbenchProjectTasksRecover',
   'workbenchProjects','workbenchProject','workbenchProjectCreate',
   'workbenchProjectLinks','workbenchProjectAttach','workbenchProjectTaskCreate','workbenchProjectResultsSync','workbenchProjectRunOnce'])
 const assertName = name => {
@@ -32,7 +33,7 @@ export function command(method, payload = {}) {
     case 'workbenchOrphanTasks': return inspectOrphanTasks()
     case 'workbenchProjectTasksRecover': return recoverProjectTasks(payload.id)
     case 'workbenchProjectResultsSync': return reconcileProjectResults(payload.id)
-    case 'workbenchProjectTaskCreate': return createProjectTask(payload.id,payload.kind,payload.inputs)
+    case 'workbenchProjectTaskCreate': return createProjectTask(payload.id,payload.kind,payload.inputs,payload.caseId)
     case 'workbenchProjectLinks': return projectLinks(payload.id)
     case 'workbenchProjectAttach': return attachProjectItem(payload.id,payload.kind,payload.ref)
     case 'workbenchProjects': return projects()

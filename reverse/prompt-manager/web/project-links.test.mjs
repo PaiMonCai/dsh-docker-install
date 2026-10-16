@@ -52,3 +52,20 @@ test('lock is released after validation error',()=>{
  assert.ok(!existsSync(join(home,'.reverse-projects',p.id+'.links.lock')))
 })
 test.after(()=>rmSync(home,{recursive:true,force:true}))
+
+test('project can link and validate a durable case without duplicating its ledger',()=>{
+ const caseId=randomUUID()
+ mkdirSync(join(home,'.reverse-cases'),{recursive:true})
+ writeFileSync(join(home,'.reverse-cases',caseId+'.json'),JSON.stringify({
+   schema:'dsh-reverse-case/v1',id:caseId,revision:1,goal:'Explain init',
+   deliverable:'report',gates:{G1:{state:'passed'}},
+   evidence:[],hypotheses:[],experiments:[],tasks:[],target:{path:'sample.elf',sha256:'a'.repeat(64)}
+ }))
+ attachProjectItem(p.id,'case',caseId)
+ const linked=projectLinks(p.id).entries.find(x=>x.kind==='case'&&x.ref===caseId)
+ assert.equal(linked.valid,true)
+ assert.equal(linked.revision,1)
+ assert.throws(()=>attachProjectItem(p.id,'case','not-a-case'))
+ writeFileSync(join(home,'.reverse-cases',caseId+'.json'),'{"schema":"invalid"}')
+ assert.equal(projectLinks(p.id).entries.find(x=>x.kind==='case').valid,false)
+})

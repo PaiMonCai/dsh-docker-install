@@ -229,6 +229,7 @@ window.__ModuleLoader__.load({
       const [taskKind,setTaskKind]=useState('triage')
       const [taskInputs,setTaskInputs]=useState('')
       const [runConfirm,setRunConfirm]=useState('')
+      const [taskCaseId,setTaskCaseId]=useState('')
       const [orphanStatus,setOrphanStatus]=useState(null)
       const [jobs,setJobs]=useState([])
       const [cases,setCases]=useState([])
@@ -286,9 +287,15 @@ window.__ModuleLoader__.load({
               h('select',{style:css.input,value:taskKind,onChange:e=>setTaskKind(e.target.value)},
                 ...['triage','js-triage','ghidra','diff','verify'].map(k=>h('option',{value:k,key:k},k))),
               h(Field,{value:taskInputs,onChange:setTaskInputs,placeholder:'工作区相对输入路径'}),
+              h('select',{style:css.input,value:taskCaseId,'aria-label':'关联案件',
+                onChange:e=>setTaskCaseId(e.target.value)},
+                h('option',{value:''},'不关联案件'),
+                ...(projectLinks?.entries||[]).filter(e=>e.kind==='case'&&e.valid)
+                  .map(e=>h('option',{key:e.ref,value:e.ref},'案件 '+e.ref.slice(0,8)))),
               h(Control,{disabled:busy||!taskInputs.trim(),onClick:()=>run(async()=>{
                 const inputs=taskInputs.split('\n').map(s=>s.trim()).filter(Boolean)
-                const created=await invoke('workbenchProjectTaskCreate',{id:activeProject.id,kind:taskKind,inputs})
+                const created=await invoke('workbenchProjectTaskCreate',{id:activeProject.id,kind:taskKind,inputs,
+                  caseId:taskCaseId||undefined})
                 setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
                 setJobs(await invoke('workbenchTasks'))
                 setTaskInputs('')
@@ -298,7 +305,8 @@ window.__ModuleLoader__.load({
               h('select',{style:css.input,value:linkKind,onChange:e=>setLinkKind(e.target.value)},
                 h('option',{value:'sample'},'样本文件'),
                 h('option',{value:'task'},'分析任务 UUID'),
-                h('option',{value:'evidence'},'证据 JSON')),
+                h('option',{value:'evidence'},'证据 JSON'),
+                h('option',{value:'case'},'逆向案件 UUID')),
               h(Field,{value:linkRef,onChange:setLinkRef,placeholder:'工作区相对路径或任务 UUID'}),
               h(Control,{disabled:busy||!linkRef.trim(),onClick:()=>run(async()=>{
                 setProjectLinks(await invoke('workbenchProjectAttach',{id:activeProject.id,kind:linkKind,ref:linkRef.trim()}))
@@ -336,6 +344,9 @@ window.__ModuleLoader__.load({
                   setRunConfirm('')
                   setMessage('任务执行结果：'+result.state)
                 })},'执行队首任务'):null,
+              entry.kind==='case'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
+                setActiveCase(await invoke('workbenchCase',{id:entry.ref}))
+              })},'查看案件'):null,
               entry.kind==='evidence'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
                 setReportPath(entry.ref)
                 setOpenedReport(await invoke('workbenchReport',{path:entry.ref}))

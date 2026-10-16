@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync, openSync, writeFileSync, closeSync
 import { randomUUID, createHash } from 'node:crypto'
 import { join, resolve, relative, sep, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
-import { taskDetail, report } from './workbench.mjs'
+import { taskDetail, report, caseDetail } from './workbench.mjs'
 const ROOT = resolve(process.env.DSH_REVERSE_WORKSPACE_ROOT || '/workspace')
 const PROJECT_DIR = join(ROOT, '.reverse-projects')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -47,6 +47,11 @@ export function projectLinks(id) {
       try { const t=taskDetail(item.ref);return {...item,state:t.state,valid:true} }
       catch{return {...item,valid:false}}
     }
+    if(item.kind==='case') {
+      try { const c=caseDetail(item.ref);return {...item,valid:true,
+        revision:c.revision,gate_states:c.gates} }
+      catch{return {...item,valid:false}}
+    }
     try {
       const f=localFile(item.ref)
       const hash=createHash('sha256').update(readFileSync(f.absolute)).digest('hex')
@@ -55,7 +60,7 @@ export function projectLinks(id) {
   })}
 }
 export function attachProjectItem(id,kind,ref) {
-  if(!['sample','task','evidence'].includes(kind)) throw Error('invalid link type')
+  if(!['sample','task','evidence','case'].includes(kind)) throw Error('invalid link type')
   // mkdir is exclusive across processes: refuse concurrent writes instead of losing updates.
   // A stale lock requires explicit operator review, never silently steal it.
   project(id)
@@ -72,6 +77,10 @@ function attachLocked(id,kind,ref) {
     if(typeof ref!=='string'||!UUID.test(ref)) throw Error('invalid task id')
     const detail=taskDetail(ref)
     item={kind,ref,task_kind:detail.kind}
+  } else if(kind==='case') {
+    if(typeof ref!=='string'||!UUID.test(ref)) throw Error('invalid case id')
+    caseDetail(ref) // Existing, valid case record; keep mutable revision out of the link.
+    item={kind,ref}
   } else {
     const file=localFile(ref)
     if(kind==='evidence') report(file.relative) // known-schema reports only
