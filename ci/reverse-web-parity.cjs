@@ -52,6 +52,10 @@ function snapshot(pluginRoot = PLUGIN_ROOT, entrypointPath = ENTRYPOINT) {
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
     if (typeof manifest.name !== 'string' || !manifest.name) throw Error('invalid plugin package name: ' + entry.name)
     const web = manifest.dsh?.client?.platform === 'web'
+    // A strictly explicit image-owned marker distinguishes headless server
+    // routes from browser modules. Do not require fake client.js scripts.
+    const serverOnly = manifest.dshDockerServerOnly === true
+    if (web && serverOnly) throw Error('conflicting plugin capabilities: ' + entry.name)
     const files = listFiles(dir)
     if (web) {
       for (const name of ['package.json', 'client.js', 'index.js', 'cordis.patch.yml']) {
@@ -60,12 +64,19 @@ function snapshot(pluginRoot = PLUGIN_ROOT, entrypointPath = ENTRYPOINT) {
       const overlay = path.posix.join('/opt/dsh/plugins', entry.name, 'cordis.patch.yml')
       if (!overlays.some(o => o.path === overlay)) throw Error('Web plugin not registered in Standard launcher: ' + manifest.name)
     }
-    plugins.push({ directory: entry.name, id: manifest.name, web, files })
+    if (serverOnly) {
+      for (const name of ['package.json', 'index.js', 'cordis.patch.yml']) {
+        if (!files.some(f => f.path === name)) throw Error('incomplete server-only plugin: ' + entry.name + '/' + name)
+      }
+    }
+    plugins.push({ directory: entry.name, id: manifest.name, web, serverOnly, files })
   }
   if (!plugins.some(p => p.web)) throw Error('no Web client plugins discovered')
   for (const overlay of overlays) {
     const dir = overlay.path.slice('/opt/dsh/plugins/'.length).split('/')[0]
-    if (!plugins.some(p => p.directory === dir && p.web)) throw Error('launcher references missing Web plugin: ' + overlay.path)
+    if (!plugins.some(p => p.directory === dir && (p.web || p.serverOnly))) {
+      throw Error('launcher references missing Web or server-only plugin: ' + overlay.path)
+    }
   }
   if (new Set(plugins.map(p => p.id)).size !== plugins.length) throw Error('duplicate plugin package IDs')
   return { schema: 1, plugins, overlays }
@@ -80,6 +91,7 @@ function compare(expected, actual) {
     assert.ok(found, 'Reverse omitted Standard plugin: ' + plugin.id)
     assert.equal(found.id, plugin.id, 'plugin identity changed: ' + plugin.directory)
     assert.equal(found.web, plugin.web, 'plugin Web capability changed: ' + plugin.id)
+    assert.equal(found.serverOnly, plugin.serverOnly, 'plugin server capability changed: ' + plugin.id)
     assert.deepEqual(found.files, plugin.files, 'Reverse changed inherited Standard plugin files: ' + plugin.id)
   }
   assert.deepEqual(actual.plugins.map(p => p.directory), expected.plugins.map(p => p.directory),

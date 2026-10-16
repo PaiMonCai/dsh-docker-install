@@ -76,6 +76,7 @@ COPY docker/patch-connection-rpc-routes.js /usr/local/bin/patch-connection-rpc-r
 COPY docker/patch-web-launch-token.js /usr/local/bin/patch-web-launch-token.js
 COPY docker/patch-workspace-picker-home.js /usr/local/bin/patch-workspace-picker-home.js
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
+COPY docker/patch-bili-client-ui.js /usr/local/bin/patch-bili-client-ui.js
 COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
 
 RUN apt-get update \
@@ -209,6 +210,7 @@ COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-session-manager
 COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
+COPY docker/plugins/dsh-bili-ui-bridge/ /opt/dsh/plugins/dsh-bili-ui-bridge/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -242,6 +244,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
+ && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \
+ && node --check /usr/local/bin/patch-bili-client-ui.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 

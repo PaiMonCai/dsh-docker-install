@@ -135,6 +135,7 @@ jobs:
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs
           node tests/test-connection-rpc-routes.js
+          node --test tests/test-bili-domain-ui.cjs
           node --test tests/test-remote-settings-patch.cjs
           node --test tests/test-upstream-patches.cjs
           node --test tests/test-reverse-plugin-parity.cjs
