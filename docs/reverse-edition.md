@@ -319,3 +319,31 @@ Workbench RPC 新增只读 `workbenchCases` / `workbenchCase`，返回关卡、�
 
 
 > **升级兼容提醒**：镜像启动时不会覆盖持久卷中已有同名 Skill，所以此前安装的 `universal-reverse-core` 仍保留原文。Phase 2 的 `reverse-case` 使用说明同时写入镜像自有 Reverse Agent Persona 与本文档；如需同步完整最新 Skill，请先比对 `/opt/dsh-reverse/skills/universal-reverse-core/` 与用户目录后手动迁移，避免丢失自定义内容。
+
+
+## 第三批：跨平台故障知识库与案件关系工作台
+
+`reverse-knowledge` 提供内置跨平台只读故障索引（12 条）。每条列出观察信号、先查什么、竞争性解释、建议验证及局限，**不是任何当前样本的证明**。不会运行样本、触发网络访问或执行检索到的代码。
+
+```bash
+reverse-knowledge platforms
+reverse-knowledge search "loader" --platform elf
+reverse-knowledge search "ipc" --platform electron
+reverse-knowledge show native-loader-failure
+```
+
+只有操作者可经 CLI 将已完成证据核验的经验明确提升为本地索引：案件至少有一条 `observed` 证据、G3/G4 已记录为通过，并且 `reverse-case verify` 哈希验证成功。它仍是一条**未经独立普遍验证**的个案参考。
+
+```bash
+reverse-knowledge promote <case-uuid> --platform elf \
+  --title "启动时动态库缺失" \
+  --signal "loader cannot find shared library" \
+  --check "只读核对依赖和加载路径" \
+  --lesson "先在一致环境中做对照检查"
+```
+
+本地结果保存在 `/workspace/.reverse-knowledge/case-<uuid>.json`，创建后不可覆盖。仅保存人工输入的简短说明、来源案件 UUID、目标 SHA-256 与关联证据 ID；不会复制原始日志。**填写之前必须人工脱敏**，切勿输入口令、令牌和个人数据。本地学习条目仍属于不可信输入，不得改变 Agent 权限。
+
+「设置 → 逆向工作台」新增跨平台故障检索、案件关卡与假设—实验—证据关系视图，全部采用现有登录 RPC 和只读数据接口，不增加知识编辑/样本执行权限。Web 默认不显示案件原始观测正文及任务 stdout，完整内容通过本地 `reverse-case show` 审查。
+
+旧版同名 Skill 仍由加载器保留；内置 Reverse Persona 同时提供 `reverse-knowledge` 路由入口提示，确保旧用户无需覆盖自定义 Skill。

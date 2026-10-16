@@ -80,6 +80,7 @@ COPY reverse/cordis.patch.yml /opt/dsh-reverse/cordis.patch.yml
 COPY reverse/skills/ /opt/dsh-reverse/skills/
 COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
 COPY reverse/prompt-manager/ /opt/dsh-reverse/prompt-manager/
+COPY reverse/knowledge/ /opt/dsh-reverse/knowledge/
 COPY reverse/preset-smoke.mjs /opt/dsh-reverse/preset-smoke.mjs
 COPY reverse/service-health.mjs /opt/dsh-reverse/service-health.mjs
 COPY reverse/reverse-healthcheck.cjs /opt/dsh-reverse/reverse-healthcheck.cjs
@@ -94,6 +95,8 @@ COPY --chmod=0755 reverse/bin/reverse-case /usr/local/bin/reverse-case
 COPY reverse/ghidra-scripts/ /opt/dsh-reverse/ghidra-scripts/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN ln -s /opt/dsh-reverse/prompt-manager/cli.mjs /usr/local/bin/reverse-prompt \
+ && ln -s /opt/dsh-reverse/knowledge/cli.mjs /usr/local/bin/reverse-knowledge \
+ && chmod 0755 /opt/dsh-reverse/knowledge/cli.mjs \
  && chmod 0755 /opt/dsh-reverse/prompt-manager/cli.mjs
 # Validate the complete Standard-built plugin set, not a hardcoded list.
 # This scanner also verifies that every installed Web client has a launcher patch.
@@ -104,6 +107,9 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/index.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/cli.mjs \
  && node --check /opt/dsh-reverse/prompt-manager/inspect.mjs \
+ && node --check /opt/dsh-reverse/prompt-manager/web/knowledge.mjs \
+ && node --check /opt/dsh-reverse/knowledge/cli.mjs \
+ && reverse-knowledge search wasm --platform wasm >/tmp/reverse-knowledge-smoke.json \
  && reverse-prompt list >/dev/null \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --check /opt/dsh-reverse/service-health.mjs \

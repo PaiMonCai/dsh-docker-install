@@ -7,6 +7,7 @@ import { projects, project, createProject } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
 import { createProjectTask, reconcileProjectResults, recoverProjectTasks, inspectOrphanTasks } from './project-tasks.mjs'
 import { runProjectTask } from './task-runner.mjs'
+import { searchKnowledge, knowledgeEntry } from './knowledge.mjs'
 import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifest as workbenchManifest, cases as workbenchCases, caseDetail as workbenchCase } from './workbench.mjs'
 
 export const name = 'dsh-reverse-prompt-web'
@@ -14,7 +15,7 @@ export const inject = []
 const METHODS = new Set(['state','list','get','activate','disable','save','remove',
   'history','rollback','hookGet','hookSave','inspect','captureRequest','captureShow','captureClear',
   'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest',
-  'workbenchCases','workbenchCase',
+  'workbenchCases','workbenchCase','workbenchKnowledgeSearch','workbenchKnowledgeEntry',
   'workbenchProjects','workbenchProject','workbenchProjectCreate',
   'workbenchProjectLinks','workbenchProjectAttach','workbenchProjectTaskCreate','workbenchProjectResultsSync','workbenchProjectRunOnce'])
 const assertName = name => {
@@ -40,6 +41,8 @@ export function command(method, payload = {}) {
     case 'workbenchManifest': return workbenchManifest(payload.path)
     case 'workbenchCases': return workbenchCases()
     case 'workbenchCase': return workbenchCase(payload.id)
+    case 'workbenchKnowledgeSearch': return searchKnowledge(payload.query??'',payload.platform??'all')
+    case 'workbenchKnowledgeEntry': return knowledgeEntry(payload.id)
     case 'workbenchTasks': return workbenchTasks()
     case 'workbenchTaskDetail': return taskDetail(payload.id)
     case 'workbenchReport': return workbenchReport(payload.path)
