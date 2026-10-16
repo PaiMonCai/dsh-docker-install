@@ -271,7 +271,7 @@ jobs:
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
           tags: dsh-reverse-ci:audit
           cache-from: type=gha,scope=dsh-reverse
-          cache-to: type=gha,mode=max,scope=dsh-reverse
+          # Only the multi-platform build replaces the shared release cache.
 
       - name: Select image for plugin and runtime audit
         id: audit_image

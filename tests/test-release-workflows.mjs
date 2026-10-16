@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import { paths } from '../ci/release.mjs'
 
 const read = name => readFileSync('.github/workflows/' + name + '.yml', 'utf8')
@@ -18,6 +19,11 @@ function eventPaths(text, event) {
   const section = text.split('\n  ' + event + ':\n')[1]?.split(/\n  \w/)[0]
   return [...section.matchAll(/^      - (.+)$/gm)].map(match => match[1])
 }
+function step(text, name) {
+  const start = text.indexOf('      - name: ' + name + '\n')
+  assert.notEqual(start, -1, 'Missing step: ' + name)
+  return text.slice(start).split(/\n(?=      - )/)[0]
+}
 function triggerPaths() {
   const directories = new Set(['docker', 'ci', 'docs', 'tests'])
   return paths.standard.map(path => directories.has(path) ? path + '/**' : path)
@@ -26,6 +32,8 @@ for (const event of ['push', 'pull_request']) {
   assert.deepEqual(eventPaths(base, event).sort(), triggerPaths().sort(), 'Standard paths must match the shared gate definition')
 }
 assert.match(base, /node --test tests\/test-release-contract\.mjs/)
+assert.doesNotMatch(step(base, 'Build amd64 audit image'), /cache-to:/, 'amd64 audit must preserve the multi-platform cache')
+assert.doesNotMatch(step(read('build-reverse'), 'Build Reverse release audit image before any GHCR push'), /cache-to:/)
 assert.match(base, /tags: .*:candidate-standard-/)
 assert.doesNotMatch(base, /tags: \$\{\{ steps\.tags/, 'Builds must not move release tags')
 assert.match(job(base, 'promote'), /needs: build/)
@@ -50,7 +58,16 @@ for (const edition of ['research', 'reverse']) {
   assert.match(queue, /needs: promote/)
   assert.match(queue, /uses: \.\/\.github\/workflows\/dispatch-edition\.yml/)
   assert.doesNotMatch(queue, /needs:.*dispatch-/, 'Dispatch failures must be isolated')
-  assert.match(queue, /inputs\.dispatch_editions != false/)
+  assert.match(queue, /inputs\.skip_dispatch != true/)
+  const condition = queue.match(/^    if: (.+)$/m)[1]
+  // Actions coerces absent non-dispatch inputs to an empty string. For these
+  // scalar comparisons JS has the same coercion, including '' == false.
+  for (const [value, expected] of [['', true], [false, true], [true, false]]) {
+    assert.equal(runInNewContext(condition, {
+      needs: { promote: { outputs: { promoted: 'true' } } },
+      inputs: { skip_dispatch: value },
+    }), expected, 'Dispatch condition must support push, default call and updater opt-out')
+  }
 }
 assert.match(read('build-research'), /Build candidate Standard and Research together/)
 assert.match(read('build-research'), /- target: research-economics/)
@@ -65,7 +82,7 @@ assert.match(dispatch, /continue-on-error: true/)
 assert.match(dispatch, /for attempt in 1 2 3/)
 assert.match(job(update, 'check'), /node ci\/release\.mjs plan/)
 assert.match(job(update, 'build'), /if: needs\.check\.outputs\.build == 'true'/)
-assert.match(job(update, 'build'), /dispatch_editions: false/, 'Updater reconciliation owns dispatch to avoid duplicate builds')
+assert.match(job(update, 'build'), /skip_dispatch: true/, 'Updater reconciliation owns dispatch to avoid duplicate builds')
 assert.match(job(update, 'commit'), /needs: \[check, build\]/)
 assert.match(job(update, 'commit'), /needs\.build\.outputs\.promoted == 'true'/)
 assert.match(job(update, 'commit'), /node ci\/release\.mjs verify/)

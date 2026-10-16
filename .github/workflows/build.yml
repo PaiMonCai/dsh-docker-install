@@ -60,11 +60,11 @@ on:
       channels:
         value: ${{ jobs.promote.outputs.channels }}
     inputs:
-      dispatch_editions:
-        description: Queue derivatives after promotion (updater reconciles them separately)
+      skip_dispatch:
+        description: Updater reconciles derivatives separately instead of dispatching twice
         required: false
         type: boolean
-        default: true
+        default: false
       preflight_only:
         description: Validate upstream DSH without publishing images
         required: false
@@ -270,7 +270,7 @@ jobs:
             DSH_VERSION=${{ steps.ver.outputs.version }}
           tags: dsh-ci:pr
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Keep the previous ARM64 cache until the multi-platform export.
 
       # Image-owned Web modules are discovered from their package manifests.
       # Adding one without declaring its native launcher patch must fail here.
@@ -665,7 +665,7 @@ jobs:
 
   dispatch-research:
     needs: promote
-    if: needs.promote.outputs.promoted == 'true' && inputs.dispatch_editions != false
+    if: needs.promote.outputs.promoted == 'true' && inputs.skip_dispatch != true
     uses: ./.github/workflows/dispatch-edition.yml
     with:
       edition: research
@@ -679,7 +679,7 @@ jobs:
 
   dispatch-reverse:
     needs: promote
-    if: needs.promote.outputs.promoted == 'true' && inputs.dispatch_editions != false
+    if: needs.promote.outputs.promoted == 'true' && inputs.skip_dispatch != true
     uses: ./.github/workflows/dispatch-edition.yml
     with:
       edition: reverse

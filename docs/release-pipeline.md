@@ -52,6 +52,11 @@ promotion reuses the original candidate rather than assuming it was built in
 the new run attempt. A failed Research matrix item can be rebuilt while retaining
 the other successful item; promotion requires both targets to succeed.
 
+Standard and Reverse amd64 audits only import the shared release cache. The
+multi-platform build exports it afterwards, preserving ARM64 entries between
+runs. The updater sets `skip_dispatch: true`; other triggers dispatch by default,
+including push events where workflow inputs are absent.
+
 ## Automatic updates and recovery
 
 `Check dsh Updates` runs daily and can also be dispatched manually.

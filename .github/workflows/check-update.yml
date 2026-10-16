@@ -63,7 +63,7 @@ jobs:
     with:
       dsh_version: ${{ needs.check.outputs.latest }}
       channel_tags: ${{ needs.check.outputs.channels }}
-      dispatch_editions: false
+      skip_dispatch: true
     permissions:
       contents: read
       packages: write
