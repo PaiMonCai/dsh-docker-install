@@ -186,6 +186,37 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function CaseGraph({data}) {
+      const [focus,setFocus]=useState('')
+      const evidence=data.evidence||[],hypotheses=data.hypotheses||[],experiments=data.experiments||[]
+      return h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+        h('p',{style:css.muted},'关系：假设 → 实验 → 证据。这里只显示状态和引用编号；完整记录可在本地用 reverse-case show 查看。'),
+        h('div',{style:css.line},...['G1','G2','G3','G4'].map(g=>
+          h('span',{key:g,style:{...css.muted,padding:'3px 7px',
+            border:'1px solid var(--dsw-alias-border-l2)',borderRadius:6}},
+            g+' · '+((data.gates||{})[g]||'unknown')))),
+        ...hypotheses.slice(0,40).map(hyp=>
+          h('div',{key:hyp.id,style:{borderLeft:'2px solid var(--dsw-alias-border-l2)',
+            padding:'6px 8px',display:'flex',flexDirection:'column',gap:5}},
+            h('div',{style:css.line},
+              h('strong',null,hyp.id+' · '+hyp.state),
+              h(Control,{onClick:()=>setFocus(focus===hyp.id?'':hyp.id)},
+                focus===hyp.id?'收起关联':'展开关联')),
+            focus===hyp.id?h('div',{style:{paddingLeft:14,display:'flex',flexDirection:'column',gap:5}},
+              ...experiments.filter(e=>e.hypothesis_id===hyp.id).slice(0,15)
+                .map(e=>h('div',{key:e.id,style:css.line},
+                  h('code',null,'↳ '+e.id+' · '+e.state))),
+              ...(hyp.evidence_ids||[]).slice(0,20).map(id=>
+                h('span',{key:id,style:css.muted},'↳ 证据 '+id)),
+              !(hyp.evidence_ids||[]).length?h('span',{style:css.muted},'尚无关联证据'):null
+            ):null)),
+        h('p',{style:css.muted},
+          '证据 '+evidence.length+' · 假设 '+hypotheses.length+
+          ' · 实验 '+experiments.length+' · 任务 '+(data.tasks||[]).length),
+        ...evidence.slice(0,30).map(e=>h('div',{key:e.id,style:{...css.line,fontSize:12}},
+          h('code',null,e.id),h('span',{style:css.muted},e.grade+' · '+e.artifact_path))),
+        !hypotheses.length?h('p',{style:css.muted},'暂无假设，可通过 reverse-case hypothesis 添加。'):null)
+    }
     function WorkbenchPanel({call}) {
       const [projects,setProjects]=useState([])
       const [projectName,setProjectName]=useState('')
@@ -198,6 +229,12 @@ window.__ModuleLoader__.load({
       const [runConfirm,setRunConfirm]=useState('')
       const [orphanStatus,setOrphanStatus]=useState(null)
       const [jobs,setJobs]=useState([])
+      const [cases,setCases]=useState([])
+      const [activeCase,setActiveCase]=useState(null)
+      const [knowledgeQuery,setKnowledgeQuery]=useState('')
+      const [knowledgePlatform,setKnowledgePlatform]=useState('all')
+      const [knowledgeResults,setKnowledgeResults]=useState([])
+      const [knowledgeItem,setKnowledgeItem]=useState(null)
       const [selectedJob,setSelectedJob]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
       const [manifest,setManifest]=useState(null)
@@ -219,6 +256,10 @@ window.__ModuleLoader__.load({
       }
       useEffect(()=>{invoke('workbenchProjects').then(setProjects).catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchTasks').then(setJobs)
+        .catch(error=>setMessage(String(error?.message??error)))},[])
+      useEffect(()=>{invoke('workbenchCases').then(setCases)
+        .catch(error=>setMessage(String(error?.message??error)))},[])
+      useEffect(()=>{invoke('workbenchKnowledgeSearch',{query:'',platform:'all'}).then(setKnowledgeResults)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       return h('div',{style:css.shell},
         h(Section,{title:'分析项目'},
@@ -299,6 +340,57 @@ window.__ModuleLoader__.load({
               })},'查看证据'):null))
           ):null
         ),
+        h(Section,{title:'逆向经验检索 · 只读'},
+          h('p',{style:css.muted},'内置条目只提供排查方向；个案经验也不是已独立验证的通用结论。'),
+          h('div',{style:css.line},
+            h(Field,{value:knowledgeQuery,onChange:setKnowledgeQuery,placeholder:'搜索症状或原因'}),
+            h('select',{value:knowledgePlatform,style:css.input,
+              onChange:e=>setKnowledgePlatform(e.target.value),'aria-label':'知识平台'},
+              ...['all','android','elf','pe','macho','electron','javascript','web','network','firmware','wasm']
+                .map(x=>h('option',{key:x,value:x},x))),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setKnowledgeResults(await invoke('workbenchKnowledgeSearch',{
+                query:knowledgeQuery,platform:knowledgePlatform}))
+              setKnowledgeItem(null)
+            })},'检索')),
+          h('p',{style:css.muted},'匹配 '+knowledgeResults.length+' 条（显示前 12 条）'),
+          ...knowledgeResults.slice(0,12).map(item=>h('div',{key:item.id,style:css.line},
+            h('span',{style:{fontWeight:600,fontSize:13}},item.title),
+            h('span',{style:css.muted},item.platforms.join(' / ')+' · '+item.origin),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setKnowledgeItem(await invoke('workbenchKnowledgeEntry',{id:item.id}))
+            })},'排查步骤'))),
+          knowledgeItem?h('div',{style:{...css.card,padding:10}},
+            h('strong',null,knowledgeItem.title),
+            h('p',{style:css.muted},knowledgeItem.summary),
+            h('p',{style:css.muted},'路线：'+knowledgeItem.route+' · 可信度：'+knowledgeItem.confidence),
+            h('strong',null,'首先检查'),
+            ...knowledgeItem.checks.map((s,i)=>h('div',{key:'check'+i,style:css.muted},(i+1)+'. '+s)),
+            h('strong',null,'竞争性解释'),
+            ...knowledgeItem.alternatives.map((s,i)=>h('div',{key:'alt'+i,style:css.muted},'· '+s)),
+            h('p',{style:css.muted},'验证：'+knowledgeItem.verification),
+            h('p',{style:css.muted},'局限：'+knowledgeItem.limitations),
+            knowledgeItem.case_id?h('code',null,'来源案件：'+knowledgeItem.case_id):null):null
+        ),
+        h(Section,{title:'逆向案件关系 · 只读'},
+          h('div',{style:css.line},
+            h('p',{style:css.muted},'案件 '+cases.length+' 个 · Gate / 假设 / 实验 / 证据引用'),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setCases(await invoke('workbenchCases'))
+              if(activeCase)setActiveCase(await invoke('workbenchCase',{id:activeCase.id}))
+            })},'刷新案件')),
+          ...cases.slice(0,20).map(item=>h('div',{key:item.id,style:css.line},
+            h('span',{style:{fontSize:13,fontWeight:600}},item.goal.slice(0,70)),
+            h('span',{style:css.muted},'证据 '+item.evidence_count+' · 假设 '+item.hypothesis_count),
+            h(Control,{disabled:busy,onClick:()=>run(async()=>{
+              setActiveCase(await invoke('workbenchCase',{id:item.id}))
+            })},'查看关系'))),
+          activeCase?h('div',{style:{...css.card,padding:10}},
+            h('div',{style:css.line},
+              h('strong',null,activeCase.goal),
+              h('code',null,activeCase.id.slice(0,8)+' · rev '+activeCase.revision)),
+            h(CaseGraph,{data:activeCase})
+          ):null),
         h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
           h('div',{style:css.line},
