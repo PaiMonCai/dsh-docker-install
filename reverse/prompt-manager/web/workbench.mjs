@@ -8,7 +8,8 @@ const MAX_REPORT = 8 * 1024 * 1024
 const MAX_TASK = 30000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const KNOWN = new Set(['dsh-reverse-evidence/v1','dsh-reverse-ghidra/v2',
-  'dsh-reverse-js-triage/v1','dsh-reverse-diff/v1','dsh-reverse-workspace/v1'])
+  'dsh-reverse-js-triage/v1','dsh-reverse-diff/v1','dsh-reverse-workspace/v1',
+  'dsh-reverse-case/v1'])
 function workspaceFile(value, maxBytes) {
   if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\0'))
     throw Error('invalid workspace relative path')
@@ -81,6 +82,18 @@ export function report(path) {
       graph_truncated: Boolean(data.call_graph?.truncated),
       limitations:Array.isArray(data.limitations) ? data.limitations.slice(0,20) : [] }
   }
+  if (data.schema === 'dsh-reverse-case/v1') {
+    // Case bodies are untrusted analysis notes; expose only bounded metadata.
+    return {
+      schema:data.schema,id:String(data.id||'').slice(0,40),
+      revision:Number.isSafeInteger(data.revision)?data.revision:0,
+      gates:Object.fromEntries(['G1','G2','G3','G4'].map(g=>
+        [g,['pending','passed','blocked'].includes(data.gates?.[g]?.state) ? data.gates[g].state : 'unknown'])),
+      evidence_count:Array.isArray(data.evidence)?Math.min(data.evidence.length,100):0,
+      hypothesis_count:Array.isArray(data.hypotheses)?Math.min(data.hypotheses.length,100):0,
+      experiment_count:Array.isArray(data.experiments)?Math.min(data.experiments.length,100):0
+    }
+  }
   if (data.schema === 'dsh-reverse-workspace/v1') {
     const entries=Array.isArray(data.reports)?data.reports:[]
     return {schema:data.schema,reports:entries.slice(0,100).map(x=>({
@@ -124,4 +137,59 @@ export function manifest(path) {
   })
   return { schema:'dsh-reverse-workspace-navigation/v1',
     total:records.length, verified:records.filter(x=>x.verified).length, reports:records }
+}
+
+
+/** Read-only case metadata; no arbitrary command outputs, observations or secrets. */
+const CASES=join(ROOT,'.reverse-cases')
+const MAX_CASE=256*1024
+export function cases(){
+  if(!existsSync(CASES))return []
+  if(lstatSync(CASES).isSymbolicLink()||!lstatSync(CASES).isDirectory())
+    throw Error('unsafe cases directory')
+  const list=[]
+  for(const entry of readdirSync(CASES).filter(x=>x.endsWith('.json')&&UUID.test(x.slice(0,-5))).slice(0,300)){
+    try{
+      const item=caseRecord(entry.slice(0,-5))
+      list.push({id:item.id,goal:String(item.goal).slice(0,200),
+        updated_at:item.updated_at,revision:item.revision,
+        evidence_count:item.evidence.length,hypothesis_count:item.hypotheses.length})
+    }catch{/* invalid cases cannot pollute the UI */}
+  }
+  return list.sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at))).slice(0,100)
+}
+function caseRecord(id){
+  if(typeof id!=='string'||!UUID.test(id))throw Error('invalid case id')
+  const item=parseFile(workspaceFile('.reverse-cases/'+id+'.json',MAX_CASE))
+  if(item.schema!=='dsh-reverse-case/v1'||item.id!==id ||
+     !Array.isArray(item.evidence)||!Array.isArray(item.hypotheses)||
+     !Array.isArray(item.experiments)||!Array.isArray(item.tasks))
+    throw Error('invalid case record')
+  return item
+}
+export function caseDetail(id){
+  const item=caseRecord(id)
+  const gates={}
+  for(const name of ['G1','G2','G3','G4'])
+    gates[name]=['pending','passed','blocked'].includes(item.gates?.[name]?.state)
+      ? item.gates[name].state:'unknown'
+  return {schema:item.schema,id:item.id,revision:item.revision,
+    goal:String(item.goal).slice(0,300),deliverable:String(item.deliverable).slice(0,200),
+    updated_at:item.updated_at,gates,
+    evidence:item.evidence.slice(0,100).map(e=>({
+      id:String(e.id).slice(0,16),grade:String(e.grade).slice(0,30),
+      artifact_path:String(e.artifact?.path||'').slice(0,500)
+    })),
+    hypotheses:item.hypotheses.slice(0,100).map(h=>({
+      id:String(h.id).slice(0,16),state:String(h.state).slice(0,40),
+      evidence_ids:Array.isArray(h.evidence_ids)?h.evidence_ids.slice(0,100):[]
+    })),
+    experiments:item.experiments.slice(0,100).map(e=>({
+      id:String(e.id).slice(0,16),state:String(e.state).slice(0,40),
+      hypothesis_id:String(e.hypothesis_id).slice(0,16)
+    })),
+    tasks:item.tasks.slice(0,100).map(t=>({
+      id:String(t.id).slice(0,40),kind:String(t.kind).slice(0,40),state:String(t.state).slice(0,40)
+    }))
+  }
 }

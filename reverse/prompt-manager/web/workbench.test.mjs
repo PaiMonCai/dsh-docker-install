@@ -70,3 +70,26 @@ test('evidence index navigation verifies SHA-256, size and schema',()=>{
  writeFileSync(join(home,'evidence.json'),raw+' ')
  assert.equal(manifest(path).verified,0)
 })
+
+
+test('case metadata endpoint redacts observations and task logs',async()=>{
+  const {cases,caseDetail}=await import('./workbench.mjs')
+  const folder=join(home,'.reverse-cases')
+  mkdirSync(folder)
+  const id='5e4ee301-a132-4482-b624-76026b78e1a0'
+  writeFileSync(join(folder,id+'.json'),JSON.stringify({
+    schema:'dsh-reverse-case/v1',id,goal:'Analyze startup',deliverable:'report',
+    revision:2,updated_at:'2026-10-16T10:00:00Z',
+    gates:{G1:{state:'passed'},G2:{state:'pending'},G3:{state:'blocked'},G4:{state:'pending'}},
+    evidence:[{id:'E001',grade:'observed',observation:'PRIVATE TRACE',artifact:{path:'trace.json'}}],
+    hypotheses:[{id:'H001',state:'open',statement:'PRIVATE HYPOTHESIS',evidence_ids:['E001']}],
+    experiments:[{id:'X001',state:'planned',hypothesis_id:'H001',variable:'PRIVATE VARIABLE'}],
+    tasks:[{id:'task1',kind:'triage',state:'succeeded',stdout:'PRIVATE SECRET'}]
+  }))
+  assert.equal(cases().length,1)
+  const result=caseDetail(id)
+  assert.equal(result.gates.G1,'passed')
+  assert.equal(result.evidence.length,1)
+  assert.ok(!JSON.stringify(result).includes('PRIVATE'))
+  assert.throws(()=>caseDetail('../../outside'))
+})

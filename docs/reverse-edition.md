@@ -279,3 +279,43 @@ Skill 加载器现在将整个包内 Skill 目录（含嵌套引用）原子安�
 四道 Gate：G1 授权与目标交付；G2 能力真实可用范围；G3 行为归属层；G4 原始基线与对照实验。静态任务不因无法动态执行而伪报通过；发生反证时停止同类盲目重试。此批只加入方法论、能力诊断和文档/测试，不引入样本动态执行、跨平台修改工具或新的 Web 工作台写操作。
 
 通用设计参考 [newliver666/apk-reverse](https://github.com/newliver666/apk-reverse)（MIT）；本仓库独立整理跨平台路由与实现。
+
+
+## 第二批：Reverse Case 持久化证据与实验引擎
+
+第二批新增独立命令 `reverse-case`，仅写入 Reverse 的 `/workspace/.reverse-cases`；不会修改分析目标、启动未知程序或更改现有任务执行白名单。每个 case 保存目标 SHA-256、G1–G4 状态、证据（关联文件的大小和哈希）、可反驳假设、实验设计/结果、明确被证伪的结论及任务状态快照。JSON schema 为 `dsh-reverse-case/v1`，原子写入、串行锁、资源数与大小限制，适合会话中断后的复盘。
+
+```bash
+reverse-case create /workspace/sample.elf --goal "解释启动失败" --deliverable "可复现的静态报告"
+reverse-case list
+reverse-case show <case-uuid>
+# 以下动作把观察写入持久化文件；证据文件应为已脱敏的分析结果
+reverse-case evidence <case-uuid> --file /workspace/reverse-analysis/triage/report.json \
+  --locator "function:0x1000" --observation "发现启动调用链" --grade observed --tool reverse-triage
+reverse-case hypothesis <case-uuid> --statement "初始化例程决定启动结果" \
+  --falsifier "同一输入的基线轨迹没有到达该例程"
+reverse-case experiment <case-uuid> H001 --variable "初始化参数" \
+  --control "相同二进制、环境与输入" --falsifier "两组结果没有预期差异"
+reverse-case gate <case-uuid> G3 passed --note "已从静态调用关系定位负责层" --evidence E001
+reverse-case verify <case-uuid>
+```
+
+与原队列对接时增加可选的 `--case-id`，旧调用保持兼容：
+
+```bash
+reverse-task enqueue triage /workspace/sample.elf --case-id <case-uuid>
+# 任务执行仍由现有 allowlist worker 显式启动，无新增自动执行路径
+reverse-case sync-task <case-uuid> <task-uuid>
+```
+
+`reverse-workspace index` 可以将 case JSON 连同其他报告纳入 SHA-256 清单，`verify` 会检查文件哈希、长度和 schema。更新 case 后旧快照校验失效是预期行为，需要重新创建清单，不能覆盖原始记录。
+
+Workbench RPC 新增只读 `workbenchCases` / `workbenchCase`，返回关卡、数量、假设和实验状态的**脱敏摘要**，不展示任意证据正文、任务 stdout 或实验注释。可视化假设树留待第三批。
+
+**边界**：`gate passed` 记录的是有证据关联的操作者声明，不能作为授权或设备隔离的唯一安全控制；工具运行成功只说明任务执行成功，绝不自动提升结论可信度。对静态检验，保留未做动态观察的限制，不伪造实验结果。
+
+
+目录型项目也可创建案件（例如 `reverse-case create /workspace/electron-project --goal "还原 IPC 调用关系" --deliverable "调用图"`）。引擎最多扫描 2000 个文件、累计 256 MiB；目录指纹包含相对路径、大小和内容哈希，拒绝符号链接和特殊文件。超出上限时应选择更小、明确的分析范围，不会悄悄忽略文件。
+
+
+> **升级兼容提醒**：镜像启动时不会覆盖持久卷中已有同名 Skill，所以此前安装的 `universal-reverse-core` 仍保留原文。Phase 2 的 `reverse-case` 使用说明同时写入镜像自有 Reverse Agent Persona 与本文档；如需同步完整最新 Skill，请先比对 `/opt/dsh-reverse/skills/universal-reverse-core/` 与用户目录后手动迁移，避免丢失自定义内容。

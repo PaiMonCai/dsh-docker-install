@@ -28,6 +28,7 @@ test('Image uses its own native Reverse Agent preset and REA', () => {
  assert.match(overlay,/id: dsh-reverse-preset-declaration/)
  assert.match(overlay,/name: '@deepseek-ai\/dsh-agent-preset'/)
  assert.match(overlay,/id: reverse-engineering/)
+ assert.match(overlay,/reverse-case as a persistent evidence/)
  assert.match(overlay,/id: rea-mcp/)
  assert.match(overlay,/command: rea/)
  assert.match(overlay,/dshHomePath\('reverse-engineering\/skills'\)/)
@@ -187,6 +188,8 @@ test('Reverse task queue is allowlisted and does not execute through shell',()=>
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-task/)
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-doctor/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_doctor.py')))
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-case/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_case.py')))
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_task_queue.py')))
 })
 

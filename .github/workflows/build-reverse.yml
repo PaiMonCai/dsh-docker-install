@@ -167,7 +167,7 @@ jobs:
           set -euo pipefail
           node --check reverse/skills-bootstrap.mjs
           node --test reverse/skills-bootstrap.test.mjs
-          python3 -m py_compile reverse/bin/reverse-doctor
+          python3 -m py_compile reverse/bin/reverse-doctor reverse/bin/reverse-case
           python3 reverse/bin/reverse-doctor --json > /tmp/reverse-doctor-ci.json
           node --check reverse/prompt-manager/core.mjs
           node --check reverse/prompt-manager/index.mjs
@@ -312,7 +312,7 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt reverse-doctor; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt reverse-doctor reverse-case; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
             node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs
@@ -320,6 +320,7 @@ jobs:
             test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
             reverse-triage --help >/dev/null
             reverse-doctor --json >/tmp/reverse-doctor.json
+            reverse-case --help >/dev/null
             reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
