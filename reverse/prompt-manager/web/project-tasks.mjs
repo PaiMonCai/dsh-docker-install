@@ -2,7 +2,6 @@
  * Enqueue only: the operator still runs reverse-task run-once explicitly. */
 import { mkdirSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { resolve, relative, sep, join, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'

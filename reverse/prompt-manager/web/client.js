@@ -215,6 +215,9 @@ window.__ModuleLoader__.load({
         h('p',{style:css.muted},
           '证据 '+evidence.length+' · 假设 '+hypotheses.length+
           ' · 实验 '+experiments.length+' · 任务 '+(data.tasks||[]).length),
+        ...(data.tasks||[]).slice(0,20).map(t=>h('div',{key:t.id,style:css.line},
+          h('code',null,'任务 '+t.id.slice(0,8)),
+          h('span',{style:css.muted},t.kind+' · '+t.state))),
         ...evidence.slice(0,30).map(e=>h('div',{key:e.id,style:{...css.line,fontSize:12}},
           h('code',null,e.id),h('span',{style:css.muted},e.grade+' · '+e.artifact_path))),
         !hypotheses.length?h('p',{style:css.muted},'暂无假设，可通过 reverse-case hypothesis 添加。'):null)

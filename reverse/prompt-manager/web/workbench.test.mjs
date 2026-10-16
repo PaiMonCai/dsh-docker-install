@@ -95,3 +95,27 @@ test('case metadata endpoint redacts observations and task logs',async()=>{
   assert.ok(!JSON.stringify(result).includes('PRIVATE'))
   assert.throws(()=>caseDetail('../../outside'))
 })
+
+test('case detail resolves live queue task states without copying stdout',async()=>{
+  const {caseDetail}=await import('./workbench.mjs')
+  const id='5e4ee301-a132-4482-b624-76026b78e1a0'
+  const taskId='0313e4e9-1e32-45af-9e72-831fe75e3f61'
+  const folder=join(home,'.reverse-tasks')
+  mkdirSync(folder,{recursive:true})
+  const f=join(folder,taskId+'.json')
+  writeFileSync(f,JSON.stringify({schema:'dsh-reverse-task/v1',id:taskId,
+    case_id:id,kind:'triage',state:'queued',created_at:'2026-10-16T00:00:00Z',
+    updated_at:'2026-10-16T00:00:00Z',attempts:0,result:null,
+    stdout:'PRIVATE_TASK_STDOUT'
+  }))
+  const first=caseDetail(id)
+  assert.ok(first.tasks.some(t=>t.id===taskId&&t.state==='queued'))
+  writeFileSync(f,JSON.stringify({schema:'dsh-reverse-task/v1',id:taskId,
+    case_id:id,kind:'triage',state:'succeeded',created_at:'2026-10-16T00:00:00Z',
+    updated_at:'2026-10-16T01:00:00Z',attempts:1,
+    result:{stdout:'SECRET_EXECUTION_LOG',exit_code:0}
+  }))
+  const after=caseDetail(id)
+  assert.ok(after.tasks.some(t=>t.id===taskId&&t.state==='succeeded'))
+  assert.ok(!JSON.stringify(after).includes('SECRET_EXECUTION_LOG'))
+})

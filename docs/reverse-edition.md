@@ -365,3 +365,5 @@ reverse-task enqueue triage /workspace/sample.elf --case-id <case-uuid>
 CLI 与 Web **都由 `reverse-task` 维护任务状态**；Web 采用 `enqueue --stage` 创建暂存记录，关联项目成功后调用 `publish` 才可执行。关联失败调用 `discard`，中断后的 `staging` 不会由执行器自动运行，项目管理员可在 Web 中审查和显式恢复。`reverse-task run-once` 仍需授权主动调用；Web 执行默认关闭。所有操作继续使用同一个全局顺序队列及原白名单。
 
 `reverse-task enqueue ...` 的普通 CLI 行为保持不变，`--stage`、`publish <task-id>` 与 `discard <task-id>` 是供受控关联过程使用的显式状态操作。Web 工作台按“项目与任务 / 案件关系 / 经验检索 / 证据与报告”切换视图，不再一次渲染所有卡片。系统保持文件存储、原 Agent/Skills 和原工具链，不增加数据库与服务端口。
+
+项目中的 Case 关系由 `.reverse-projects/<project>.links.json` 记录 UUID 引用，而不是复制 Case JSON。Case 工作台会从同一 `.reverse-tasks` 任务队列中实时读取与 `case_id` 匹配的近期任务状态，因此 Web 任务状态更新不依赖额外的手工 `sync-task`；手工 `reverse-case sync-task` 仍可在审计账本里保留任务状态快照。证据是否支持结论仍要通过显式证据登记及验证，不能因为任务成功就自动把推测标记为已观察事实。
