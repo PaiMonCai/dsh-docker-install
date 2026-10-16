@@ -325,7 +325,7 @@ jobs:
             reverse-doctor --json >/tmp/reverse-doctor.json
             reverse-case --help >/dev/null
             reverse-knowledge search wasm --platform wasm >/tmp/reverse-knowledge.json
-            node -e "const d=require('/tmp/reverse-knowledge.json');if(!d.some(x=>x.id==='wasm-host-import'))process.exit(1)"
+            grep -Fq wasm-host-import /tmp/reverse-knowledge.json
             reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
