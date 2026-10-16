@@ -367,3 +367,17 @@ CLI 与 Web **都由 `reverse-task` 维护任务状态**；Web 采用 `enqueue -
 `reverse-task enqueue ...` 的普通 CLI 行为保持不变，`--stage`、`publish <task-id>` 与 `discard <task-id>` 是供受控关联过程使用的显式状态操作。Web 工作台按“项目与任务 / 案件关系 / 经验检索 / 证据与报告”切换视图，不再一次渲染所有卡片。系统保持文件存储、原 Agent/Skills 和原工具链，不增加数据库与服务端口。
 
 项目中的 Case 关系由 `.reverse-projects/<project>.links.json` 记录 UUID 引用，而不是复制 Case JSON。Case 工作台会从同一 `.reverse-tasks` 任务队列中实时读取与 `case_id` 匹配的近期任务状态，因此 Web 任务状态更新不依赖额外的手工 `sync-task`；手工 `reverse-case sync-task` 仍可在审计账本里保留任务状态快照。证据是否支持结论仍要通过显式证据登记及验证，不能因为任务成功就自动把推测标记为已观察事实。
+
+
+## 下一批架构收敛：前端源码模块化与执行边界可见
+
+Reverse 原生 Web 客户端仍通过 `window.__ModuleLoader__` 交付**一个** `client.js`，不修改 DSH 插件加载协议。但项目源码现在分为 `reverse/prompt-manager/web/src/` 下的独立维护单元（基础组件、Prompt 设置、案件图、工作台及加载器入口），使用内置的无依赖生成脚本检查：
+
+```bash
+node reverse/prompt-manager/web/build-client.mjs       # 重新生成 client.js
+node reverse/prompt-manager/web/build-client.mjs --check # CI 检查源码与产物一致
+```
+
+Web 任务执行策略统一在 `web/execution-policy.mjs`：默认拒绝，只有 `DSH_REVERSE_WEB_EXECUTION=1` 时才可能允许执行，同时要求严格的人工确认、受控的五种任务类型和现有队列任务关联/队首检查。工作台的项目页展示当前 Web 执行开关与允许类型，可通过仅只读 `workbenchExecutionPolicy` RPC 查询，不显示令牌等机密配置。
+
+**权限边界务必区分**：此策略**仅覆盖 Reverse Web 任务执行入口**；Python CLI 的白名单由 `reverse-task` 自己执行；DSH Agent 可以通过 Bash / REA MCP 直接调用工具，这些权限由 Agent、容器、部署隔离和主机策略分别决定，并没有被该 Web 策略统一接管。本批没有更改 DSH Agent 内核权限、网络访问、设备附着策略或现有镜像默认暴露端口。

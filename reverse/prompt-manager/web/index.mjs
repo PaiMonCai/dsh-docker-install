@@ -7,6 +7,7 @@ import { projects, project, createProject } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
 import { createProjectTask, reconcileProjectResults, recoverProjectTasks, inspectOrphanTasks } from './project-tasks.mjs'
 import { runProjectTask } from './task-runner.mjs'
+import { webExecutionPolicy } from './execution-policy.mjs'
 import { searchKnowledge, knowledgeEntry } from './knowledge.mjs'
 import { tasks as workbenchTasks, taskDetail, report as workbenchReport, manifest as workbenchManifest, cases as workbenchCases, caseDetail as workbenchCase } from './workbench.mjs'
 
@@ -15,6 +16,7 @@ export const inject = []
 const METHODS = new Set(['state','list','get','activate','disable','save','remove',
   'history','rollback','hookGet','hookSave','inspect','captureRequest','captureShow','captureClear',
   'workbenchTasks','workbenchTaskDetail','workbenchReport','workbenchManifest',
+  'workbenchExecutionPolicy',
   'workbenchCases','workbenchCase','workbenchKnowledgeSearch','workbenchKnowledgeEntry',
   'workbenchOrphanTasks','workbenchProjectTasksRecover',
   'workbenchProjects','workbenchProject','workbenchProjectCreate',
@@ -29,6 +31,7 @@ export function command(method, payload = {}) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload))
     throw Error('invalid payload')
   switch (method) {
+    case 'workbenchExecutionPolicy': return webExecutionPolicy()
     case 'workbenchProjectRunOnce': return runProjectTask(payload.id,payload.taskId,payload.confirmation)
     case 'workbenchOrphanTasks': return inspectOrphanTasks()
     case 'workbenchProjectTasksRecover': return recoverProjectTasks(payload.id)

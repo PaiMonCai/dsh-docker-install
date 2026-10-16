@@ -232,6 +232,7 @@ window.__ModuleLoader__.load({
       const [taskKind,setTaskKind]=useState('triage')
       const [taskInputs,setTaskInputs]=useState('')
       const [runConfirm,setRunConfirm]=useState('')
+      const [executionPolicy,setExecutionPolicy]=useState(null)
       const [taskCaseId,setTaskCaseId]=useState('')
       const [activeSection,setActiveSection]=useState('project')
       const [orphanStatus,setOrphanStatus]=useState(null)
@@ -263,6 +264,8 @@ window.__ModuleLoader__.load({
       }
       useEffect(()=>{invoke('workbenchProjects').then(setProjects).catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchTasks').then(setJobs)
+        .catch(error=>setMessage(String(error?.message??error)))},[])
+      useEffect(()=>{invoke('workbenchExecutionPolicy').then(setExecutionPolicy)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchCases').then(setCases)
         .catch(error=>setMessage(String(error?.message??error)))},[])
@@ -342,7 +345,12 @@ window.__ModuleLoader__.load({
               setProjectLinks(results.links)
               setMessage('已同步 '+results.added.length+' 份报告；未找到 '+results.skipped.length+' 份')
             })},'同步已完成任务的证据'),
-            h('p',{style:css.muted},'Web 执行默认关闭。部署者开启后，在下方输入 EXECUTE_ONE_PROJECT_TASK 才能手动执行全局队首的项目任务。'),
+            h('p',{style:css.muted},
+              '队列执行：'+(executionPolicy?.web_execution_enabled?'已启用（仍需人工确认）':'默认禁用')+
+              ' · 受控任务类型：'+(executionPolicy?.permitted_task_kinds||[]).join(', ')),
+            h('p',{style:css.muted},
+              '此规则只约束 Web 任务执行入口；Agent 的 Bash、REA 工具权限由 DSH 和部署环境分别控制。'),
+            h('p',{style:css.muted},'Web 执行需由部署者开启，再输入 EXECUTE_ONE_PROJECT_TASK 确认全局队首任务。'),
             h(Field,{value:runConfirm,onChange:setRunConfirm,placeholder:'执行确认短语'}),
             ...(projectLinks?.entries||[]).map((entry,i)=>h('div',{key:entry.kind+entry.ref+i,style:css.line},
               h('span',{style:css.muted},entry.kind+' · '+(entry.valid?'有效':'失效')),
