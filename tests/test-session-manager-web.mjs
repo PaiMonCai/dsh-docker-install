@@ -77,10 +77,10 @@ function request(method, value, opts = {}) {
 try {
   const client = await readFile(new URL('../docker/plugins/dsh-session-manager-web/client.js', import.meta.url), 'utf8')
   assert.match(client, /trash: '删除会话'/)
-  assert.match(client, /dangerTitle: '确定永久删除此会话？'/)
+  assert.doesNotMatch(client, /dangerTitle|typeToConfirm|confirmPurge|type: 'confirm'/)
   assert.doesNotMatch(client, /PermanentMenu|dsh-docker\.permanent/)
   assert.doesNotMatch(client, /navigator\.language|document\.documentElement\.lang/)
-  assert.match(client, /action: 'purge', returnToTrash: true/)
+  assert.match(client, /act\('purge', selectedIds\)/)
 
   apply(ctx)
   await create(id)
@@ -140,7 +140,7 @@ try {
   assert.equal((await request('POST', { action: 'purge', sessionId: other })).code, 409)
 
   const unsafe = 'session-abcdef01'
-  await symlink('/tmp', directory(unsafe))
+  await symlink(home, directory(unsafe), process.platform === 'win32' ? 'junction' : 'dir')
   assert.equal((await request('POST', { action: 'trash', sessionId: unsafe })).code, 404)
   assert.equal(process.env.DSH_DOCKER_RESTART, 'container')
   console.log('Web session two-stage trash / forced purge / no Docker restart checks passed')

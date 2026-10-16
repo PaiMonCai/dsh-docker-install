@@ -1,9 +1,9 @@
 {
   "name": "dsh-docker-session-manager",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
-  "description": "DSH Web responsive recycle workspace, search, guarded batch restore and purge",
+  "description": "DSH Web session selection, batch trash, restore and direct recycle-bin purge",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",

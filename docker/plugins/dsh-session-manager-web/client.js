@@ -15,9 +15,7 @@ window.__ModuleLoader__.load({
     // This deployment is Chinese-first regardless of browser/system locale.
     const t = {
       trash: '删除会话', permanent: '永久删除', recycle: '回收站',
-      dangerTitle: '确定永久删除此会话？',
-      dangerHint: '会话及其历史记录将被强制清除，无法恢复。若该会话正在运行，相关任务也会被终止；其他会话和工作区文件不受影响。无需重启 Docker。',
-      cancel: '取消', confirm: '永久删除', restore: '恢复',
+      restore: '恢复',
       empty: '回收站是空的', loading: '加载中…', close: '关闭',
       done: '操作已完成', failed: '操作失败',
       firstTrash: '请先删除会话，将其移入回收站，再执行永久删除。',
@@ -32,16 +30,13 @@ window.__ModuleLoader__.load({
       clearSelection: '清空选择', restoreSelected: '恢复选中',
       deleteSelected: '永久删除选中', searchEmpty: '没有匹配的会话',
       searchEmptyHint: '可尝试其他关键词，或重置筛选条件。',
-      emptyHint: '删除的会话会暂存在这里，确认后可恢复或永久删除。',
+      emptyHint: '删除的会话会暂存在这里，可恢复或永久删除。',
       resetFilters: '清除筛选', sessionId: '会话 ID',
       deletedAt: '删除于', retry: '重试', processing: '正在处理',
       doneCount: '已成功处理', failCount: '项失败',
       selectSession: '选择会话', closeHint: '关闭回收站',
-      dangerousBatch: '批量永久删除会话？',
-      batchWarning: '选中的 {count} 个会话及历史记录将被永久清除。操作不可撤销，运行中的相关任务也会被终止。',
-      typeToConfirm: '批量删除前请输入“永久删除”以确认',
-      requirePhrase: '永久删除', confirmBatch: '确认删除 {count} 个会话',
-      pendingClose: '操作进行中，暂时无法关闭。',
+      moveSelected: '移入回收站', selectList: '选择当前列表',
+      batchLabel: '批量管理会话', batchDone: '已移入回收站',
     }
 
     async function api(action, sessionId, title) {
@@ -72,8 +67,53 @@ window.__ModuleLoader__.load({
         if (overlay?.type === 'toast') show(null)
       }, 3200)
     }
-    function move(id, title) {
-      api('trash', id, title).then(() => notice(t.done)).catch(e => show({ type: 'error', message: e.message }))
+    const batchListeners = new Set()
+    let batch = { items: [], pending: false, progress: '', error: '', status: '' }
+    const subscribeBatch = fn => { batchListeners.add(fn); return () => batchListeners.delete(fn) }
+    const batchSnapshot = () => batch
+    const updateBatch = patch => {
+      batch = { ...batch, ...patch }
+      for (const fn of batchListeners) fn()
+    }
+    const titleOf = (id, title) => String(title || id).slice(0, 160)
+    const forgetSelection = id => updateBatch({
+      items: batch.items.filter(item => item.sessionId !== id),
+    })
+    function selectSession(id, title, checked) {
+      if (batch.pending) return
+      const items = batch.items.filter(item => item.sessionId !== id)
+      if (checked) items.push({ sessionId: id, title: titleOf(id, title) })
+      updateBatch({ items, error: '', status: '' })
+    }
+    async function move(id, title) {
+      if (batch.pending) return
+      try {
+        await api('trash', id, titleOf(id, title))
+        forgetSelection(id)
+        notice(t.done)
+      } catch (e) { show({ type: 'error', message: e.message }) }
+    }
+    async function moveSelected() {
+      if (batch.pending || !batch.items.length) return
+      const targets = [...batch.items]
+      updateBatch({ pending: true, progress: '', error: '', status: '' })
+      const failed = []
+      let done = 0
+      for (const [index, item] of targets.entries()) {
+        updateBatch({ progress: t.processing + ' ' + (index + 1) + ' / ' + targets.length })
+        try {
+          await api('trash', item.sessionId, item.title)
+          done++
+          forgetSelection(item.sessionId)
+        } catch (reason) {
+          failed.push(item.sessionId + ' (' + (reason.message || t.failed) + ')')
+        }
+      }
+      updateBatch({
+        pending: false, progress: '',
+        status: t.batchDone + ' ' + done + ' / ' + targets.length,
+        error: failed.length ? t.failCount + ' ' + failed.length + '：' + failed.slice(0, 3).join('，') : '',
+      })
     }
     function menu(label, click, props, danger = false, separatorBefore = false) {
       const [, setOpen] = props.useMenuOpenState()
@@ -84,6 +124,25 @@ window.__ModuleLoader__.load({
     }
     function TrashMenu(props) {
       return menu(t.trash, () => move(props.sessionId, props.displayTitle), props, false, true)
+    }
+    function SessionCheckbox({ sessionId, displayTitle }) {
+      const state = React.useSyncExternalStore(subscribeBatch, batchSnapshot, batchSnapshot)
+      return h('input', {
+        className: 'dsh-session-select', type: 'checkbox',
+        'aria-label': t.selectSession + ' ' + sessionId,
+        'data-session-id': sessionId, 'data-session-title': titleOf(sessionId, displayTitle),
+        checked: state.items.some(item => item.sessionId === sessionId),
+        disabled: state.pending,
+        onChange: event => selectSession(sessionId, displayTitle, event.target.checked),
+        onClick: event => event.stopPropagation(),
+        onDoubleClick: event => event.stopPropagation(),
+        onPointerDown: event => event.stopPropagation(),
+        onKeyDown: event => {
+          if (event.key === ' ' || event.key === 'Enter') event.stopPropagation()
+        },
+        style: { width: 16, height: 16, margin: '0 2px', flexShrink: 0,
+          cursor: state.pending ? 'wait' : 'pointer', accentColor: 'var(--dsw-alias-brand-primary,#4d6bfe)' },
+      })
     }
     const ui = {
       edge: 'var(--dsw-alias-separator-primary, rgba(125,135,155,.24))',
@@ -131,7 +190,51 @@ window.__ModuleLoader__.load({
       return Number.isNaN(date.getTime()) ? String(value || '—')
         : date.toLocaleString('zh-CN', { hour12: false })
     }
-    const fillCount = (template, count) => template.replace('{count}', String(count))
+    const selectionCss = [
+      // The official row-action strip is hover-only. Keep our checkbox visible
+      // without depending on upstream CSS module names or hiding status dots.
+      '[data-row-key^="session:"]>span:has(.dsh-session-select){display:inline-flex!important;gap:8px}',
+      '[data-row-key^="session:"]:not(:hover):not(:focus-within)>span:has(.dsh-session-select)>:not(.dsh-session-select):not(:has(.dsh-session-select)){display:none}',
+      '.dsh-session-batch{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);width:min(600px,calc(100vw - 32px));z-index:9900;padding:14px 16px;border-radius:12px;box-shadow:0 10px 36px rgba(0,0,0,.18)}',
+      '.dsh-session-batch-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '@media(max-width:640px){.dsh-session-batch{bottom:12px;width:calc(100vw - 24px);padding:12px}.dsh-session-batch-controls{gap:7px}}',
+    ].join('\n')
+    function BatchToolbar() {
+      const state = React.useSyncExternalStore(subscribeBatch, batchSnapshot, batchSnapshot)
+      const currentOverlay = React.useSyncExternalStore(subscribe, snapshot, snapshot)
+      const selectVisible = () => {
+        if (batch.pending) return
+        const items = new Map(batch.items.map(item => [item.sessionId, item]))
+        for (const input of document.querySelectorAll('.dsh-session-select')) {
+          if (input.disabled || !input.getClientRects().length) continue
+          const id = input.dataset.sessionId
+          items.set(id, { sessionId: id, title: input.dataset.sessionTitle })
+        }
+        updateBatch({ items: [...items.values()], status: '', error: '' })
+      }
+      const clear = () => {
+        if (!batch.pending) updateBatch({ items: [], status: '', error: '' })
+      }
+      const visible = (state.items.length || state.status || state.error) &&
+        (!currentOverlay || currentOverlay.type === 'toast')
+      return h('div', { style: { display: 'contents' } },
+        h('style', null, selectionCss),
+        visible ? h('section', {
+          className: 'dsh-session-batch', 'aria-label': t.batchLabel, 'aria-busy': state.pending,
+          style: { border: '1px solid ' + ui.edge, background: ui.surface, color: 'inherit' },
+        },
+        h('div', { className: 'dsh-session-batch-controls' },
+          h('strong', { style: { flex: '1 1 100px', fontSize: 13 } },
+            t.selected + ' ' + state.items.length),
+          button(t.selectList, selectVisible, state.pending),
+          button(state.items.length ? t.clearSelection : t.close, clear, state.pending),
+          button(t.moveSelected, () => { void moveSelected() },
+            state.pending || state.items.length === 0, false, true)),
+        (state.error || state.progress || state.status) ? h('div', {
+          role: state.error ? 'alert' : 'status',
+          style: { marginTop: 10, fontSize: 12, color: state.error ? '#dc5555' : ui.muted },
+        }, state.error || state.progress || state.status) : null) : null)
+    }
 
     function Dialog() {
       const selected = React.useSyncExternalStore(subscribe, snapshot, snapshot)
@@ -146,7 +249,6 @@ window.__ModuleLoader__.load({
       const [range, setRange] = React.useState('all')
       const [sort, setSort] = React.useState('newest')
       const [selectedIds, setSelectedIds] = React.useState([])
-      const [confirmPhrase, setConfirmPhrase] = React.useState('')
       const panelRef = React.useRef(null)
       const pendingRef = React.useRef(false)
       const refreshId = React.useRef(0)
@@ -155,7 +257,7 @@ window.__ModuleLoader__.load({
       const close = () => {
         if (!pendingRef.current) {
           setError('')
-          show(kind === 'confirm' ? { type: 'recycle' } : null)
+          show(null)
         }
       }
       const refresh = async (preserveError = false) => {
@@ -223,16 +325,15 @@ window.__ModuleLoader__.load({
         let done = 0
         for (const id of targets) {
           setProgress(t.processing + ' ' + (done + failed.length + 1) + ' / ' + targets.length)
-          try { await api(action, id); done++ }
+          try { await api(action, id); forgetSelection(id); done++ }
           catch (reason) { failed.push({ id, message: reason.message || t.failed }) }
         }
         setSelectedIds(failed.map(item => item.id))
         setProgress('')
+        if (done) setStatus(t.doneCount + ' ' + done + ' / ' + targets.length)
+        await refresh()
         setPending(false)
         pendingRef.current = false
-        if (done) setStatus(t.doneCount + ' ' + done + ' / ' + targets.length)
-        if (kind === 'confirm') show({ type: 'recycle', preserveError: failed.length > 0 })
-        else await refresh()
         if (failed.length) {
           setError(t.failCount + ' ' + failed.length + '：' +
             failed.slice(0, 3).map(item => item.id + ' (' + item.message + ')').join('，'))
@@ -265,17 +366,6 @@ window.__ModuleLoader__.load({
           ? current.filter(id => !ids.has(id))
           : [...new Set([...current, ...ids])])
       }
-      const confirmPurge = targets => {
-        if (!targets.length || pendingRef.current) return
-        setConfirmPhrase('')
-        show({
-          type: 'confirm', title: targets.length === 1
-            ? items.find(item => item.sessionId === targets[0])?.title || targets[0]
-            : targets.length + ' 个会话',
-          sessionIds: targets, action: 'purge', returnToTrash: true,
-        })
-      }
-
       if (!selected) return null
       if (kind === 'toast') {
         return h('div', { role: 'status', style: { position: 'fixed', bottom: 24, right: 24,
@@ -287,33 +377,6 @@ window.__ModuleLoader__.load({
         open: true, onClose: close, closeLabel: t.close, title: t.failed,
         footer: button(t.close, close),
       }, h('p', { role: 'alert' }, selected.message))
-      if (kind === 'confirm') {
-        const ids = selected.sessionIds || [selected.sessionId]
-        const isBatch = ids.length > 1
-        const canConfirm = !pending && (!isBatch || confirmPhrase === t.requirePhrase)
-        return h(Modal, {
-          open: true, onClose: close, closeLabel: t.cancel,
-          title: isBatch ? t.dangerousBatch : t.dangerTitle, description: selected.title,
-          footer: h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8,
-            justifyContent: 'flex-end' } },
-            button(t.cancel, () => { if (!pendingRef.current) show({ type: 'recycle' }) }, pending),
-            button(isBatch ? fillCount(t.confirmBatch, ids.length) : t.confirm,
-              () => { void act('purge', ids) }, !canConfirm, true)),
-        },
-        h('p', { style: { lineHeight: 1.65, fontSize: '13px' } },
-          isBatch ? fillCount(t.batchWarning, ids.length) : t.dangerHint),
-        isBatch ? h('label', { style: { display: 'grid', gap: 8, fontSize: '12px',
-          marginTop: '12px' } }, t.typeToConfirm,
-          h('input', {
-            'aria-label': t.typeToConfirm, type: 'text',
-            value: confirmPhrase, disabled: pending,
-            onChange: event => setConfirmPhrase(event.target.value),
-            style: { ...inputStyle, width: '100%' },
-          })) : null,
-        progress ? h('p', { role: 'status' }, progress) : null,
-        error ? h('p', { role: 'alert', style: { color: '#dc5555' } }, error) : null)
-      }
-
       return h('div', {
         className: 'dsh-trash-overlay', role: 'presentation',
         onMouseDown: event => {
@@ -442,7 +505,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dsh-trash-actions' },
               button('↶ ' + t.restore, () => { void act('restore', [item.sessionId]) },
                 pending, false, true),
-              button(t.permanent, () => confirmPurge([item.sessionId]), pending, true)),
+              button(t.permanent, () => { void act('purge', [item.sessionId]) }, pending, true)),
           )),
       ),
       (error || status || progress) ? h('div', {
@@ -457,7 +520,7 @@ window.__ModuleLoader__.load({
           selectedIds.length ? t.selected + ' ' + selectedIds.length : t.subtitle),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap',
           justifyContent: 'flex-end' } },
-          button(t.deleteSelected, () => confirmPurge(selectedIds),
+          button(t.deleteSelected, () => { void act('purge', selectedIds) },
             pending || selectedIds.length === 0, true),
           button(t.restoreSelected, () => { void act('restore', selectedIds) },
             pending || selectedIds.length === 0, false, true)),
@@ -483,6 +546,12 @@ window.__ModuleLoader__.load({
           yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item',
             id: 'dsh-docker.trash', order: 700 }, TrashMenu)
         })
+        ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
+          name: 'sidebar.workspaces.session.row.action', id: 'dsh-docker.session-select', order: 300,
+        }, SessionCheckbox))
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay', id: 'dsh-docker.session-batch',
+        }, BatchToolbar))
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'dsh-docker.session-lifecycle',
         }, Dialog))
