@@ -42,7 +42,7 @@ test('healthy native launcher is distinct from unrelated pnpm-managed plugins', 
   try {
     const result = t.inspect()
     assert.equal(result.records.filter(r => r.state === 'error').length, 0)
-    assert.equal(result.enabled.length, 3)
+    assert.equal(result.enabled.length, 4)
     const search = result.records.find(r => r.code === 'dsh-docker-web-search')
     assert.equal(search.state, 'disabled')
     assert.ok(formatReport(result.records).includes('Overall: healthy'))
@@ -86,10 +86,10 @@ test('browser graph and plugin API must respond to authenticated GET checks', as
     if (resource === '/') return {
       status: 200, body: '__DSH_BOOT__ ' + enabled.map(p => p.id).join(' '), cookies: [],
     }
-    return { status: 200, body: '{"items":[]}', cookies: [] }
+    return { status: 200, body: '{"items":[],"jobs":[]}', cookies: [] }
   }
   const checks = await inspectWeb({ enabled, request, getToken: () => token })
-  assert.deepEqual(checks.map(r => r.state), ['ok', 'ok'])
+  assert.deepEqual(checks.map(r => r.state), ['ok', 'ok', 'ok'])
   assert.equal(events[0].cookie, undefined)
   assert.equal(events[1].cookie, 'dsh-session=abc123')
   assert.ok(!formatReport(checks).includes(token), 'login token must never be reported')

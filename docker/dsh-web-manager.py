@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Host-side executor for the image-bundled DSH management plugin."""
+import argparse
+import contextlib
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import time
+import uuid
+
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+JOB = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+ACTIONS = {
+    "check": [], "update": ["update"], "restart": ["restart"],
+    "recreate": ["recreate"], "rollback": ["rollback"], "cleanup": ["rollback", "clear"],
+    "proxy-start": ["proxy", "enable"], "proxy-stop": ["proxy", "disable"],
+    "proxy-restart": ["proxy", "reload"], "proxy-test": ["proxy", "test"],
+    "proxy-test-all": ["proxy", "test-all"], "proxy-refresh": ["proxy", "refresh"],
+}
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def redact(value):
+    text = re.sub(r"\x1b\[[0-9;]*m", "", str(value))
+    text = re.sub(r"(?i)([?&](?:token|key|api_key)=)[^\s&\"']+", r"\1[hidden]", text)
+    text = re.sub(r"(?i)\b(?:https?|socks5?|vless|trojan|hysteria2|ss)://[^\s\"']+",
+                  "[address hidden]", text)
+    return re.sub(r"\bsk-[A-Za-z0-9_-]{8,}", "[key hidden]", text)
+
+
+def read_json(path, limit=16384):
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "r", encoding="utf-8") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise ValueError("invalid task file")
+        return json.load(stream)
+
+
+def write_json(path, value):
+    tmp = path.with_name("." + path.name + "-" + uuid.uuid4().hex)
+    try:
+        with open(tmp, "x", encoding="utf-8") as stream:
+            os.chmod(tmp, 0o600)
+            json.dump(value, stream, ensure_ascii=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
+
+
+def command_for(action, arguments):
+    if not isinstance(arguments, dict):
+        raise ValueError("invalid arguments")
+    if action in ACTIONS and not arguments:
+        return list(ACTIONS[action])
+    if action == "proxy-use" and set(arguments) == {"name"} and isinstance(arguments["name"], str) and NAME.fullmatch(arguments["name"]):
+        return ["proxy", "use", arguments["name"]]
+    if action in ("proxy-add", "proxy-subscribe") and set(arguments) == {"name", "url"}:
+        name, url = arguments["name"], arguments["url"]
+        if not isinstance(name, str) or not NAME.fullmatch(name):
+            raise ValueError("invalid node name")
+        schemes = r"https?://" if action == "proxy-subscribe" else r"(?:https?|socks5?|vless|trojan|hysteria2|ss)://"
+        if not isinstance(url, str) or len(url) > 8192 or re.search(r"[\x00-\x20\x7f]", url) or not re.match(schemes, url):
+            raise ValueError("invalid proxy address")
+        return ["proxy", "subscribe" if action == "proxy-subscribe" else "add", name, url]
+    raise ValueError("unsupported operation")
+
+
+def remote_image_id(manifests, os_name, architecture, variant=""):
+    """Compare platform image config IDs, not an index digest with a config ID."""
+    for item in manifests if isinstance(manifests, list) else [manifests]:
+        platform = item.get("Descriptor", {}).get("platform", {})
+        if platform.get("os") != os_name or platform.get("architecture") != architecture:
+            continue
+        if variant and platform.get("variant", "") != variant:
+            continue
+        manifest = item.get("SchemaV2Manifest") or item.get("OCIManifest") or {}
+        digest = manifest.get("config", {}).get("digest")
+        if isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            return digest
+    raise ValueError("registry did not return this instance's platform manifest")
+
+
+class Manager:
+    def __init__(self, state, dshd, instance=""):
+        self.state, self.dshd = Path(state).resolve(), str(Path(dshd).resolve())
+        self.bridge = self.state / "web-management"
+        self.requests, self.results = self.bridge / "requests", self.bridge / "results"
+        self.private = self.state / "web-management-private"
+        for directory in (self.bridge, self.requests, self.results, self.private):
+            if directory.is_symlink():
+                raise ValueError("unsafe management directory")
+            directory.mkdir(mode=0o700, exist_ok=True)
+            os.chmod(directory, 0o700)
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith(("DSH", "DEEPSEEK_", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"))}
+        self.env.update(DSHD_STATE_DIR=str(self.state), DSHD_NO_SELF_UPDATE="1",
+                        DSHD_WEB_CONFIRMED="1", NO_COLOR="1")
+        if instance:
+            self.env["DSHD_INSTANCE_ID"] = instance
+        self.settings_path = self.private / "settings.json"
+        self.settings = {"checkInterval": 21600}
+        if self.settings_path.exists():
+            self.settings = self.validate_settings(read_json(self.settings_path))
+        self.release = None
+        self.next_check = 0
+        self.next_snapshot = 0
+
+    @staticmethod
+    def validate_settings(data):
+        if not isinstance(data, dict) or set(data) != {"checkInterval"}:
+            raise ValueError("invalid settings")
+        value = data["checkInterval"]
+        if type(value) is not int or value not in (0, 3600, 21600, 86400):
+            raise ValueError("invalid update interval")
+        return {"checkInterval": value}
+
+    def run(self, args, timeout=30, merge=False):
+        result = subprocess.run(args, env=self.env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merge else subprocess.PIPE,
+                                timeout=timeout, check=False)
+        if result.returncode:
+            raise RuntimeError(redact((result.stderr or result.stdout).decode("utf-8", "replace")[-2000:]) or "command failed")
+        return result.stdout.decode("utf-8", "replace")
+
+    def describe(self):
+        fields = self.run(["bash", self.dshd, "web", "describe"]).split("\0")
+        return dict(zip(fields[::2], fields[1::2]))
+
+    def inspect(self, name):
+        return json.loads(self.run(["docker", "inspect", name]))[0]
+
+    def snapshot(self):
+        description = self.describe()
+        snapshot = {"schema": 1, "heartbeat": now(), "instance": description,
+                    "settings": self.settings, "release": self.release, "container": None,
+                    "proxy": {"nodes": [], "running": False}, "logs": ""}
+        try:
+            container = self.inspect(description["name"])
+            image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
+            labels = image.get("Config", {}).get("Labels") or {}
+            snapshot["container"] = {
+                "state": container["State"]["Status"],
+                "health": container["State"].get("Health", {}).get("Status", "none"),
+                "imageId": container["Image"],
+                "version": labels.get("org.opencontainers.image.version", ""),
+            }
+            output = self.run(["docker", "logs", "--tail", "80", description["name"]], merge=True)
+            snapshot["logs"] = redact(output)[-24000:]
+        except Exception as error:
+            snapshot["containerError"] = redact(error)
+        try:
+            proxy = self.inspect(description["name"] + "-proxy")
+            snapshot["proxy"]["running"] = bool(proxy["State"]["Running"])
+        except Exception:
+            pass
+        nodes = self.state / "proxy" / "nodes"
+        if nodes.is_dir():
+            snapshot["proxy"]["nodes"] = sorted(p.stem for p in nodes.glob("*.json")
+                                                    if NAME.fullmatch(p.stem) and not p.is_symlink())
+        write_json(self.results / "status.json", snapshot)
+        self.next_snapshot = time.monotonic() + 10
+
+    def check(self):
+        self.next_check = time.monotonic() + (self.settings["checkInterval"] or 21600)
+        try:
+            description = self.describe()
+            container = self.inspect(description["name"])
+            image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
+            manifests = json.loads(self.run(["docker", "manifest", "inspect", "--verbose",
+                                             description["image"]], timeout=120))
+            remote = remote_image_id(manifests, image["Os"], image["Architecture"], image.get("Variant", ""))
+            self.release = {"checkedAt": now(), "available": remote != container["Image"],
+                            "current": container["Image"], "latest": remote}
+        except Exception as error:
+            self.release = {"checkedAt": now(), "available": None, "error": redact(error)}
+        write_json(self.private / "release.json", self.release)
+        if self.release.get("error"):
+            raise RuntimeError(self.release["error"])
+
+    def execute(self, job, arguments):
+        action = job["action"]
+        if action == "settings":
+            self.settings = self.validate_settings(arguments)
+            write_json(self.settings_path, self.settings)
+            self.next_check = time.monotonic() + self.settings["checkInterval"]
+            return
+        command = command_for(action, arguments)
+        if action == "check":
+            self.check()
+            return
+        # No shell interpolation or arbitrary executable supplied by the Web.
+        process = subprocess.Popen(["bash", self.dshd, *command], env=self.env,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        output = b""
+        job["pid"] = process.pid
+        self.save_job(job)
+        try:
+            import selectors
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+            deadline = time.monotonic() + 3600
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("operation exceeded one hour")
+                events = selector.select(timeout=1)
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 4096)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                    else:
+                        output = (output + chunk)[-32768:]
+                        job["log"] = redact(output.decode("utf-8", "replace"))[-16000:]
+                        self.save_job(job)
+                if process.poll() is not None and not selector.get_map():
+                    break
+                if time.monotonic() >= self.next_snapshot:
+                    self.snapshot()
+            if process.returncode:
+                raise RuntimeError("operation failed (exit %s); inspect the task log" % process.returncode)
+        except BaseException:
+            import signal
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            raise
+        finally:
+            selector.close()
+            process.stdout.close()
+        if action in ("update", "rollback"):
+            # Refresh comparison after replacement; a registry outage is not an upgrade failure.
+            self.release = None
+            self.next_check = 0
+
+    def save_job(self, job):
+        job["updatedAt"] = now()
+        write_json(self.results / (job["id"] + ".json"), job)
+
+    def process(self, path):
+        identifier = path.stem
+        if not JOB.fullmatch(identifier):
+            return
+        if (self.results / (identifier + ".json")).exists():
+            path.unlink(missing_ok=True)
+            return
+        job = {"id": identifier, "action": "invalid", "state": "running", "startedAt": now(), "log": ""}
+        try:
+            request = read_json(path)
+            if not isinstance(request, dict) or set(request) != {"id", "action", "arguments", "createdAt"} or request["id"] != identifier:
+                raise ValueError("invalid task")
+            if not isinstance(request["action"], str):
+                raise ValueError("invalid operation")
+            created = datetime.datetime.fromisoformat(request["createdAt"].replace("Z", "+00:00"))
+            age = (datetime.datetime.now(datetime.timezone.utc) - created).total_seconds()
+            if age < -60 or age > 600:
+                raise ValueError("task expired; inspect the instance and submit again")
+            job["action"] = request["action"]
+            arguments = request["arguments"]
+            if job["action"] == "settings":
+                self.validate_settings(arguments)
+            else:
+                command_for(job["action"], arguments)
+            self.save_job(job)
+            # Credentials from imports never enter public task history.
+            path.unlink()
+            self.execute(job, arguments)
+            job["state"] = "succeeded"
+        except Exception as error:
+            job["state"], job["error"] = "failed", redact(error)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+            job["finishedAt"] = now()
+            self.save_job(job)
+            self.snapshot()
+
+    def recover(self):
+        # An interrupted mutation must never be replayed automatically.
+        for path in self.results.glob("*.json"):
+            if not JOB.fullmatch(path.stem):
+                continue
+            job = read_json(path, 262144)
+            if job.get("state") == "running":
+                job.update(state="interrupted", finishedAt=now(),
+                           error="Host executor restarted; inspect the instance before retrying.")
+                self.save_job(job)
+        if (self.private / "release.json").exists():
+            self.release = read_json(self.private / "release.json")
+
+    def tick(self):
+        self.snapshot()
+        pending = sorted(self.requests.glob("*.json"), key=lambda p: p.name)
+        for path in pending[:32]:
+            self.process(path)
+        if self.settings["checkInterval"] and time.monotonic() >= self.next_check:
+            with contextlib.suppress(Exception):
+                self.check()
+            self.snapshot()
+        # Keep bounded public history. Only the host can modify results.
+        history = sorted((p for p in self.results.glob("*.json") if JOB.fullmatch(p.stem)),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+        for path in history[50:]:
+            path.unlink()
+
+
+def main():
+    import fcntl
+    import signal
+    def terminate(signum, _frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminate)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--dshd", required=True)
+    parser.add_argument("--instance", default="")
+    args = parser.parse_args()
+    manager = Manager(args.state_dir, args.dshd, args.instance)
+    with open(manager.private / "executor.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        manager.recover()
+        while True:
+            try:
+                manager.tick()
+            except Exception as error:
+                print(redact(error), flush=True)
+            time.sleep(3)
+
+
+if __name__ == "__main__":
+    main()

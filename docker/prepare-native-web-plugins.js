@@ -10,6 +10,7 @@ const path = require('node:path')
 const BUILT_INS = new Set([
   'dsh-docker-reasoning-editor',
   'dsh-docker-icon-dock',
+  'dsh-docker-instance-manager',
   'dsh-docker-session-manager',
   'dsh-docker-web-search',
 ])

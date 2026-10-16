@@ -99,6 +99,19 @@ async function run() {
       'native text panel navigation was not replaced by icon dock')
   }
 
+  await page.evaluate(() => {
+    const entry = window.__dshDockerIconDockV1.getAll().find(item => item.id === 'dsh-docker.instance-manager')
+    if (!entry) throw Error('instance manager shortcut missing')
+    entry.onClick()
+  })
+  const manager = page.getByRole('dialog', { name: '实例管理' })
+  await manager.waitFor({ state: 'visible', timeout })
+  await manager.getByText(/此实例尚未启用 Web 管理/).waitFor({ timeout })
+  await manager.getByRole('tab', { name: '任务记录' }).click()
+  await manager.getByText(/暂无管理任务/).waitFor({ timeout })
+  await page.keyboard.press('Escape')
+  await manager.waitFor({ state: 'detached', timeout })
+
   // Inject trusted test-only shortcuts through the public registration API.
   // No production plugin or persistent session is changed.
   await page.evaluate(() => {

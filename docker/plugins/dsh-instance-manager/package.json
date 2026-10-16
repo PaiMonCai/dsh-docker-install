@@ -1,0 +1,19 @@
+{
+  "name": "dsh-docker-instance-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Native DSH Web operations backed by the host dshd executor",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  },
+  "engines": { "node": ">=24" },
+  "license": "MIT"
+}

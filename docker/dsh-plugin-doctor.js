@@ -10,6 +10,8 @@ const http = require('node:http')
 
 const PLUGINS = [
   { dir: 'dsh-icon-dock', id: 'dsh-docker-icon-dock', label: 'Icon Dock', required: true },
+  { dir: 'dsh-instance-manager', id: 'dsh-docker-instance-manager',
+    label: 'Instance Manager', required: true, api: '/api/dsh-docker-instance-manager', apiList: 'jobs' },
   { dir: 'dsh-session-manager-web', id: 'dsh-docker-session-manager',
     label: 'Session Manager', required: true, api: '/api/dsh-docker-session-manager' },
   { dir: 'dsh-reasoning-editor', id: 'dsh-docker-reasoning-editor',
@@ -165,7 +167,7 @@ async function inspectWeb({ enabled, request, getToken }) {
       const response = await request(plugin.api, cookie)
       if (response.status !== 200) throw Error('unexpected response')
       const parsed = JSON.parse(response.body)
-      if (!Array.isArray(parsed.items)) throw Error('invalid response')
+      if (!Array.isArray(parsed[plugin.apiList || 'items'])) throw Error('invalid response')
       records.push(row('api:' + plugin.id, 'ok', 'authenticated plugin API reachable'))
     } catch {
       records.push(row('api:' + plugin.id, 'error', 'authenticated plugin API unavailable'))

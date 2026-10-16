@@ -2,6 +2,9 @@
 
 本文说明 DSH Docker 运行时边界、开发环境、Docker Socket、浏览器、网络镜像、其他运行模式和环境变量。
 
+日常更新、重启和 sing-box 操作也可通过内置 [Web 实例管理](web-management.md)
+完成；宿主机执行器无需独立容器，CLI 仍可用于故障恢复。
+
 > 返回项目首页：[README](../README.md)
 
 ## 关键设计

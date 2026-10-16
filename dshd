@@ -3,7 +3,8 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.11.1"
+DSHD_VERSION="0.12.0"
+WEB_WORKER_SHA256="f5bde1b58daba0dbb905c7e67fa8ac7f90b53e0651cc14931d4066621ba78183"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -158,6 +159,7 @@ menu_read() {
 confirm() {
   local prompt="${1:-确认继续？}" default="${2:-N}" ans
   if ! is_tty; then
+    [[ "${DSHD_WEB_CONFIRMED:-0}" == 1 ]] && return 0
     [[ "$default" =~ ^[Yy]$ ]]
     return
   fi
@@ -341,7 +343,7 @@ validate_custom_mount() {
       ;;
   esac
   case "$target" in
-    /|/root|/root/.dsh|/root/.dsh/*|/workspace|/workspace/*|/var/run/docker.sock|/var/run/docker.sock/*)
+    /|/root|/root/.dsh|/root/.dsh/*|/workspace|/workspace/*|/var/run/docker.sock|/var/run/docker.sock/*|/run|/run/dsh-management|/run/dsh-management/*)
       MOUNT_VALIDATION_ERROR="该容器路径由 dshd 管理或风险过高，不能作为自定义挂载目标: $target"
       return 1
       ;;
@@ -2780,6 +2782,13 @@ create_container() {
     -w "/workspace"
   )
 
+  if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
+    args+=(
+      --mount "type=bind,src=$STATE_DIR/web-management/requests,dst=/run/dsh-management/requests"
+      --mount "type=bind,src=$STATE_DIR/web-management/results,dst=/run/dsh-management/results,readonly"
+    )
+  fi
+
   args+=(
     -e "DSH_SEARCH_ENABLED=$DSH_SEARCH_ENABLED"
     -e "DSH_SEARCH_SEARXNG_URL=http://127.0.0.1:18788"
@@ -3489,11 +3498,132 @@ install_self() {
   [[ "$source" == "$target" ]] && return 0
   if [[ -r "$source" ]]; then
     info "安装管理命令到 $target ..."
-    as_root install -m 0755 "$source" "$target"
+    as_root install -m 0755 "$source" "$target" || return 1
     ok "以后直接输入 dshd 即可进入管理菜单"
   else
     warn "无法读取当前脚本，跳过安装 dshd 命令。"
   fi
+}
+
+web_service_name() {
+  local key
+  key="$(printf '%s' "$STATE_DIR" | sha256sum)"
+  printf 'dshd-web-%s.service' "${key:0:12}"
+}
+
+web_systemd_quote() {
+  local value="$1"
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || return 1
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//%/%%}"
+  printf '"%s"' "$value"
+}
+
+web_prepare() {
+  local mode="${1:-explicit}" source tmp service unit python script
+  if [[ "$mode" == auto ]]; then
+    [[ "${DSHD_LIB_ONLY:-0}" != 1 ]] || return 0
+    [[ "${DSHD_WEB_MANAGEMENT:-auto}" != off ]] || return 0
+    [[ ! -f "$STATE_DIR/web-management.disabled" ]] || return 0
+    [[ ! -f "$STATE_DIR/web-management.enabled" ]] || return 0
+  fi
+  [[ "$STATE_DIR" == /* ]] || { err "Web 后台的状态目录必须是绝对路径。"; return 1; }
+  if [[ ${EUID:-$(id -u)} -ne 0 ]] || ! command -v python3 >/dev/null 2>&1 ||
+    ! command -v systemctl >/dev/null 2>&1 || [[ ! -d /run/systemd/system ]]; then
+    [[ "$mode" == auto ]] && return 0
+    err "Web 后台需要 root、Python 3 和运行中的 systemd；现有 CLI 仍可使用。"
+    return 1
+  fi
+  command -v flock >/dev/null 2>&1 || { err "Web 后台需要 util-linux 的 flock。"; return 1; }
+  python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' ||
+    { err "Web 后台需要 Python 3.8 或更新版本。"; return 1; }
+  ensure_state_dir
+  tmp="$(mktemp)" || return 1
+  source="$(dirname "${BASH_SOURCE[0]}")/docker/dsh-web-manager.py"
+  if [[ -f "$source" ]] && [[ "$(sha256sum "$source" | cut -d' ' -f1)" == "$WEB_WORKER_SHA256" ]]; then
+    cp "$source" "$tmp"
+  elif container_exists && docker_cmd cp "$DSH_NAME:/opt/dsh/host/web-manager.py" "$tmp" >/dev/null 2>&1 &&
+    [[ "$(sha256sum "$tmp" | cut -d' ' -f1)" == "$WEB_WORKER_SHA256" ]]; then
+    :
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 8 --max-time 30 "$RAW_BASE/docker/dsh-web-manager.py" >"$tmp" || true
+  fi
+  if [[ "$(sha256sum "$tmp" | cut -d' ' -f1)" != "$WEB_WORKER_SHA256" ]]; then
+    rm -f "$tmp"
+    err "Web 后台文件与当前 dshd 不匹配，未安装；请更新 dshd 和镜像后重试。"
+    return 1
+  fi
+  install_self || { rm -f "$tmp"; return 1; }
+  install -m 0700 "$tmp" "$STATE_DIR/web-manager.py" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+  mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+  chmod 700 "$STATE_DIR/web-management" "$STATE_DIR/web-management/requests" \
+    "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+  python="$(command -v python3)"
+  script="/usr/local/bin/dshd"
+  service="$(web_service_name)"
+  unit="/etc/systemd/system/$service"
+  {
+    printf '[Unit]\nDescription=DSH Web instance executor\nAfter=docker.service\n\n[Service]\nType=simple\nUMask=0077\n'
+    printf 'ExecStart=%s %s --state-dir %s --dshd %s --instance %s\n' \
+      "$(web_systemd_quote "$python")" "$(web_systemd_quote "$STATE_DIR/web-manager.py")" \
+      "$(web_systemd_quote "$STATE_DIR")" "$(web_systemd_quote "$script")" \
+      "$(web_systemd_quote "${DSHD_INSTANCE_ID:-}")"
+    printf 'Restart=on-failure\nRestartSec=5\nTimeoutStopSec=20\nKillMode=control-group\nNoNewPrivileges=true\n\n[Install]\nWantedBy=multi-user.target\n'
+  } >"$unit" || return 1
+  chmod 644 "$unit" || return 1
+  systemctl daemon-reload || return 1
+  systemctl enable --now "$service" || return 1
+  if [[ "$mode" != auto ]]; then systemctl restart "$service" || return 1; fi
+  rm -f "$STATE_DIR/web-management.disabled"
+  touch "$STATE_DIR/web-management.enabled"
+}
+
+cmd_web() {
+  local action="${1:-status}" service
+  load_config
+  if [[ "$action" == enable || "$action" == disable ]]; then
+    ensure_state_dir
+    exec 9>"$STATE_DIR/operation.lock"
+    flock -n 9 || die "当前实例已有操作正在执行，请稍后重试。"
+  fi
+  case "$action" in
+    describe)
+      # Private host IPC: only nonsecret instance metadata is returned.
+      printf 'id\0%s\0name\0%s\0image\0%s\0edition\0%s\0proxyEnabled\0%s\0proxyNode\0%s\0' \
+        "${DSHD_INSTANCE_ID:-default}" "$DSH_NAME" "$DSH_IMAGE" "$DSH_EDITION" "$DSH_PROXY_ENABLED" "$DSH_PROXY_NODE"
+      ;;
+    status)
+      if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
+        service="$(web_service_name)"
+        info "Web 管理已配置：$service"
+        systemctl is-active "$service"
+      else
+        info "Web 管理后台未启用；使用 dshd web enable 启用。"
+      fi
+      ;;
+    enable)
+      web_prepare explicit || return 1
+      ensure_docker
+      DSHD_SAFE_UPGRADE=1 create_container || return 1
+      save_config || return 1
+      finish_safe_upgrade
+      ok "Web 管理已启用，请打开 DSH 的“实例管理”。"
+      ;;
+    disable)
+      service="$(web_service_name)"
+      systemctl disable --now "$service" || return 1
+      rm -f "$STATE_DIR/web-management.enabled"
+      touch "$STATE_DIR/web-management.disabled"
+      ensure_docker
+      DSHD_SAFE_UPGRADE=1 create_container || return 1
+      save_config || return 1
+      finish_safe_upgrade
+      ok "Web 后台已关闭；CLI 仍可直接使用。"
+      ;;
+    *) die "用法: dshd web enable|disable|status" ;;
+  esac
 }
 
 cmd_install() {
@@ -3537,6 +3667,7 @@ cmd_install() {
     return 1
   fi
   save_config
+  web_prepare auto || warn "Web 管理后台未启用；安装完成后可执行 dshd web enable。"
   create_container
   ok "安装完成。输入 dshd 即可进入运维菜单。"
 }
@@ -3820,7 +3951,15 @@ cmd_stop() {
 }
 cmd_restart() {
   load_config; ensure_docker
-  if container_exists; then docker_cmd restart "$DSH_NAME" >/dev/null; ok "$DSH_NAME 已重启"; else cmd_start; fi
+  if container_exists; then
+    docker_cmd restart "$DSH_NAME" >/dev/null || return 1
+    if [[ "${DSHD_WEB_CONFIRMED:-0}" == 1 ]]; then
+      wait_upgrade_healthy || { err "容器已重启，但未通过健康检查。"; return 1; }
+    fi
+    ok "$DSH_NAME 已重启"
+  else
+    cmd_start
+  fi
 }
 cmd_logs() {
   load_config; ensure_docker
@@ -3906,6 +4045,7 @@ cmd_update() {
   ensure_rollback_slot_free || return 1
   heading "更新 dsh 镜像"
   pull_best_image || return 1
+  web_prepare auto || warn "Web 管理后台未启用；可稍后执行 dshd web enable。"
   DSHD_SAFE_UPGRADE=1 create_container || return 1
   save_config || return 1
   finish_safe_upgrade
@@ -5373,6 +5513,13 @@ cmd_uninstall() {
   fi
   if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
   if ! container_exists; then
+    if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
+      local web_service
+      web_service="$(web_service_name)"
+      systemctl disable --now "$web_service" || return 1
+      rm -f "/etc/systemd/system/$web_service" "$STATE_DIR/web-management.enabled"
+      systemctl daemon-reload || return 1
+    fi
     search_remove_sidecar
     search_remove_network
     proxy_remove_sidecar
@@ -5425,6 +5572,9 @@ dshd - DeepSeek Harness Docker 管理器
 用法:
   dshd                     打开交互式运维菜单
   dshd install             首次交互安装
+  dshd web enable          启用内置 Web 运维（宿主机 systemd 后台，无额外容器）
+  dshd web status          查看 Web 管理后台状态
+  dshd web disable         关闭 Web 管理后台，保留 CLI
   dshd instances           列出所有独立实例（含原默认实例与旧 Reverse）
   dshd instance add ID [standard|research|research-economics|reverse]  新增独立实例
   dshd -i ID status         查看指定实例状态（同样支持 update/backup/logs/menu 等）
@@ -6007,8 +6157,18 @@ main() {
 
   # 除 help/version 这类纯本地命令外，每次调用都先检查脚本自身是否有新版本。
   case "$cmd" in
-    help|-h|--help|version|-v|--version) ;;
+    help|-h|--help|version|-v|--version|web) ;;
     *) self_update auto "$@" ;;
+  esac
+
+  case "$cmd" in
+    install|start|stop|restart|update|upgrade|rollback|recreate|config|edition|research-pack|pack|api|provider|hosts|trusted-hosts|admin-hosts|whale-admin-hosts|docker|docker-access|proxy|egress|sing-box|singbox|search|web-search|storage|data-storage|mounts|mount|persistent-mounts|dashboard|research-dashboard|env|environment|token|url|backup|restore|uninstall|remove)
+      if command -v flock >/dev/null 2>&1; then
+        ensure_state_dir
+        exec 9>"$STATE_DIR/operation.lock"
+        flock -n 9 || die "当前实例已有操作正在执行，请稍后重试。"
+      fi
+      ;;
   esac
 
   case "$cmd" in
@@ -6054,6 +6214,7 @@ main() {
         return 2
       fi
       ;;
+    web) shift; cmd_web "${1:-status}" ;;
     self-update|selfupdate) cmd_self_update ;;
     uninstall|remove) cmd_uninstall ;;
     version|-v|--version) printf 'dshd %s\n' "$DSHD_VERSION" ;;
