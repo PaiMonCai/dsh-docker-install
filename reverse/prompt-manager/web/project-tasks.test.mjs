@@ -84,3 +84,12 @@ test('case-linked Web tasks are written by the same CLI and checked against targ
  assert.equal(stored.state,'queued')
  assert.equal(projectLinks(p.id).entries.find(x=>x.kind==='case').valid,true)
 })
+
+test('RPC allowlist exposes existing recovery and orphan inspection operations',async()=>{
+ const {command}=await import('./index.mjs')
+ const inventory=command('workbenchOrphanTasks')
+ assert.ok(Array.isArray(inventory.orphan))
+ const result=command('workbenchProjectTasksRecover',{id:p.id})
+ assert.ok(Array.isArray(result.recovered))
+ assert.ok(Array.isArray(result.skipped))
+})

@@ -48,7 +48,10 @@ def safe_path(value):
     source = Path(value).expanduser()
     if source.is_symlink():
         raise ValueError("symlinks are not allowed")
-    path = source.resolve(strict=True)
+    try:
+        path = source.resolve(strict=True)
+    except FileNotFoundError:
+        raise ValueError("task input no longer exists") from None
     if not path.is_relative_to(ROOT) or not path.is_file() and not path.is_dir():
         raise ValueError("task input must be a workspace file or directory")
     return str(path)

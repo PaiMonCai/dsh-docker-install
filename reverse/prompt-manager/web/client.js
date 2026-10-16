@@ -230,6 +230,7 @@ window.__ModuleLoader__.load({
       const [taskInputs,setTaskInputs]=useState('')
       const [runConfirm,setRunConfirm]=useState('')
       const [taskCaseId,setTaskCaseId]=useState('')
+      const [activeSection,setActiveSection]=useState('project')
       const [orphanStatus,setOrphanStatus]=useState(null)
       const [jobs,setJobs]=useState([])
       const [cases,setCases]=useState([])
@@ -265,7 +266,16 @@ window.__ModuleLoader__.load({
       useEffect(()=>{invoke('workbenchKnowledgeSearch',{query:'',platform:'all'}).then(setKnowledgeResults)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       return h('div',{style:css.shell},
-        h(Section,{title:'分析项目'},
+        h('nav',{style:{...css.line,gap:6},'aria-label':'逆向工作台导航'},
+          ...[['project','项目与任务'],['cases','案件关系'],['knowledge','经验检索'],['reports','证据与报告']]
+          .map(([value,label])=>h('button',{
+            key:value,type:'button','aria-current':activeSection===value?'page':undefined,
+            onClick:()=>setActiveSection(value),
+            style:{...css.button,borderRadius:8,fontWeight:activeSection===value?700:400,
+              background:activeSection===value?'var(--dsw-alias-bg-module-platform)':'transparent',
+              borderColor:activeSection===value?'var(--dsw-alias-label-tertiary)':'var(--dsw-alias-border-l2)'}
+          },label))),
+        activeSection==='project'&&h(Section,{title:'分析项目'},
           h('p',{style:css.muted},'项目元数据持久保存于 Reverse 工作区；样本与报告目前仍按工作区路径管理。'),
           h('div',{style:css.line},
             h(Field,{value:projectName,onChange:setProjectName,placeholder:'新项目名称'}),
@@ -346,6 +356,7 @@ window.__ModuleLoader__.load({
                 })},'执行队首任务'):null,
               entry.kind==='case'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
                 setActiveCase(await invoke('workbenchCase',{id:entry.ref}))
+                setActiveSection('cases')
               })},'查看案件'):null,
               entry.kind==='evidence'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
                 setReportPath(entry.ref)
@@ -353,7 +364,7 @@ window.__ModuleLoader__.load({
               })},'查看证据'):null))
           ):null
         ),
-        h(Section,{title:'逆向经验检索 · 只读'},
+        activeSection==='knowledge'&&h(Section,{title:'逆向经验检索 · 只读'},
           h('p',{style:css.muted},'内置条目只提供排查方向；个案经验也不是已独立验证的通用结论。'),
           h('div',{style:css.line},
             h(Field,{value:knowledgeQuery,onChange:setKnowledgeQuery,placeholder:'搜索症状或原因'}),
@@ -385,7 +396,7 @@ window.__ModuleLoader__.load({
             h('p',{style:css.muted},'局限：'+knowledgeItem.limitations),
             knowledgeItem.case_id?h('code',null,'来源案件：'+knowledgeItem.case_id):null):null
         ),
-        h(Section,{title:'逆向案件关系 · 只读'},
+        activeSection==='cases'&&h(Section,{title:'逆向案件关系 · 只读'},
           h('div',{style:css.line},
             h('p',{style:css.muted},'案件 '+cases.length+' 个 · Gate / 假设 / 实验 / 证据引用'),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
@@ -404,7 +415,7 @@ window.__ModuleLoader__.load({
               h('code',null,activeCase.id.slice(0,8)+' · rev '+activeCase.revision)),
             h(CaseGraph,{data:activeCase})
           ):null),
-        h(Section,{title:'逆向分析工作台 · 只读'},
+        activeSection==='reports'&&h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
           h('div',{style:css.line},
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
