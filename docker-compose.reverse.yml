@@ -20,6 +20,7 @@ services:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DSH_TRUSTED_HOSTS: "${DSH_REVERSE_TRUSTED_HOSTS:-}"
       DSH_REVERSE_AGENT_PATCH: /opt/dsh-reverse/cordis.patch.yml
+      DSH_BILI_UI_BRIDGE: "${DSH_BILI_UI_BRIDGE:-true}"
       # Match Standard's image-owned Web extension switches; Reverse keeps an
       # isolated DSH_HOME, so Standard's profile preferences do not carry over.
       DSH_REASONING_EDITOR: "${DSH_REASONING_EDITOR:-true}"
