@@ -63,7 +63,7 @@ def task_path(task_id):
 
 def read_task(task_id):
     path = task_path(task_id)
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 30000:
+    if STORE.is_symlink() or path.is_symlink() or not path.is_file() or path.stat().st_size > 30000:
         raise ValueError("task not found or unsafe")
     data = json.loads(path.read_text("utf-8"))
     if data.get("schema") != "dsh-reverse-task/v1" or data.get("id") != task_id:
@@ -101,7 +101,9 @@ def case_reference(case_id, kind, inputs):
     return case_id
 
 
-def enqueue(kind, inputs, case_id=None):
+def enqueue(kind, inputs, case_id=None, stage=False):
+    if STORE.is_symlink():
+        raise ValueError("unsafe task store")
     if kind not in TOOLS:
         raise ValueError("unsupported task kind")
     tool, timeout, low, high = TOOLS[kind]
@@ -113,13 +115,43 @@ def enqueue(kind, inputs, case_id=None):
         raise ValueError("task queue has reached capacity")
     task_id = str(uuid.uuid4())
     record = {"schema": "dsh-reverse-task/v1", "id": task_id, "kind": kind,
-              "inputs": arguments, "state": "queued", "attempts": 0,
+              "inputs": arguments, "state": "staging" if stage else "queued", "attempts": 0,
               "created_at": timestamp(), "updated_at": timestamp(),
               "result": None, "last_error": None}
     if bound_case:
         record["case_id"] = bound_case
     atomic(task_path(task_id), record)
     return record
+
+
+def publish(task_id):
+    """Commit an explicitly linked staging task to the global execution queue."""
+    task = read_task(task_id)
+    if task["state"] != "staging":
+        raise ValueError("only staged tasks can be published")
+    if task.get("kind") not in TOOLS:
+        raise ValueError("unsupported staged task kind")
+    _, _, minimum, maximum = TOOLS[task["kind"]]
+    inputs = task.get("inputs")
+    if not isinstance(inputs, list) or not minimum <= len(inputs) <= maximum:
+        raise ValueError("invalid staged task inputs")
+    paths = [safe_path(value) for value in inputs]
+    if task.get("case_id"):
+        case_reference(task["case_id"], task["kind"], paths)
+    task["state"] = "queued"
+    task["updated_at"] = timestamp()
+    atomic(task_path(task_id), task)
+    return task
+
+
+def discard(task_id):
+    """Explicitly abandon a staged, non-executable task whose project link failed."""
+    task = read_task(task_id)
+    if task["state"] != "staging":
+        raise ValueError("only staged tasks can be discarded")
+    task_path(task_id).unlink()
+    return {"id": task_id, "discarded": True}
+
 
 def invocation(task):
     kind, files = task["kind"], task["inputs"]
@@ -239,7 +271,8 @@ def main():
     q.add_argument("kind", choices=sorted(TOOLS))
     q.add_argument("inputs", nargs="+")
     q.add_argument("--case-id", help="Associate task with a persisted Reverse case (metadata only)")
-    for name in ("show", "retry"):
+    q.add_argument("--stage", action="store_true", help="Stage without queueing; requires explicit publish")
+    for name in ("show", "retry", "publish", "discard"):
         s = sub.add_parser(name)
         s.add_argument("id")
     sub.add_parser("list")
@@ -249,11 +282,15 @@ def main():
     args = p.parse_args()
     try:
         if args.mode == "enqueue":
-            result = enqueue(args.kind, args.inputs, args.case_id)
+            result = enqueue(args.kind, args.inputs, args.case_id, args.stage)
         elif args.mode == "show":
             result = read_task(args.id)
         elif args.mode == "retry":
             result = retry(args.id)
+        elif args.mode == "publish":
+            result = publish(args.id)
+        elif args.mode == "discard":
+            result = discard(args.id)
         elif args.mode == "list":
             result = [read_task(x.stem) for x in all_tasks()]
         elif args.mode == "recover":

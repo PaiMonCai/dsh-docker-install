@@ -2,9 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync,writeFileSync,mkdirSync,readFileSync,rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 const home=mkdtempSync(join(tmpdir(),'reverse-project-queue-'))
 process.env.DSH_REVERSE_WORKSPACE_ROOT=home
+process.env.DSH_REVERSE_TASK_CLI=fileURLToPath(new URL('../../bin/reverse-task',import.meta.url))
 const {createProject}=await import('./projects.mjs')
 const {createProjectTask,reconcileProjectResults,recoverProjectTasks,inspectOrphanTasks}=await import('./project-tasks.mjs')
 const {projectLinks}=await import('./project-links.mjs')
@@ -64,3 +66,21 @@ test('orphan staging tasks are only inventoried; recovery is audited',()=>{
  assert.ok(logs.some(line=>JSON.parse(line).recovered.includes(existing.id)))
 })
 test.after(()=>rmSync(home,{force:true,recursive:true}))
+
+test('case-linked Web tasks are written by the same CLI and checked against target',async()=>{
+ const caseId='e7118029-70b9-4aa0-a774-733b98c72f21'
+ mkdirSync(join(home,'.reverse-cases'),{recursive:true})
+ writeFileSync(join(home,'.reverse-cases',caseId+'.json'),JSON.stringify({
+   schema:'dsh-reverse-case/v1',id:caseId,revision:1,goal:'inspect',
+   target:{path:'sample.bin',sha256:'abc'},gates:{},evidence:[],
+   hypotheses:[],experiments:[],tasks:[]
+ }))
+ assert.throws(()=>createProjectTask(p.id,'triage',['sample.bin'],caseId),/linked/)
+ const {attachProjectItem}=await import('./project-links.mjs')
+ attachProjectItem(p.id,'case',caseId)
+ const created=createProjectTask(p.id,'triage',['sample.bin'],caseId)
+ const stored=JSON.parse(readFileSync(join(home,'.reverse-tasks',created.id+'.json'),'utf8'))
+ assert.equal(stored.case_id,caseId)
+ assert.equal(stored.state,'queued')
+ assert.equal(projectLinks(p.id).entries.find(x=>x.kind==='case').valid,true)
+})

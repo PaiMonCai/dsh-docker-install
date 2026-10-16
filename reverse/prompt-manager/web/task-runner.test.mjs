@@ -2,9 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdtempSync,rmSync,writeFileSync,mkdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
+import {fileURLToPath} from 'node:url'
 import {join} from 'node:path'
 const root=mkdtempSync(join(tmpdir(),'reverse-run-'))
 process.env.DSH_REVERSE_WORKSPACE_ROOT=root
+process.env.DSH_REVERSE_TASK_CLI=fileURLToPath(new URL('../../bin/reverse-task',import.meta.url))
 const {createProject}=await import('./projects.mjs')
 const {createProjectTask}=await import('./project-tasks.mjs')
 const {runProjectTask}=await import('./task-runner.mjs')
