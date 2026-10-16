@@ -9,3 +9,6 @@ description: Assemble verifiable reverse engineering findings with artifact hash
 4. Separate observed facts, hypotheses and unsupported claims. Include warnings, tool versions, input SHA-256 and explicit static/dynamic limitations.
 5. Keep source files unmodified. Outputs go to /workspace/reverse-analysis; avoid including passwords or private data.
 6. Do not claim complete behavioral reconstruction without a separate, authorized dynamic verification step.
+
+7. For investigations using the Phase 2 ledger, verify `reverse-case verify <case-id>` and report which gates are actually passed; the case's assertions and task exit codes are not independent proof of behavior.
+8. Preserve refuted hypotheses, competing explanations and experiments in the persisted record, and cite only integrity-verified evidence artifacts. Do not treat a missing probe result as target absence.

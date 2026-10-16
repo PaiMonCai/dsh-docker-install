@@ -125,3 +125,58 @@ export function manifest(path) {
   return { schema:'dsh-reverse-workspace-navigation/v1',
     total:records.length, verified:records.filter(x=>x.verified).length, reports:records }
 }
+
+
+/** Read-only case metadata; no arbitrary command outputs, observations or secrets. */
+const CASES=join(ROOT,'.reverse-cases')
+const MAX_CASE=256*1024
+export function cases(){
+  if(!existsSync(CASES))return []
+  if(lstatSync(CASES).isSymbolicLink()||!lstatSync(CASES).isDirectory())
+    throw Error('unsafe cases directory')
+  const list=[]
+  for(const entry of readdirSync(CASES).filter(x=>x.endsWith('.json')&&UUID.test(x.slice(0,-5))).slice(0,300)){
+    try{
+      const item=caseRecord(entry.slice(0,-5))
+      list.push({id:item.id,goal:String(item.goal).slice(0,200),
+        updated_at:item.updated_at,revision:item.revision,
+        evidence_count:item.evidence.length,hypothesis_count:item.hypotheses.length})
+    }catch{/* invalid cases cannot pollute the UI */}
+  }
+  return list.sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at))).slice(0,100)
+}
+function caseRecord(id){
+  if(typeof id!=='string'||!UUID.test(id))throw Error('invalid case id')
+  const item=parseFile(workspaceFile('.reverse-cases/'+id+'.json',MAX_CASE))
+  if(item.schema!=='dsh-reverse-case/v1'||item.id!==id ||
+     !Array.isArray(item.evidence)||!Array.isArray(item.hypotheses)||
+     !Array.isArray(item.experiments)||!Array.isArray(item.tasks))
+    throw Error('invalid case record')
+  return item
+}
+export function caseDetail(id){
+  const item=caseRecord(id)
+  const gates={}
+  for(const name of ['G1','G2','G3','G4'])
+    gates[name]=['pending','passed','blocked'].includes(item.gates?.[name]?.state)
+      ? item.gates[name].state:'unknown'
+  return {schema:item.schema,id:item.id,revision:item.revision,
+    goal:String(item.goal).slice(0,300),deliverable:String(item.deliverable).slice(0,200),
+    updated_at:item.updated_at,gates,
+    evidence:item.evidence.slice(0,100).map(e=>({
+      id:String(e.id).slice(0,16),grade:String(e.grade).slice(0,30),
+      artifact_path:String(e.artifact?.path||'').slice(0,500)
+    })),
+    hypotheses:item.hypotheses.slice(0,100).map(h=>({
+      id:String(h.id).slice(0,16),state:String(h.state).slice(0,40),
+      evidence_ids:Array.isArray(h.evidence_ids)?h.evidence_ids.slice(0,100):[]
+    })),
+    experiments:item.experiments.slice(0,100).map(e=>({
+      id:String(e.id).slice(0,16),state:String(e.state).slice(0,40),
+      hypothesis_id:String(e.hypothesis_id).slice(0,16)
+    })),
+    tasks:item.tasks.slice(0,100).map(t=>({
+      id:String(t.id).slice(0,40),kind:String(t.kind).slice(0,40),state:String(t.state).slice(0,40)
+    }))
+  }
+}

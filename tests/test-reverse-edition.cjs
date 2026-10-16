@@ -187,6 +187,8 @@ test('Reverse task queue is allowlisted and does not execute through shell',()=>
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-task/)
  assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-doctor/)
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_doctor.py')))
+ assert.match(docker,/COPY --chmod=0755 reverse\/bin\/reverse-case/)
+ assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_case.py')))
  assert.ok(fs.existsSync(path.join(root,'reverse/tests/test_task_queue.py')))
 })
 

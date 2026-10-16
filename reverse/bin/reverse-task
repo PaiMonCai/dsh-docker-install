@@ -22,6 +22,7 @@ TOOLS = {
     "diff": ("reverse-diff", 60, 2, 2),
     "verify": ("reverse-workspace", 90, 1, 1),
 }
+CASES = ROOT / ".reverse-cases"
 MAX_TASKS = 300
 MAX_LOG = 10000
 
@@ -77,13 +78,31 @@ def all_tasks():
         key=lambda entry: entry.name
     )[:MAX_TASKS + 1]
 
-def enqueue(kind, inputs):
+def case_reference(case_id):
+    if not case_id:
+        return None
+    try:
+        if str(uuid.UUID(case_id)) != case_id:
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("invalid case identifier") from None
+    path = CASES / (case_id + ".json")
+    if CASES.is_symlink() or path.is_symlink() or not path.is_file() or path.stat().st_size > 256 * 1024:
+        raise ValueError("case reference missing or unsafe")
+    case = json.loads(path.read_text(encoding="utf-8"))
+    if case.get("schema") != "dsh-reverse-case/v1" or case.get("id") != case_id:
+        raise ValueError("case reference is invalid")
+    return case_id
+
+
+def enqueue(kind, inputs, case_id=None):
     if kind not in TOOLS:
         raise ValueError("unsupported task kind")
     tool, timeout, low, high = TOOLS[kind]
     if not low <= len(inputs) <= high:
         raise ValueError("invalid task input count")
     arguments = [safe_path(x) for x in inputs]
+    bound_case = case_reference(case_id)
     if len(all_tasks()) >= MAX_TASKS:
         raise ValueError("task queue has reached capacity")
     task_id = str(uuid.uuid4())
@@ -91,6 +110,8 @@ def enqueue(kind, inputs):
               "inputs": arguments, "state": "queued", "attempts": 0,
               "created_at": timestamp(), "updated_at": timestamp(),
               "result": None, "last_error": None}
+    if bound_case:
+        record["case_id"] = bound_case
     atomic(task_path(task_id), record)
     return record
 
@@ -211,6 +232,7 @@ def main():
     q = sub.add_parser("enqueue")
     q.add_argument("kind", choices=sorted(TOOLS))
     q.add_argument("inputs", nargs="+")
+    q.add_argument("--case-id", help="Associate task with a persisted Reverse case (metadata only)")
     for name in ("show", "retry"):
         s = sub.add_parser(name)
         s.add_argument("id")
@@ -221,7 +243,7 @@ def main():
     args = p.parse_args()
     try:
         if args.mode == "enqueue":
-            result = enqueue(args.kind, args.inputs)
+            result = enqueue(args.kind, args.inputs, args.case_id)
         elif args.mode == "show":
             result = read_task(args.id)
         elif args.mode == "retry":

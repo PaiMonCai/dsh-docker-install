@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 
 ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
 TYPES = {"dsh-reverse-evidence/v1", "dsh-reverse-ghidra/v2",
-         "dsh-reverse-js-triage/v1", "dsh-reverse-diff/v1"}
+         "dsh-reverse-js-triage/v1", "dsh-reverse-diff/v1",
+         "dsh-reverse-case/v1"}
 MAX_REPORTS = 100
 MAX_FILE = 8 * 1024 * 1024
 MAX_TOTAL = 32 * 1024 * 1024
@@ -76,9 +77,13 @@ def verify(manifest):
             if path.stat().st_size > MAX_FILE:
                 raise ValueError("oversized report")
             raw = path.read_bytes()
-            ok = hashlib.sha256(raw).hexdigest() == row.get("sha256")
+            parsed = json.loads(raw)
+            ok = (hashlib.sha256(raw).hexdigest() == row.get("sha256")
+                  and len(raw) == row.get("size")
+                  and parsed.get("schema") == row.get("schema")
+                  and row.get("schema") in TYPES)
             results.append({"path": row["path"], "verified": ok})
-        except (OSError, ValueError):
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
             results.append({"path": row["path"], "verified": False})
     return {"schema": "dsh-reverse-workspace-verification/v1",
             "passed": all(r["verified"] for r in results),
