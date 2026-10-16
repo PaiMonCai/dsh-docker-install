@@ -28,6 +28,7 @@ test('Image uses its own native Reverse Agent preset and REA', () => {
  assert.match(overlay,/id: dsh-reverse-preset-declaration/)
  assert.match(overlay,/name: '@deepseek-ai\/dsh-agent-preset'/)
  assert.match(overlay,/id: reverse-engineering/)
+ assert.match(overlay,/reverse-case as a persistent evidence/)
  assert.match(overlay,/id: rea-mcp/)
  assert.match(overlay,/command: rea/)
  assert.match(overlay,/dshHomePath\('reverse-engineering\/skills'\)/)

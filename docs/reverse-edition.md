@@ -316,3 +316,6 @@ Workbench RPC 新增只读 `workbenchCases` / `workbenchCase`，返回关卡、�
 
 
 目录型项目也可创建案件（例如 `reverse-case create /workspace/electron-project --goal "还原 IPC 调用关系" --deliverable "调用图"`）。引擎最多扫描 2000 个文件、累计 256 MiB；目录指纹包含相对路径、大小和内容哈希，拒绝符号链接和特殊文件。超出上限时应选择更小、明确的分析范围，不会悄悄忽略文件。
+
+
+> **升级兼容提醒**：镜像启动时不会覆盖持久卷中已有同名 Skill，所以此前安装的 `universal-reverse-core` 仍保留原文。Phase 2 的 `reverse-case` 使用说明同时写入镜像自有 Reverse Agent Persona 与本文档；如需同步完整最新 Skill，请先比对 `/opt/dsh-reverse/skills/universal-reverse-core/` 与用户目录后手动迁移，避免丢失自定义内容。
