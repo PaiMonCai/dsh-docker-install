@@ -27,6 +27,15 @@ class ReverseWorkspaceTest(unittest.TestCase):
         f.write_text(json.dumps({"schema": "dsh-reverse-evidence/v1", "sample": {"changed": True}}))
         self.assertFalse(self.m["verify"](result)["passed"])
 
+    def test_index_accepts_case_snapshot_but_detects_changes(self):
+        case = self.root / "case.json"
+        case.write_text(json.dumps({"schema":"dsh-reverse-case/v1","revision":1}))
+        manifest = self.m["index"]([str(case)])
+        self.assertEqual(manifest["reports"][0]["schema"], "dsh-reverse-case/v1")
+        self.assertTrue(self.m["verify"](manifest)["passed"])
+        case.write_text(json.dumps({"schema":"dsh-reverse-case/v1","revision":2}))
+        self.assertFalse(self.m["verify"](manifest)["passed"])
+
     def test_schema_and_symlink_rejected(self):
         f = self.root / "bad.json"
         f.write_text('{"schema":"not-a-report"}')

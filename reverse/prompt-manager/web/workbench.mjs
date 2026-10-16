@@ -8,7 +8,8 @@ const MAX_REPORT = 8 * 1024 * 1024
 const MAX_TASK = 30000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const KNOWN = new Set(['dsh-reverse-evidence/v1','dsh-reverse-ghidra/v2',
-  'dsh-reverse-js-triage/v1','dsh-reverse-diff/v1','dsh-reverse-workspace/v1'])
+  'dsh-reverse-js-triage/v1','dsh-reverse-diff/v1','dsh-reverse-workspace/v1',
+  'dsh-reverse-case/v1'])
 function workspaceFile(value, maxBytes) {
   if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\0'))
     throw Error('invalid workspace relative path')
@@ -80,6 +81,18 @@ export function report(path) {
       edges:safeEdges, references:refs, functions,
       graph_truncated: Boolean(data.call_graph?.truncated),
       limitations:Array.isArray(data.limitations) ? data.limitations.slice(0,20) : [] }
+  }
+  if (data.schema === 'dsh-reverse-case/v1') {
+    // Case bodies are untrusted analysis notes; expose only bounded metadata.
+    return {
+      schema:data.schema,id:String(data.id||'').slice(0,40),
+      revision:Number.isSafeInteger(data.revision)?data.revision:0,
+      gates:Object.fromEntries(['G1','G2','G3','G4'].map(g=>
+        [g,['pending','passed','blocked'].includes(data.gates?.[g]?.state) ? data.gates[g].state : 'unknown'])),
+      evidence_count:Array.isArray(data.evidence)?Math.min(data.evidence.length,100):0,
+      hypothesis_count:Array.isArray(data.hypotheses)?Math.min(data.hypotheses.length,100):0,
+      experiment_count:Array.isArray(data.experiments)?Math.min(data.experiments.length,100):0
+    }
   }
   if (data.schema === 'dsh-reverse-workspace/v1') {
     const entries=Array.isArray(data.reports)?data.reports:[]

@@ -79,6 +79,24 @@ class ReverseTaskTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mod["read_task"]("../../etc/passwd")
 
+    def test_case_binding_is_metadata_and_old_tasks_stay_compatible(self):
+        case_id = "57e20024-3c1e-44fe-b2b7-62fbb6fdbedd"
+        source = self.workspace / ".reverse-cases"
+        source.mkdir()
+        (source / (case_id + ".json")).write_text(json.dumps({
+            "schema": "dsh-reverse-case/v1", "id": case_id
+        }), encoding="utf-8")
+        self.mod["enqueue"].__globals__["CASES"] = source
+        old = self.mod["enqueue"]("triage", [str(self.source)])
+        bound = self.mod["enqueue"]("triage", [str(self.source)], case_id)
+        self.assertNotIn("case_id", old)
+        self.assertEqual(bound["case_id"], case_id)
+        with self.assertRaises(ValueError):
+            self.mod["enqueue"]("triage", [str(self.source)], "bad-id")
+        (source / (case_id + ".json")).write_text('{"schema":"wrong","id":"' + case_id + '"}')
+        with self.assertRaises(ValueError):
+            self.mod["enqueue"]("triage", [str(self.source)], case_id)
+
     def test_expected_task_id_rejects_non_head(self):
         first = self.mod["enqueue"]("triage", [str(self.source)])
         second = self.mod["enqueue"]("triage", [str(self.source)])
