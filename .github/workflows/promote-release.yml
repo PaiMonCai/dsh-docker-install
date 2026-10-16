@@ -24,7 +24,7 @@ permissions:
   packages: write
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Build jobs never hold this lock. Check freshness and move public tags
     # together; a mixed push cannot cancel a running promotion.
     concurrency:

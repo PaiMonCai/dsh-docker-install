@@ -2,6 +2,8 @@
 
 Standard follows upstream DSH. Research, Research Economics and Reverse consume
 the successful Standard artifact; they do not independently install upstream DSH.
+Release jobs use Ubuntu 24.04 runners explicitly, so an `ubuntu-latest`
+migration cannot silently change their host Python or system tools.
 
 ## Release contract
 

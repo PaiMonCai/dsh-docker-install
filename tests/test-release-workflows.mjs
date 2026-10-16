@@ -9,6 +9,9 @@ const base = read('build')
 const update = read('check-update')
 const promotion = read('promote-release')
 const dispatch = read('dispatch-edition')
+for (const workflow of ['build', 'build-research', 'build-reverse', 'check-update', 'promote-release', 'dispatch-edition']) {
+  assert.doesNotMatch(read(workflow), /runs-on: ubuntu-latest/, 'Release runner image must not drift with latest')
+}
 function job(text, name) {
   const jobs = text.slice(text.indexOf('\njobs:'))
   const start = jobs.indexOf('\n  ' + name + ':\n')

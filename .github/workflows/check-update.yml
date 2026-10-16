@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       current: ${{ steps.check.outputs.current }}
       updated: ${{ steps.check.outputs.updated }}
@@ -75,7 +75,7 @@ jobs:
       always() && !cancelled() && needs.check.result == 'success' &&
       needs.check.outputs.updated == 'true' &&
       (needs.build.outputs.promoted == 'true' || needs.check.outputs.build == 'false')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,7 +109,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.check.result == 'success' &&
       (needs.build.outputs.promoted == 'true' || needs.check.outputs.build == 'false')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       research: ${{ steps.state.outputs.research }}
       reverse: ${{ steps.state.outputs.reverse }}

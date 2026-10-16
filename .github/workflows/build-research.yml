@@ -77,7 +77,7 @@ jobs:
   # the exact base digest and source commit.
   prepare:
     name: Determine Research build trigger
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       run_research: ${{ steps.gate.outputs.run_research == 'true' && steps.base.outputs.ready != 'false' }}
       candidate: ${{ steps.candidate.outputs.candidate }}
@@ -151,7 +151,7 @@ jobs:
     name: build (${{ matrix.tag }})
     needs: prepare
     if: ${{ needs.prepare.outputs.run_research == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
     strategy:

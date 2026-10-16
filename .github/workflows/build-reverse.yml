@@ -80,7 +80,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       run_reverse: ${{ steps.gate.outputs.run_reverse == 'true' && steps.base.outputs.ready != 'false' }}
       candidate: ${{ steps.candidate.outputs.candidate }}
@@ -153,7 +153,7 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.run_reverse == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
     timeout-minutes: 90
