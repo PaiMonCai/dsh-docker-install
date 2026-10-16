@@ -1,0 +1,421 @@
+#!/usr/bin/env python3
+"""Evidence-backed, offline Reverse case ledger. Records decisions; never executes samples."""
+import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import uuid
+
+SCHEMA = "dsh-reverse-case/v1"
+ROOT = Path(os.environ.get("DSH_REVERSE_WORKSPACE_ROOT", "/workspace")).resolve()
+STORE = ROOT / ".reverse-cases"
+TASKS = ROOT / ".reverse-tasks"
+GATES = ("G1", "G2", "G3", "G4")
+GRADES = ("observed", "inferred", "unverified", "unknown", "refuted")
+MAX_CASE_BYTES = 256 * 1024
+MAX_SAMPLE = 256 * 1024 * 1024
+MAX_EVIDENCE_FILE = 8 * 1024 * 1024
+MAX_CASES = 300
+MAX_ITEMS = 100
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def ident(value):
+    try:
+        if str(uuid.UUID(value)) != value:
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("invalid UUID") from None
+    return value
+
+
+def check_string(value, title, limit=500):
+    if not isinstance(value, str) or not value.strip() or len(value) > limit or "\x00" in value:
+        raise ValueError(title + " must be nonempty and bounded")
+    return value.strip()
+
+
+def safe_file(value, max_bytes):
+    candidate = Path(value).expanduser()
+    # Every path element from the workspace root must be a real directory/file.
+    path = candidate.absolute()
+    try:
+        rel = path.relative_to(ROOT)
+    except ValueError:
+        raise ValueError("file must be inside workspace") from None
+    if not rel.parts or ".." in rel.parts:
+        raise ValueError("invalid workspace file path")
+    cursor = ROOT
+    if ROOT.is_symlink():
+        raise ValueError("unsafe workspace root")
+    for part in rel.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError("symlinks are not permitted")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(ROOT) or not resolved.is_file():
+        raise ValueError("expected a regular workspace file")
+    size = resolved.stat().st_size
+    if size <= 0 or size > max_bytes:
+        raise ValueError("file is empty or exceeds allowed size")
+    return resolved
+
+
+def digest(file):
+    h = hashlib.sha256()
+    with file.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def artifact(value, cap):
+    p = safe_file(value, cap)
+    return {"path": str(p.relative_to(ROOT)), "sha256": digest(p), "size": p.stat().st_size}
+
+
+def file_path(case_id):
+    return STORE / (ident(case_id) + ".json")
+
+
+def read_case(case_id):
+    p = file_path(case_id)
+    if p.is_symlink() or not p.is_file() or not 0 < p.stat().st_size <= MAX_CASE_BYTES:
+        raise ValueError("case does not exist or exceeds size limit")
+    data = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA or data.get("id") != case_id:
+        raise ValueError("invalid case record")
+    return data
+
+
+def write_case(case, create=False):
+    raw = (json.dumps(case, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    if len(raw) > MAX_CASE_BYTES:
+        raise ValueError("case record exceeds size limit")
+    target = file_path(case["id"])
+    fd, temp = tempfile.mkstemp(prefix=".case-", dir=STORE)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            os.fchmod(f.fileno(), 0o600)
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        if create and target.exists():
+            raise ValueError("case already exists")
+        if target.is_symlink():
+            raise ValueError("case path is a symlink")
+        os.replace(temp, target)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+@contextmanager
+def case_lock():
+    if ROOT.is_symlink() or not ROOT.is_dir():
+        raise ValueError("unsafe workspace root")
+    if STORE.is_symlink():
+        raise ValueError("unsafe cases directory")
+    STORE.mkdir(mode=0o700, exist_ok=True)
+    if not STORE.is_dir():
+        raise ValueError("invalid cases directory")
+    with (STORE / ".lock").open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        yield
+
+
+def count_cases():
+    return sum(p.is_file() and not p.is_symlink() and p.name.endswith(".json")
+               for p in STORE.iterdir())
+
+
+def add_event(record, action, link):
+    if len(record["events"]) >= 300:
+        raise ValueError("event history full; export this case before adding more")
+    record["revision"] += 1
+    record["updated_at"] = now()
+    record["events"].append({"at": record["updated_at"], "action": action, "ref": link})
+
+
+def create(sample, goal, deliverable):
+    source = artifact(sample, MAX_SAMPLE)
+    with case_lock():
+        if count_cases() >= MAX_CASES:
+            raise ValueError("case capacity reached")
+        case_id = str(uuid.uuid4())
+        stamp = now()
+        doc = {
+            "schema": SCHEMA, "id": case_id, "revision": 1,
+            "created_at": stamp, "updated_at": stamp,
+            "target": source, "goal": check_string(goal, "goal", 1200),
+            "deliverable": check_string(deliverable, "deliverable", 300),
+            "gates": {g: {"state": "pending", "note": "", "evidence_ids": []} for g in GATES},
+            "evidence": [], "hypotheses": [], "experiments": [], "tasks": [],
+            "events": [{"at": stamp, "action": "created", "ref": case_id}],
+        }
+        write_case(doc, create=True)
+        return doc
+
+
+def mutate(case_id, action):
+    with case_lock():
+        doc = read_case(case_id)
+        action(doc)
+        write_case(doc)
+        return doc
+
+
+def by_id(collection, value):
+    found = next((item for item in collection if item["id"] == value), None)
+    if found is None:
+        raise ValueError("reference does not exist: " + value)
+    return found
+
+
+def checked_evidence(doc, ids, require_observed=False):
+    chosen = []
+    for ref in ids:
+        e = by_id(doc["evidence"], ref)
+        if require_observed and e["grade"] != "observed":
+            raise ValueError("gate requires observed evidence: " + ref)
+        chosen.append(e["id"])
+    return list(dict.fromkeys(chosen))
+
+
+def add_evidence(doc, file, locator, observation, grade, tool):
+    if len(doc["evidence"]) >= MAX_ITEMS:
+        raise ValueError("evidence capacity reached")
+    if grade not in GRADES:
+        raise ValueError("invalid evidence grade")
+    entry = {
+        "id": "E%03d" % (len(doc["evidence"]) + 1),
+        "artifact": artifact(file, MAX_EVIDENCE_FILE),
+        "locator": check_string(locator, "locator", 300),
+        "observation": check_string(observation, "observation", 1800),
+        "grade": grade, "tool": check_string(tool, "tool", 100),
+        "created_at": now(),
+    }
+    doc["evidence"].append(entry)
+    add_event(doc, "evidence-added", entry["id"])
+
+
+def set_gate(doc, gate, state, note, evidence_ids):
+    if gate not in GATES or state not in ("pending", "passed", "blocked"):
+        raise ValueError("invalid gate/state")
+    text = check_string(note, "gate note", 800)
+    ids = checked_evidence(doc, evidence_ids, require_observed=state == "passed" and gate != "G1")
+    if state == "passed" and gate != "G1" and not ids:
+        raise ValueError("passing G2-G4 requires at least one observed evidence ref")
+    # G1 is an operator declaration, not independently authenticated authorization.
+    doc["gates"][gate] = {"state": state, "note": text, "evidence_ids": ids}
+    add_event(doc, "gate-" + state, gate)
+
+
+def add_hypothesis(doc, statement, prediction):
+    if len(doc["hypotheses"]) >= MAX_ITEMS:
+        raise ValueError("hypothesis capacity reached")
+    item = {
+        "id": "H%03d" % (len(doc["hypotheses"]) + 1),
+        "statement": check_string(statement, "statement", 1500),
+        "falsifier": check_string(prediction, "falsifier", 1200),
+        "state": "open", "evidence_ids": [], "note": "",
+    }
+    doc["hypotheses"].append(item)
+    add_event(doc, "hypothesis-added", item["id"])
+
+
+def assess(doc, hypothesis, state, evidence_ids, note):
+    if state not in ("supported", "refuted", "open"):
+        raise ValueError("invalid hypothesis state")
+    h = by_id(doc["hypotheses"], hypothesis)
+    ids = checked_evidence(doc, evidence_ids)
+    if state != "open" and not ids:
+        raise ValueError("support/refutation requires linked evidence")
+    h.update(state=state, evidence_ids=ids, note=check_string(note, "assessment note", 800))
+    add_event(doc, "hypothesis-" + state, hypothesis)
+
+
+def add_experiment(doc, hypothesis, variable, control, falsifier):
+    by_id(doc["hypotheses"], hypothesis)
+    if len(doc["experiments"]) >= MAX_ITEMS:
+        raise ValueError("experiment capacity reached")
+    entry = {
+        "id": "X%03d" % (len(doc["experiments"]) + 1),
+        "hypothesis_id": hypothesis,
+        "variable": check_string(variable, "variable", 500),
+        "control": check_string(control, "control", 800),
+        "falsifier": check_string(falsifier, "falsifier", 800),
+        "state": "planned", "evidence_ids": [], "result_note": "",
+    }
+    doc["experiments"].append(entry)
+    add_event(doc, "experiment-planned", entry["id"])
+
+
+def record_experiment(doc, experiment, state, evidence_ids, note):
+    if state not in ("observed", "inconclusive", "cancelled"):
+        raise ValueError("invalid experiment outcome")
+    e = by_id(doc["experiments"], experiment)
+    if e["state"] != "planned":
+        raise ValueError("experiment already resolved")
+    ids = checked_evidence(doc, evidence_ids, require_observed=state == "observed")
+    if state == "observed" and not ids:
+        raise ValueError("observed experiment requires observed evidence")
+    e.update(state=state, evidence_ids=ids, result_note=check_string(note, "result note", 800))
+    add_event(doc, "experiment-" + state, experiment)
+
+
+def attach_task(doc, task_id):
+    ident(task_id)
+    p = TASKS / (task_id + ".json")
+    if p.is_symlink() or not p.is_file() or p.stat().st_size > 30000:
+        raise ValueError("task unavailable")
+    item = json.loads(p.read_text("utf-8"))
+    if item.get("schema") != "dsh-reverse-task/v1" or item.get("id") != task_id:
+        raise ValueError("invalid task data")
+    if item.get("case_id") != doc["id"]:
+        raise ValueError("task was not explicitly enqueued for this case")
+    link = {"id": task_id, "kind": item.get("kind"), "state": item.get("state"),
+            "attempts": item.get("attempts"), "exit_code": (item.get("result") or {}).get("exit_code")}
+    if not isinstance(link["state"], str):
+        raise ValueError("invalid task state")
+    old = next((i for i, v in enumerate(doc["tasks"]) if v["id"] == task_id), None)
+    if old is None:
+        if len(doc["tasks"]) >= MAX_ITEMS:
+            raise ValueError("task links full")
+        doc["tasks"].append(link)
+    else:
+        doc["tasks"][old] = link
+    add_event(doc, "task-synced", task_id)
+
+
+def verify(case):
+    results = []
+    for kind, entries in (("target", [case["target"]]),
+                          ("evidence", [e["artifact"] for e in case["evidence"]])):
+        for a in entries:
+            try:
+                p = safe_file(ROOT / a["path"], MAX_SAMPLE if kind == "target" else MAX_EVIDENCE_FILE)
+                ok = p.stat().st_size == a["size"] and digest(p) == a["sha256"]
+            except (OSError, ValueError):
+                ok = False
+            results.append({"kind": kind, "path": a["path"], "verified": ok})
+    return {"schema": "dsh-reverse-case-verification/v1",
+            "id": case["id"], "passed": all(x["verified"] for x in results),
+            "results": results, "note": "Hashes validate provenance, not the truth of conclusions."}
+
+
+def list_cases():
+    with case_lock():
+        rows = []
+        for p in sorted(STORE.glob("*.json"))[:MAX_CASES]:
+            try:
+                c = read_case(p.stem)
+                rows.append({"id": c["id"], "goal": c["goal"],
+                             "updated_at": c["updated_at"], "revision": c["revision"]})
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        return rows
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Reverse case ledger: recorded decisions, not target execution")
+    sub = p.add_subparsers(dest="command", required=True)
+    new = sub.add_parser("create")
+    new.add_argument("sample")
+    new.add_argument("--goal", required=True)
+    new.add_argument("--deliverable", required=True)
+    sub.add_parser("list")
+    for name in ("show", "verify"):
+        sub.add_parser(name).add_argument("id")
+    gate = sub.add_parser("gate")
+    gate.add_argument("id")
+    gate.add_argument("gate", choices=GATES)
+    gate.add_argument("state", choices=("pending", "passed", "blocked"))
+    gate.add_argument("--note", required=True)
+    gate.add_argument("--evidence", action="append", default=[])
+    evidence = sub.add_parser("evidence")
+    evidence.add_argument("id")
+    evidence.add_argument("--file", required=True)
+    evidence.add_argument("--locator", required=True)
+    evidence.add_argument("--observation", required=True)
+    evidence.add_argument("--grade", choices=GRADES, required=True)
+    evidence.add_argument("--tool", required=True)
+    h = sub.add_parser("hypothesis")
+    h.add_argument("id")
+    h.add_argument("--statement", required=True)
+    h.add_argument("--falsifier", required=True)
+    assess_parser = sub.add_parser("assess")
+    assess_parser.add_argument("id")
+    assess_parser.add_argument("hypothesis")
+    assess_parser.add_argument("state", choices=("supported", "refuted", "open"))
+    assess_parser.add_argument("--evidence", action="append", default=[])
+    assess_parser.add_argument("--note", required=True)
+    experiment = sub.add_parser("experiment")
+    experiment.add_argument("id")
+    experiment.add_argument("hypothesis")
+    experiment.add_argument("--variable", required=True)
+    experiment.add_argument("--control", required=True)
+    experiment.add_argument("--falsifier", required=True)
+    result = sub.add_parser("experiment-result")
+    result.add_argument("id")
+    result.add_argument("experiment")
+    result.add_argument("state", choices=("observed", "inconclusive", "cancelled"))
+    result.add_argument("--evidence", action="append", default=[])
+    result.add_argument("--note", required=True)
+    task = sub.add_parser("sync-task")
+    task.add_argument("id")
+    task.add_argument("task_id")
+    a = p.parse_args(argv)
+    try:
+        if a.command == "create":
+            answer = create(a.sample, a.goal, a.deliverable)
+        elif a.command == "list":
+            answer = list_cases()
+        elif a.command == "show":
+            answer = read_case(a.id)
+        elif a.command == "verify":
+            answer = verify(read_case(a.id))
+            print(json.dumps(answer, ensure_ascii=False))
+            return 0 if answer["passed"] else 1
+        else:
+            def apply(doc):
+                if a.command == "gate":
+                    set_gate(doc, a.gate, a.state, a.note, a.evidence)
+                elif a.command == "evidence":
+                    add_evidence(doc, a.file, a.locator, a.observation, a.grade, a.tool)
+                elif a.command == "hypothesis":
+                    add_hypothesis(doc, a.statement, a.falsifier)
+                elif a.command == "assess":
+                    assess(doc, a.hypothesis, a.state, a.evidence, a.note)
+                elif a.command == "experiment":
+                    add_experiment(doc, a.hypothesis, a.variable, a.control, a.falsifier)
+                elif a.command == "experiment-result":
+                    record_experiment(doc, a.experiment, a.state, a.evidence, a.note)
+                else:
+                    attach_task(doc, a.task_id)
+            answer = mutate(a.id, apply)
+        # Bounded summary: no full tool outputs or arbitrary sample bytes.
+        print(json.dumps(answer if a.command in ("show", "list") else
+                         {"schema": SCHEMA, "id": answer["id"], "revision": answer["revision"],
+                          "gates": {k: v["state"] for k, v in answer["gates"].items()},
+                          "evidence": len(answer["evidence"]),
+                          "hypotheses": len(answer["hypotheses"]),
+                          "experiments": len(answer["experiments"]),
+                          "tasks": len(answer["tasks"])}, ensure_ascii=False))
+        return 0
+    except (OSError, ValueError, json.JSONDecodeError, BlockingIOError) as error:
+        print("reverse-case: " + str(error), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
