@@ -186,7 +186,9 @@ export function caseDetail(id){
     })),
     experiments:item.experiments.slice(0,100).map(e=>({
       id:String(e.id).slice(0,16),state:String(e.state).slice(0,40),
-      hypothesis_id:String(e.hypothesis_id).slice(0,16)
+      hypothesis_id:String(e.hypothesis_id).slice(0,16),
+      evidence_ids:Array.isArray(e.evidence_ids)?e.evidence_ids.slice(0,100)
+        .filter(id=>typeof id==='string').map(id=>id.slice(0,16)):[]
     })),
     tasks:item.tasks.slice(0,100).map(t=>({
       id:String(t.id).slice(0,40),kind:String(t.kind).slice(0,40),state:String(t.state).slice(0,40)
