@@ -1,0 +1,416 @@
+{
+  "schema": "dsh-reverse-knowledge/v1",
+  "version": 1,
+  "description": "Curated cross-platform symptom routing hypotheses, not verified evidence of a user's target",
+  "entries": [
+    {
+      "id": "native-loader-failure",
+      "title": "原生程序在进入业务代码前退出",
+      "platforms": [
+        "elf",
+        "pe",
+        "macho"
+      ],
+      "signals": [
+        "startup",
+        "loader",
+        "missing library",
+        "dlopen",
+        "链接失败",
+        "加载失败"
+      ],
+      "summary": "先区分动态链接器与应用初始化失败",
+      "checks": [
+        "只读检查架构、导入表和动态依赖",
+        "比较原版启动日志与可复现实验环境",
+        "仅在授权隔离环境中运行最小对照"
+      ],
+      "alternatives": [
+        "缺失的系统运行库",
+        "架构或 ABI 不匹配",
+        "自定义初始化或原生崩溃"
+      ],
+      "route": "binary-triage",
+      "verification": "定位实际失败组件并以同环境对照复现",
+      "limitations": "导入表并不能证明函数一定被调用",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "native-no-functions",
+      "title": "反编译结果只有少量函数或空桩",
+      "platforms": [
+        "elf",
+        "pe",
+        "macho",
+        "firmware"
+      ],
+      "signals": [
+        "stub",
+        "empty decompile",
+        "packed",
+        "no functions",
+        "空桩",
+        "反编译为空"
+      ],
+      "summary": "优先核实解析能力和代码位置，而非断言无代码",
+      "checks": [
+        "确认文件格式、段和入口点",
+        "检查混淆、加壳、重定位和加载时生成代码的迹象",
+        "使用另一种只读解析器或已知良性样本作为正控"
+      ],
+      "alternatives": [
+        "不支持的架构",
+        "加密或运行时加载",
+        "符号被剥离或反编译器失效"
+      ],
+      "route": "ghidra-headless",
+      "verification": "用多种独立解析证据确认代码存储层",
+      "limitations": "工具失败不能当作目标代码不存在",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "android-dex-vs-native",
+      "title": "APK 的 Java 代码无法解释目标行为",
+      "platforms": [
+        "android"
+      ],
+      "signals": [
+        "dex",
+        "java",
+        "jni",
+        "flutter",
+        "unity",
+        "android",
+        "功能未找到"
+      ],
+      "summary": "区分 Dex、JNI、Flutter/Unity 和服务器端行为边界",
+      "checks": [
+        "静态检查包结构、DEX 和原生库组成",
+        "在同一功能路径查找跨层调用和协议证据",
+        "定位实际渲染和授权判断所属层"
+      ],
+      "alternatives": [
+        "JNI/native 负责",
+        "Flutter/Dart 或 Unity Runtime 负责",
+        "远程服务权威控制"
+      ],
+      "route": "binary-triage",
+      "verification": "每个关键行为都能追到实际执行层的引用或观察",
+      "limitations": "APK Manifest、类名和字符串不单独证明动态路径",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "electron-ipc-missing",
+      "title": "Electron 界面行为无法对应主进程函数",
+      "platforms": [
+        "electron",
+        "javascript"
+      ],
+      "signals": [
+        "electron",
+        "ipc",
+        "renderer",
+        "main process",
+        "ipc丢失",
+        "渲染进程"
+      ],
+      "summary": "追踪 Renderer→preload→IPC→Main→native/HTTP 的跨进程交接",
+      "checks": [
+        "静态列出 Electron 入口、preload 和 IPC channel",
+        "追踪监听器、invoke/send 与返回值位置",
+        "将网络请求与 IPC 调用链关联"
+      ],
+      "alternatives": [
+        "渲染进程直接请求网络",
+        "preload 桥接重命名",
+        "原生插件或后台服务执行"
+      ],
+      "route": "electron-javascript-analysis",
+      "verification": "用同名 channel 或有时序依据的证据闭合调用链",
+      "limitations": "只命中关键词不等于 IPC 路径活跃",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "javascript-dynamic-logic",
+      "title": "JavaScript 运行逻辑和静态结构不一致",
+      "platforms": [
+        "javascript",
+        "electron",
+        "web"
+      ],
+      "signals": [
+        "eval",
+        "dynamic import",
+        "obfuscation",
+        "chunk",
+        "动态加载",
+        "混淆"
+      ],
+      "summary": "检查动态导入、代码生成、懒加载和工具覆盖范围",
+      "checks": [
+        "静态扫描入口和模块依赖",
+        "确认打包器 chunk 映射与加载条件",
+        "用离线固定 fixture 验证解析器能命中目标构造"
+      ],
+      "alternatives": [
+        "死代码",
+        "运行时配置注入",
+        "多版本 bundle"
+      ],
+      "route": "javascript-deobfuscation",
+      "verification": "找到运行时可能采用的具体入口与对应静态引用",
+      "limitations": "静态重建不能单独证明执行频率",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "protocol-missing-events",
+      "title": "抓包中没有预期 API 或协议事件",
+      "platforms": [
+        "web",
+        "network",
+        "electron",
+        "android"
+      ],
+      "signals": [
+        "har",
+        "pcap",
+        "websocket",
+        "no request",
+        "抓包没有",
+        "请求未发送"
+      ],
+      "summary": "先证明抓取范围与观测通道健康，不能把空结果当作无请求",
+      "checks": [
+        "记录抓取起止、代理位置、TLS 和脱敏范围",
+        "检查同条件正控流量及请求是否被缓存",
+        "对齐 UI、IPC、进程和网络事件时间戳"
+      ],
+      "alternatives": [
+        "请求尚未触发",
+        "HTTP 缓存/Service Worker 命中",
+        "TLS 加密或其他流量通道"
+      ],
+      "route": "network-protocol-reconstruction",
+      "verification": "正控证实观测窗口覆盖目标路径",
+      "limitations": "无法解密的载荷只能说明头部或流量特征",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "server-owned-gate",
+      "title": "客户端改动没有改变服务器决定的结果",
+      "platforms": [
+        "web",
+        "network",
+        "android",
+        "electron"
+      ],
+      "signals": [
+        "server",
+        "remote config",
+        "feature flag",
+        "客户端修改无效",
+        "远程配置",
+        "服务器"
+      ],
+      "summary": "先判断哪个组件对状态具有最终权威，避免在错误层分析",
+      "checks": [
+        "静态定位 UI 消费的数据与权限响应",
+        "离线比对同一响应和本地渲染",
+        "划清客户端显示状态与服务器资源判定边界"
+      ],
+      "alternatives": [
+        "客户端缓存覆盖",
+        "后端状态同步",
+        "请求由其他服务或账户控制"
+      ],
+      "route": "network-protocol-reconstruction",
+      "verification": "有证据区分客户端渲染和服务器权威判断",
+      "limitations": "不提供绕过账户、权限或安全校验的路线",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "runtime-hook-silent",
+      "title": "动态观察工具没有捕获任何事件",
+      "platforms": [
+        "elf",
+        "pe",
+        "android",
+        "electron"
+      ],
+      "signals": [
+        "frida",
+        "hook",
+        "zero events",
+        "no logs",
+        "无事件",
+        "没有日志"
+      ],
+      "summary": "在归因于目标之前，用正控验证工具及观测位置",
+      "checks": [
+        "验证宿主、版本和目标环境匹配",
+        "对良性函数做有权限的正控观察",
+        "核对进程、时序、模块加载点和日志通道"
+      ],
+      "alternatives": [
+        "函数并未运行",
+        "工具未附着或失配",
+        "日志输出被重定向或丢失"
+      ],
+      "route": "frida-runtime-instrumentation",
+      "verification": "同工具配置下正控有数据，再讨论目标路径缺失",
+      "limitations": "没有事件不能证明代码不存在",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "diff-address-drift",
+      "title": "两个版本几乎所有函数地址都变化",
+      "platforms": [
+        "elf",
+        "pe",
+        "macho",
+        "firmware"
+      ],
+      "signals": [
+        "diff",
+        "rebase",
+        "relocation",
+        "address drift",
+        "地址变化",
+        "大量变更"
+      ],
+      "summary": "先消除重定位、编译器差异和地址漂移，再做语义比较",
+      "checks": [
+        "比较架构、入口和加载基址",
+        "对齐稳定符号、字符串与代码特征",
+        "将地址级 diff 明确标注为启发式"
+      ],
+      "alternatives": [
+        "重新链接",
+        "编译器优化",
+        "函数内联或代码真实变化"
+      ],
+      "route": "ghidra-headless",
+      "verification": "使用多个稳定锚点交叉核对对应函数",
+      "limitations": "相同地址或相似伪代码不保证语义等价",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "firmware-runtime-boundary",
+      "title": "固件镜像中无法定位运行时业务逻辑",
+      "platforms": [
+        "firmware"
+      ],
+      "signals": [
+        "firmware",
+        "squashfs",
+        "u-boot",
+        "boot",
+        "固件",
+        "文件系统"
+      ],
+      "summary": "区分镜像封装、文件系统、启动脚本、内核和用户态服务",
+      "checks": [
+        "只读识别镜像头和文件系统类型",
+        "确认可用的解包器、架构和配置文件路径",
+        "按启动顺序定位服务与外设依赖"
+      ],
+      "alternatives": [
+        "压缩或加密分区",
+        "运行时从外部加载",
+        "业务逻辑在协处理器或远端"
+      ],
+      "route": "firmware-static-analysis",
+      "verification": "明确文件到启动流程的引用链和工具局限",
+      "limitations": "不能直接推断真机上的执行结果",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "wasm-host-import",
+      "title": "WASM 模块内部找不到关键系统行为",
+      "platforms": [
+        "wasm",
+        "web"
+      ],
+      "signals": [
+        "wasm",
+        "host import",
+        "import section",
+        "webassembly",
+        "模块导入"
+      ],
+      "summary": "检查宿主函数、导入表以及 JS→WASM 的控制权交接",
+      "checks": [
+        "验证 WASM magic 和导入/导出表",
+        "定位 JavaScript/宿主提供的导入函数",
+        "比对模块内调用与宿主侧实现"
+      ],
+      "alternatives": [
+        "逻辑位于宿主代码",
+        "动态生成模块",
+        "解析器缺少提议指令支持"
+      ],
+      "route": "binary-triage",
+      "verification": "跨宿主导入点确认调用责任边界",
+      "limitations": "宿主依赖必须独立分析",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    },
+    {
+      "id": "control-build-fails",
+      "title": "修改版失败但零修改对照也失败",
+      "platforms": [
+        "android",
+        "elf",
+        "pe",
+        "electron",
+        "firmware"
+      ],
+      "signals": [
+        "regression",
+        "control",
+        "baseline",
+        "same pipeline",
+        "对照失败",
+        "基线"
+      ],
+      "summary": "在归咎于修改前先排除构建、签名、环境和复现实验故障",
+      "checks": [
+        "将原样输入跑通相同处理流程",
+        "对比原始、零变更产物及修改产物哈希",
+        "验证相同环境、输入与启动条件"
+      ],
+      "alternatives": [
+        "打包链有缺陷",
+        "环境依赖不完整",
+        "预期的行为从未在原始样本中出现"
+      ],
+      "route": "reverse-evidence-report",
+      "verification": "对照通过、单变量差异具有独立证据",
+      "limitations": "构建成功不代表功能正确",
+      "origin": "curated",
+      "confidence": "reference-only",
+      "citation": "reverse/skills/universal-reverse-core/references/failure-patterns.md"
+    }
+  ]
+}
