@@ -133,7 +133,9 @@ RUN chmod 0755 \
       dsh compat-smoke --from-default-profile headless --dump-config \
       | grep -q '/opt/dsh-research/adapter/index.js' \
  && rm -rf "$tmp_home" \
- && /opt/dsh-research/adapter/smoke-web.sh \
+ && smoke_timeout=120 \
+ && if [ "${BUILDPLATFORM}" != "${TARGETPLATFORM}" ]; then smoke_timeout=300; fi \
+ && DSH_RESEARCH_SMOKE_TIMEOUT_SECONDS="$smoke_timeout" /opt/dsh-research/adapter/smoke-web.sh \
  && npx playwright install --only-shell chromium \
  && HEADLESS_SHELL="$(find "${PLAYWRIGHT_BROWSERS_PATH}" -type f \( -name 'chrome-headless-shell' -o -name 'headless_shell' \) | head -1)" \
  && test -n "$HEADLESS_SHELL" \
