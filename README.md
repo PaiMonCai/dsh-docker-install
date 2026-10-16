@@ -76,6 +76,19 @@ dshd edition standard
 完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
 交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
 
+## 内置 Web 实例管理
+
+DSH 快捷栏及「插件 → 实例管理」提供定时检查镜像更新、后台更新、重启、重建、
+回滚、旧镜像清理，以及 sing-box 启停、节点切换和订阅导入。公共插件随基础镜像
+发布，Research 和 Reverse 继承，无需额外管理容器。
+
+满足 root、Python 3、systemd 和 `flock` 条件的 Linux 新安装或新版 `dshd update`
+会自动配置后台；已有实例可运行 `sudo dshd web enable`。执行器在宿主机继续完成
+容器替换和健康检查，页面重连后读取结果，不要求给 Agent 挂载 Docker Socket。
+自动检查默认每 6 小时，安装更新需要在页面确认。CLI 保留独立恢复能力。
+
+启用、关闭、权限及任务记录说明见 [Web 实例管理](docs/web-management.md)。
+
 ## dshd 0.11：六分类交互菜单
 
 输入 `dshd` 打开新的简洁主页：
@@ -249,6 +262,7 @@ Research 镜像用同样的三类含义，只是加上 edition 前缀（`:resear
 - [文档索引](docs/README.md)
 - [部署与访问](docs/deployment.md)
 - [Runtime 与运维](docs/runtime.md)
+- [Web 实例管理](docs/web-management.md)
 - [国际网络出口 / sing-box](docs/proxy.md)
 - [自定义模型推理等级](docs/reasoning-editor.md)
 - [镜像构建与自动更新](docs/ci.md)

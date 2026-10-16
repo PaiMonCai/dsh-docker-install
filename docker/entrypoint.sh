@@ -122,6 +122,7 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}" "Icon Dock"
     append_native_web_patch "/opt/dsh/plugins/dsh-bili-ui-bridge/cordis.patch.yml" "${DSH_BILI_UI_BRIDGE:-true}" "billion-context 域名管理页"
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
+    append_native_web_patch "/opt/dsh/plugins/dsh-instance-manager/cordis.patch.yml" "${DSH_INSTANCE_MANAGER:-true}" "实例管理"
     append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}" "Web Search"
     # Reverse's image-owned, native Agent preset overlay. Not used by Standard.
     if [[ -n "${DSH_REVERSE_AGENT_PATCH:-}" ]]; then

@@ -17,7 +17,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const source = fs.readFileSync('docker/entrypoint.sh', 'utf8')
 assert.match(source, /local args=\(web --patch "\$BIND_PATCH"\)/)
-for (const name of ['dsh-reasoning-editor', 'dsh-icon-dock',
+for (const name of ['dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-instance-manager',
   'dsh-session-manager-web', 'dsh-web-search']) {
   assert.ok(source.includes('append_native_web_patch "/opt/dsh/plugins/' +
     name + '/cordis.patch.yml"'), name)

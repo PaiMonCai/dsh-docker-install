@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-docker-instance-manager
+      name: ./index.js

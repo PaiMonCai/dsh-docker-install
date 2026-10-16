@@ -212,6 +212,8 @@ COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-s
 COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
 COPY docker/plugins/dsh-bili-ui-bridge/ /opt/dsh/plugins/dsh-bili-ui-bridge/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
+COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
+COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
 COPY docker/resolve-bind-host.js /usr/local/bin/resolve-dsh-bind-host
@@ -243,6 +245,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && bash -n /usr/local/bin/apply-dsh-session-deletions \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/index.js \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
+ && node --check /opt/dsh/plugins/dsh-instance-manager/index.js \
+ && node --check /opt/dsh/plugins/dsh-instance-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \
  && node --check /usr/local/bin/patch-bili-client-ui.js \

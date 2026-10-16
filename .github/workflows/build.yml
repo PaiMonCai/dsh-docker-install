@@ -102,6 +102,10 @@ jobs:
         run: |
           bash -n dshd
           bash -n install.sh
+          bash tests/test-dshd-web-management.sh
+          python3 tests/test-web-manager.py
+          node --test tests/test-instance-manager.mjs
+          node --check docker/plugins/dsh-instance-manager/client.js
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
           bash tests/test-dshd-rollback.sh
@@ -273,6 +277,9 @@ jobs:
           cache-from: type=gha
           # Keep the previous ARM64 cache until the multi-platform export.
 
+      - name: Exercise Web managed restart and transactional replacement
+        run: sudo env "PATH=$PATH" bash tests/test-instance-manager-runtime.sh dsh-ci:pr
+
       # Image-owned Web modules are discovered from their package manifests.
       # Adding one without declaring its native launcher patch must fail here.
       - name: Verify complete Standard Web plugin inventory
@@ -341,7 +348,7 @@ jobs:
             dsh --version
             # Built-in Web plugins load from native launcher patch paths
             # and never run dsh plugin add, pnpm or web Profile installers.
-            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
+            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor dsh-instance-manager; do
               test -f "/opt/dsh/plugins/$plugin/package.json"
               test -f "/opt/dsh/plugins/$plugin/index.js"
               test -f "/opt/dsh/plugins/$plugin/client.js"
@@ -438,7 +445,7 @@ jobs:
           const fs = require('node:fs')
           const path = require('node:path')
           const names = [
-            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web'
+            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web', 'dsh-instance-manager'
           ]
           for (const name of names) {
             const base = '/opt/dsh/plugins/' + name

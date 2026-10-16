@@ -1,0 +1,48 @@
+name: Instance Manager Checks
+
+on:
+  pull_request:
+    paths:
+      - dshd
+      - docker/dsh-web-manager.py
+      - docker/plugins/dsh-instance-manager/**
+      - tests/test-instance-manager.mjs
+      - tests/test-web-manager.py
+      - tests/test-dshd-web-management.sh
+      - .github/workflows/instance-manager-tests.yml
+  push:
+    branches: [main]
+    paths:
+      - dshd
+      - docker/dsh-web-manager.py
+      - docker/plugins/dsh-instance-manager/**
+      - tests/test-instance-manager.mjs
+      - tests/test-web-manager.py
+      - tests/test-dshd-web-management.sh
+      - .github/workflows/instance-manager-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate host executor and Web bridge
+        run: |
+          bash -n dshd
+          bash tests/test-dshd-web-management.sh
+          python3 tests/test-web-manager.py
+          node --check docker/plugins/dsh-instance-manager/client.js
+          node --test tests/test-instance-manager.mjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
+      - name: Exercise existing lifecycle and proxy behavior
+        run: |
+          bash tests/test-dshd-rollback.sh
+          bash tests/test-dshd-proxy.sh
+          bash tests/test-dshd-instances.sh
+          bash tests/test-native-web-plugins.sh
