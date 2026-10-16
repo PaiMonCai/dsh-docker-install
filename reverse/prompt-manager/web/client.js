@@ -207,7 +207,7 @@ window.__ModuleLoader__.load({
                 .map(e=>h('div',{key:e.id,style:css.line},
                   h('code',null,'↳ '+e.id+' · '+e.state),
                   h('span',{style:css.muted},(e.evidence_ids||[]).length?
-                    '证据 '+e.evidence_ids.join(', '):'尚无实验证据')))),
+                    '证据 '+e.evidence_ids.join(', '):'尚无实验证据'))),
               ...(hyp.evidence_ids||[]).slice(0,20).map(id=>
                 h('span',{key:id,style:css.muted},'↳ 证据 '+id)),
               !(hyp.evidence_ids||[]).length?h('span',{style:css.muted},'尚无关联证据'):null
