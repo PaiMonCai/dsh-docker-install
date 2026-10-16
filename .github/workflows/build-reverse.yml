@@ -177,6 +177,8 @@ jobs:
           node --check reverse/prompt-manager/web/build-client.mjs
           node reverse/prompt-manager/web/build-client.mjs --check
           node --test reverse/prompt-manager/web/build-client.test.mjs
+          node --check reverse/prompt-manager/web/task-queue-client.mjs
+          node --test reverse/prompt-manager/web/task-queue-client.test.mjs
           node --check reverse/prompt-manager/web/execution-policy.mjs
           node --test reverse/prompt-manager/web/execution-policy.test.mjs
           node --check reverse/prompt-manager/web/knowledge.mjs

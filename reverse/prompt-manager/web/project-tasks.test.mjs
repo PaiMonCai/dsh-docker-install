@@ -93,3 +93,20 @@ test('RPC allowlist exposes existing recovery and orphan inspection operations',
  assert.ok(Array.isArray(result.recovered))
  assert.ok(Array.isArray(result.skipped))
 })
+
+test('cross-project case-linked staged task cannot be recovered by unrelated project',async()=>{
+ const {attachProjectItem}=await import('./project-links.mjs')
+ const other=createProject('Other Recovery Project')
+ const caseId='e7118029-70b9-4aa0-a774-733b98c72f21'
+ const task=createProjectTask(p.id,'triage',['sample.bin'],caseId)
+ const file=join(home,'.reverse-tasks',task.id+'.json')
+ const doc=JSON.parse(readFileSync(file,'utf8'))
+ doc.state='staging'
+ writeFileSync(file,JSON.stringify(doc))
+ attachProjectItem(other.id,'task',task.id)
+ const bad=recoverProjectTasks(other.id)
+ assert.ok(bad.skipped.includes(task.id))
+ assert.equal(JSON.parse(readFileSync(file,'utf8')).state,'staging')
+ const good=recoverProjectTasks(p.id)
+ assert.ok(good.recovered.includes(task.id))
+})

@@ -244,6 +244,8 @@ window.__ModuleLoader__.load({
       const [knowledgeResults,setKnowledgeResults]=useState([])
       const [knowledgeItem,setKnowledgeItem]=useState(null)
       const [selectedJob,setSelectedJob]=useState(null)
+      const [selectedJobAudit,setSelectedJobAudit]=useState(null)
+      const [queueSnapshot,setQueueSnapshot]=useState(null)
       const [reportPath,setReportPath]=useState('reverse-index.json')
       const [manifest,setManifest]=useState(null)
       const [openedReport,setOpenedReport]=useState(null)
@@ -264,6 +266,8 @@ window.__ModuleLoader__.load({
       }
       useEffect(()=>{invoke('workbenchProjects').then(setProjects).catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchTasks').then(setJobs)
+        .catch(error=>setMessage(String(error?.message??error)))},[])
+      useEffect(()=>{invoke('workbenchQueueStatus').then(setQueueSnapshot)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       useEffect(()=>{invoke('workbenchExecutionPolicy').then(setExecutionPolicy)
         .catch(error=>setMessage(String(error?.message??error)))},[])
@@ -297,6 +301,10 @@ window.__ModuleLoader__.load({
             h(Control,{disabled:busy,onClick:()=>run(async()=>{setActiveProject(p);setProjectLinks(await invoke('workbenchProjectLinks',{id:p.id}))})},'查看'))),
           activeProject?h('div',{style:css.card},
             h('p',{style:css.muted},'当前项目：'+activeProject.name+' · '+activeProject.id),
+            queueSnapshot?h('p',{style:css.muted},
+              '队列：待执行 '+queueSnapshot.queued_count+' · 暂存 '+queueSnapshot.staged_count+
+              ' · 中断 '+queueSnapshot.interrupted_count+
+              (queueSnapshot.head_id?' · 队首 '+queueSnapshot.head_id.slice(0,8):' · 当前空闲')):null,
             h('strong',null,'新建静态分析任务'),
             h('p',{style:css.muted},'仅创建待执行任务；执行仍需使用 reverse-task run-once。diff 填两条工作区相对路径，以换行分隔。'),
             h('div',{style:css.line},
@@ -314,6 +322,7 @@ window.__ModuleLoader__.load({
                   caseId:taskCaseId||undefined})
                 setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
                 setJobs(await invoke('workbenchTasks'))
+                setQueueSnapshot(await invoke('workbenchQueueStatus'))
                 setTaskInputs('')
                 setMessage('任务已排队：'+created.id+'，尚未执行')
               })},'添加到队列')),
@@ -338,6 +347,7 @@ window.__ModuleLoader__.load({
               const recovery=await invoke('workbenchProjectTasksRecover',{id:activeProject.id})
               setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
               setJobs(await invoke('workbenchTasks'))
+              setQueueSnapshot(await invoke('workbenchQueueStatus'))
               setMessage('已恢复暂存任务 '+recovery.recovered.length+' 个，跳过 '+recovery.skipped.length+' 个')
             })},'恢复中断的任务登记'),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
@@ -362,6 +372,7 @@ window.__ModuleLoader__.load({
                     taskId:entry.ref,confirmation:runConfirm})
                   setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
                   setJobs(await invoke('workbenchTasks'))
+                  setQueueSnapshot(await invoke('workbenchQueueStatus'))
                   setRunConfirm('')
                   setMessage('任务执行结果：'+result.state)
                 })},'执行队首任务'):null,
@@ -431,6 +442,7 @@ window.__ModuleLoader__.load({
           h('div',{style:css.line},
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
               setJobs(await invoke('workbenchTasks'))
+              setQueueSnapshot(await invoke('workbenchQueueStatus'))
             })},'刷新任务列表'),
             h('span',{style:css.muted},'最近任务：'+jobs.length)),
           ...jobs.slice(0,30).map(job=>h('div',{key:job.id,style:css.line},
@@ -438,8 +450,20 @@ window.__ModuleLoader__.load({
             h('span',{style:css.muted},job.id.slice(0,8)),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
               setSelectedJob(await invoke('workbenchTaskDetail',{id:job.id}))
+              setSelectedJobAudit(await invoke('workbenchTaskAudit',{id:job.id}))
             })},'查看状态'))),
-          selectedJob ? h('pre',{style:css.pre},JSON.stringify(selectedJob,null,2)) : null,
+          selectedJob ? h('div',{style:css.card},
+            h('p',{style:css.muted},selectedJob.kind+' · '+selectedJob.state+
+              ' · '+selectedJob.id.slice(0,8)),
+            h('p',{style:css.muted},selectedJobAudit?.recorded
+              ?'任务状态记录（时间、动作与状态）'
+              :'旧任务：无可用的完整状态记录'),
+            ...(selectedJobAudit?.events||[]).slice(-12).map((e,i)=>
+              h('div',{key:i,style:css.line},
+                h('span',{style:css.muted},e.at),
+                h('code',null,e.action+' → '+e.state))),
+            h('p',{style:css.muted},'轨迹不是防篡改日志，也不代表逆向结论已被验证')
+          ) : null,
           h('div',{style:css.line},
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
               setManifest(await invoke('workbenchManifest',{path:reportPath}))

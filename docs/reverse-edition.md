@@ -381,3 +381,12 @@ node reverse/prompt-manager/web/build-client.mjs --check # CI 检查源码与产
 Web 任务执行策略统一在 `web/execution-policy.mjs`：默认拒绝，只有 `DSH_REVERSE_WEB_EXECUTION=1` 时才可能允许执行，同时要求严格的人工确认、受控的五种任务类型和现有队列任务关联/队首检查。工作台的项目页展示当前 Web 执行开关与允许类型，可通过仅只读 `workbenchExecutionPolicy` RPC 查询，不显示令牌等机密配置。
 
 **权限边界务必区分**：此策略**仅覆盖 Reverse Web 任务执行入口**；Python CLI 的白名单由 `reverse-task` 自己执行；DSH Agent 可以通过 Bash / REA MCP 直接调用工具，这些权限由 Agent、容器、部署隔离和主机策略分别决定，并没有被该 Web 策略统一接管。本批没有更改 DSH Agent 内核权限、网络访问、设备附着策略或现有镜像默认暴露端口。
+
+
+## 收敛第三轮：队首一致性、状态轨迹和恢复安全
+
+`reverse-task peek` 是新增的只读 JSON 队列状态接口：由 Python 按其原本的全局队列排序规则选出队首，Web 不再从最多 100 条的可视化列表推算队首，避免历史任务过多时误判。Web 预检查之后，真正的 `run-once --expected-id` 仍在工作进程的排他锁下再次验证队首，抵御并发期间队列变化。
+
+新任务在原有 `.reverse-tasks/<uuid>.json` 中记录至多 24 条脱敏的状态迁移事件，包含时间、动作和状态；不复制工具输出、样本路径、参数或凭证。旧记录不填充虚假的历史。Web 可通过 `workbenchTaskAudit` 只读查看任务状态轨迹；**这不是防篡改安全审计，也不是逆向结论的真伪证明**。新增 `workbenchQueueStatus` 供工作台显示队列积压情况。
+
+有 `case_id` 的任务在 Web 执行及显式恢复时，必须属于当前项目已关联的 Case。其他项目即使关联了任务 UUID，也不能借恢复界面将它转为可执行。未改变原有 Python CLI 的授权边界，亦没有接管 Agent 直接使用 Bash 和 REA MCP 的权限。
