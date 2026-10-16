@@ -174,6 +174,9 @@ jobs:
           node --check reverse/prompt-manager/cli.mjs
           node --check reverse/prompt-manager/inspect.mjs
           node --check reverse/prompt-manager/web/index.mjs
+          node --check reverse/prompt-manager/web/knowledge.mjs
+          node --check reverse/knowledge/cli.mjs
+          node --test reverse/knowledge/knowledge.test.mjs
           node --check reverse/prompt-manager/web/client.js
           node --test reverse/prompt-manager/web/web.test.mjs
           node --test reverse/prompt-manager/web/workbench.test.mjs
@@ -312,7 +315,7 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt reverse-doctor reverse-case; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt reverse-doctor reverse-case reverse-knowledge; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
             node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs
@@ -321,6 +324,8 @@ jobs:
             reverse-triage --help >/dev/null
             reverse-doctor --json >/tmp/reverse-doctor.json
             reverse-case --help >/dev/null
+            reverse-knowledge search wasm --platform wasm >/tmp/reverse-knowledge.json
+            node -e "const d=require('/tmp/reverse-knowledge.json');if(!d.some(x=>x.id==='wasm-host-import'))process.exit(1)"
             reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"

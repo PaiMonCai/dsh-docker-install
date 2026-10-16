@@ -21,6 +21,14 @@ test('web accepts custom Reverse rule presets and preserves native protections',
   assert.equal(command('activate',{name:'my-analysis'}).enabled,true)
   assert.equal(command('disable').enabled,false)
 })
+test('knowledge RPC is read-only, bounded and preserves provenance',()=>{
+  const rows=command('workbenchKnowledgeSearch',{query:'wasm',platform:'wasm'})
+  assert.ok(rows.some(x=>x.id==='wasm-host-import'))
+  assert.equal(command('workbenchKnowledgeEntry',{id:'wasm-host-import'}).confidence,'reference-only')
+  assert.throws(()=>command('workbenchKnowledgeSearch',{query:'x'.repeat(400),platform:'all'}))
+  assert.throws(()=>command('workbenchKnowledgeEntry',{id:'../../etc/passwd'}))
+  assert.throws(()=>command('workbenchKnowledgePromote',{id:'unused'}))
+})
 test('web cannot mutate builtins or accept invalid methods',()=>{
   assert.throws(()=>command('save',{name:'evidence',mode:'append',text:'changed'}))
   assert.throws(()=>command('remove',{name:'evidence'}))
