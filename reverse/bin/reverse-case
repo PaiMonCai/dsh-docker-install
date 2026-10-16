@@ -143,6 +143,8 @@ def file_path(case_id):
 
 
 def read_case(case_id):
+    if STORE.is_symlink() or not STORE.is_dir():
+        raise ValueError("unsafe cases directory")
     p = file_path(case_id)
     if p.is_symlink() or not p.is_file() or not 0 < p.stat().st_size <= MAX_CASE_BYTES:
         raise ValueError("case does not exist or exceeds size limit")
@@ -183,7 +185,14 @@ def case_lock():
     STORE.mkdir(mode=0o700, exist_ok=True)
     if not STORE.is_dir():
         raise ValueError("invalid cases directory")
-    with (STORE / ".lock").open("a+", encoding="utf-8") as lock:
+    lock_path = STORE / ".lock"
+    if lock_path.is_symlink():
+        raise ValueError("unsafe cases lock")
+    # O_NOFOLLOW blocks a symlink race between checking and opening the lock.
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "a+", encoding="utf-8") as lock:
+        if not os.fstat(lock.fileno()).st_mode & 0o170000 == 0o100000:
+            raise ValueError("cases lock must be a regular file")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         yield
 
@@ -331,7 +340,7 @@ def record_experiment(doc, experiment, state, evidence_ids, note):
 def attach_task(doc, task_id):
     ident(task_id)
     p = TASKS / (task_id + ".json")
-    if p.is_symlink() or not p.is_file() or p.stat().st_size > 30000:
+    if TASKS.is_symlink() or p.is_symlink() or not p.is_file() or p.stat().st_size > 30000:
         raise ValueError("task unavailable")
     item = json.loads(p.read_text("utf-8"))
     if item.get("schema") != "dsh-reverse-task/v1" or item.get("id") != task_id:

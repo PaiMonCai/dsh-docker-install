@@ -89,6 +89,21 @@ class CaseEngineTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m["create"](str(self.root / "shortcut" / "file"), "no", "report")
 
+    def test_reject_lock_and_task_directory_symlinks(self):
+        lock_dir = self.root / ".reverse-cases"
+        lock_dir.mkdir()
+        (lock_dir / ".lock").symlink_to(self.target)
+        with self.assertRaises(ValueError):
+            self.m["create"](str(self.target), "safe", "report")
+        (lock_dir / ".lock").unlink()
+        case = self.m["create"](str(self.target), "safe", "report")
+        fake = self.root / "outside"
+        fake.mkdir()
+        (self.root / ".reverse-tasks").symlink_to(fake)
+        with self.assertRaises(ValueError):
+            self.m["mutate"](case["id"], lambda c: self.m["attach_task"](
+                c, "01234567-89ab-4cde-8f00-123456789abc"))
+
     def test_task_links_are_explicit_and_do_not_read_stdout(self):
         case = self.m["create"](str(self.target), "verify route", "report")
         tid = "01234567-89ab-4cde-8f00-123456789abc"
