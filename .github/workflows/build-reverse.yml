@@ -166,6 +166,9 @@ jobs:
         run: |
           set -euo pipefail
           node --check reverse/skills-bootstrap.mjs
+          node --test reverse/skills-bootstrap.test.mjs
+          python3 -m py_compile reverse/bin/reverse-doctor
+          python3 reverse/bin/reverse-doctor --json > /tmp/reverse-doctor-ci.json
           node --check reverse/prompt-manager/core.mjs
           node --check reverse/prompt-manager/index.mjs
           node --check reverse/prompt-manager/cli.mjs
@@ -309,19 +312,21 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint bash "$IMAGE" -c '
             set -euo pipefail
-            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt; do command -v "$tool"; done
+            for tool in rea gdb jadx frida apktool capa reverse-triage reverse-ghidra reverse-js-triage reverse-diff reverse-workspace reverse-task reverse-prompt reverse-doctor; do command -v "$tool"; done
             reverse-prompt list >/tmp/reverse-prompt-list.json
             reverse-prompt status >/tmp/reverse-prompt-status.json
             node /opt/dsh-reverse/prompt-manager/test/image-audit.mjs
             /opt/dsh-reverse/venv/bin/python -c "import lief, capa"
             test -f /opt/dsh-reverse/ghidra-scripts/ExportFunctions.py
             reverse-triage --help >/dev/null
+            reverse-doctor --json >/tmp/reverse-doctor.json
             reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
             npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
-            for skill in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
+            for skill in universal-reverse-core binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
               test -s "/opt/dsh-reverse/skills/$skill/SKILL.md"
             done
+            test -s /opt/dsh-reverse/skills/universal-reverse-core/references/routing.md
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
@@ -366,9 +371,10 @@ jobs:
               done
               [[ "$(docker inspect --format '{{.State.Health.Status}}' "$name")" == healthy ]] || { docker logs "$name"; exit 1; }
               docker exec "$name" bash -c '
-                for id in binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
+                for id in universal-reverse-core binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
                 done
+                test -s /root/.dsh/reverse-engineering/skills/universal-reverse-core/references/gates.md
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
               # Reverse PR builds start from an already-published Standard image.

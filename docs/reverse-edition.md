@@ -258,3 +258,24 @@ Reverse 使用 Standard 镜像作为 `FROM`，内置 Web 插件的权威清单�
 Standard 的 `/root/.dsh` 持久卷与 Reverse 独立；用户额外安装在 Standard Web
 Profile 的第三方插件、凭证或选项不会自动迁移。新插件若采用新的非标准加载机制，
 需要扩展此校验协议，不能把绿色的文件检查解释成所有 UI 功能都已通过交互验收。
+
+
+## Universal Reverse Core（第一批：跨平台逆向方法论）
+
+新增 `universal-reverse-core` Skill，其 `references/` 按需加载目标路由、四道 Gate、证据验证与故障索引。它属于逆向 Agent 的统一决策方法，不是 APK 专项工具，也不更改 REA、Ghidra、JADX、GDB 等现有工具权限。实际静态/动态工具仍按目标类型选用，并需验证设备和运行时能力。
+
+在 Reverse 镜像中只读检查工具存在性：
+
+```bash
+reverse-doctor --json
+reverse-doctor --route android-static
+reverse-doctor --route native-static
+```
+
+输出 `dsh-reverse-capabilities/v1` 报告，单项能力状态为 `available`、`partial`、`blocked`。这是**存在性检查**，不是设备可用性或整个逆向流程成功的保证。特别是 `runtime-frida` 即使主机组件齐全，也必须额外验证授权目标及兼容的设备端环境。
+
+Skill 加载器现在将整个包内 Skill 目录（含嵌套引用）原子安装到 `$DSH_HOME/reverse-engineering/skills/`。为保护用户修改，**已存在的同名 Skill 目录会全部保留，不自动合并或覆盖**。如果用户曾自行创建同名 Skill，需要自行核对新镜像中 `/opt/dsh-reverse/skills/universal-reverse-core/` 后手动迁移；无需清理持久卷。
+
+四道 Gate：G1 授权与目标交付；G2 能力真实可用范围；G3 行为归属层；G4 原始基线与对照实验。静态任务不因无法动态执行而伪报通过；发生反证时停止同类盲目重试。此批只加入方法论、能力诊断和文档/测试，不引入样本动态执行、跨平台修改工具或新的 Web 工作台写操作。
+
+通用设计参考 [newliver666/apk-reverse](https://github.com/newliver666/apk-reverse)（MIT）；本仓库独立整理跨平台路由与实现。
