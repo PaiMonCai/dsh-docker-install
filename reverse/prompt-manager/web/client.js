@@ -355,8 +355,8 @@ window.__ModuleLoader__.load({
                 query:knowledgeQuery,platform:knowledgePlatform}))
               setKnowledgeItem(null)
             })},'检索')),
-          h('p',{style:css.muted},'匹配 '+knowledgeResults.length+' 条（显示前 12 条）'),
-          ...knowledgeResults.slice(0,12).map(item=>h('div',{key:item.id,style:css.line},
+          h('p',{style:css.muted},'匹配 '+knowledgeResults.length+' 条（显示前 8 条）'),
+          ...knowledgeResults.slice(0,8).map(item=>h('div',{key:item.id,style:css.line},
             h('span',{style:{fontWeight:600,fontSize:13}},item.title),
             h('span',{style:css.muted},item.platforms.join(' / ')+' · '+item.origin),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
@@ -381,7 +381,7 @@ window.__ModuleLoader__.load({
               setCases(await invoke('workbenchCases'))
               if(activeCase)setActiveCase(await invoke('workbenchCase',{id:activeCase.id}))
             })},'刷新案件')),
-          ...cases.slice(0,20).map(item=>h('div',{key:item.id,style:css.line},
+          ...cases.slice(0,8).map(item=>h('div',{key:item.id,style:css.line},
             h('span',{style:{fontSize:13,fontWeight:600}},item.goal.slice(0,70)),
             h('span',{style:css.muted},'证据 '+item.evidence_count+' · 假设 '+item.hypothesis_count),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
