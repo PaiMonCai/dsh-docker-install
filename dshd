@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.11.0"
+DSHD_VERSION="0.11.1"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -576,9 +576,9 @@ load_config_guarded() {
 }
 
 save_config() {
-  ensure_state_dir
+  ensure_state_dir || return 1
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp)" || return 1
   {
     printf 'DSHD_INSTANCE_ID=%q\n' "${DSHD_INSTANCE_ID:-}"
     printf 'DSH_EDITION=%q\n' "$DSH_EDITION"
@@ -619,9 +619,11 @@ save_config() {
     printf 'DSH_PROXY_FAILOVER_TOLERANCE=%q\n' "${DSH_PROXY_FAILOVER_TOLERANCE:-$DEFAULT_PROXY_FAILOVER_TOLERANCE}"
     printf 'DSH_PROXY_FAILOVER_IDLE_TIMEOUT=%q\n' "${DSH_PROXY_FAILOVER_IDLE_TIMEOUT:-$DEFAULT_PROXY_FAILOVER_IDLE_TIMEOUT}"
     printf 'DSH_PROXY_FAILOVER_INTERRUPT=%q\n' "${DSH_PROXY_FAILOVER_INTERRUPT:-false}"
-  } >"$tmp"
-  chmod 600 "$tmp"
-  mv "$tmp" "$CONFIG_FILE"
+  } >"$tmp" || { rm -f "$tmp"; return 1; }
+  if ! chmod 600 "$tmp" || ! mv "$tmp" "$CONFIG_FILE"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 storage_source() {
@@ -2743,8 +2745,9 @@ create_container() {
   local rollback_name="${DSH_NAME}-rollback"
   local preserved_previous=0
   if [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]] && container_exists; then
+    rollback_name="$(upgrade_rollback_name)"
     if docker_cmd inspect "$rollback_name" >/dev/null 2>&1; then
-      err "旧版回滚容器 $rollback_name 已存在；请先执行 dshd rollback 或 dshd rollback clear，再更新。"
+      err "回滚暂存位置 $rollback_name 已存在；请先执行 dshd rollback status / clear。"
       return 1
     fi
     info "保留旧版容器为 $rollback_name（与新版共享原持久数据卷）..."
@@ -2860,7 +2863,7 @@ create_container() {
       restore_previous_dsh_container "$rollback_name" || return 1
       return 1
     fi
-    ok "新版健康检查通过。旧版容器保留在 $rollback_name，可执行 dshd rollback。"
+    ok "新版健康检查通过。"
   fi
   # Retire previous proxy networking only AFTER replacement was accepted:
   # a failed image update must not destroy the old app's network dependencies.
@@ -3824,10 +3827,77 @@ cmd_logs() {
   container_exists || die "容器 $DSH_NAME 不存在。"
   docker_cmd logs -f --tail 200 "$DSH_NAME"
 }
+upgrade_rollback_name() {
+  local previous="${DSH_NAME}-rollback"
+  # Keep an existing rollback point intact until the next upgrade succeeds.
+  if [[ "${DSHD_KEEP_ROLLBACK:-0}" == 0 ]] && docker_cmd inspect "$previous" >/dev/null 2>&1; then
+    previous="${DSH_NAME}-rollback-pending"
+  fi
+  printf '%s\n' "$previous"
+}
+
 ensure_rollback_slot_free() {
-  if container_exists && docker_cmd inspect "${DSH_NAME}-rollback" >/dev/null 2>&1; then
-    err "旧版回滚点 ${DSH_NAME}-rollback 尚未处理，请执行 dshd rollback status / clear。"
+  [[ "${DSHD_KEEP_ROLLBACK:-0}" =~ ^[01]$ ]] ||
+    { err "DSHD_KEEP_ROLLBACK 必须为 0 或 1。"; return 1; }
+  local previous
+  previous="$(upgrade_rollback_name)"
+  if container_exists && docker_cmd inspect "$previous" >/dev/null 2>&1; then
+    err "回滚位置 $previous 尚未处理，请执行 dshd rollback status / clear。"
     return 1
+  fi
+  return 0
+}
+
+cleanup_upgrade_artifacts() {
+  local mode="${1:-automatic}" previous running owner image current_image
+  local result=0
+  local -A images=()
+  if [[ "$mode" == automatic ]]; then
+    if ! container_running || [[ "$(health_state)" != healthy ]]; then
+      warn "当前实例尚未健康，保留回滚容器和旧镜像，稍后可执行 dshd rollback clear。"
+      return 1
+    fi
+  fi
+  current_image="$(docker_cmd inspect -f '{{.Image}}' "$DSH_NAME" 2>/dev/null || true)"
+  for previous in "${DSH_NAME}-rollback" "${DSH_NAME}-rollback-pending" "${DSH_NAME}-rollback-failed"; do
+    docker_cmd inspect "$previous" >/dev/null 2>&1 || continue
+    running="$(docker_cmd inspect -f '{{.State.Running}}' "$previous")" || { result=1; continue; }
+    owner="$(docker_cmd inspect -f '{{index .Config.Labels "io.caicailo.dsh.instance"}}' "$previous")" ||
+      { result=1; continue; }
+    [[ "$owner" == "<no value>" ]] && owner=""
+    if [[ "$running" != false || "$owner" != "${DSHD_INSTANCE_ID:-}" ]]; then
+      warn "跳过 $previous：容器仍在运行或实例标签不匹配。"
+      result=1
+      continue
+    fi
+    image="$(docker_cmd inspect -f '{{.Image}}' "$previous")" || { result=1; continue; }
+    # No force or volume removal: Docker must reject a concurrently started backup.
+    if docker_cmd rm "$previous" >/dev/null; then
+      ok "已清理回滚容器 $previous（保留数据卷）。"
+      [[ -n "$image" && "$image" != "$current_image" ]] && images["$image"]=1
+    else
+      warn "无法清理 $previous，保留该容器及镜像。"
+      result=1
+    fi
+  done
+  for image in "${!images[@]}"; do
+    # Removing by ID without force preserves images referenced by any container
+    # or multiple tags. Never prune shared Standard layers or unrelated images.
+    if docker_cmd image rm --no-prune "$image" >/dev/null 2>&1; then
+      ok "已清理未使用的旧镜像 $image。"
+    else
+      warn "保留旧镜像 $image：可能仍被其他容器/多个标签引用，或删除失败。"
+      result=1
+    fi
+  done
+  return "$result"
+}
+
+finish_safe_upgrade() {
+  if [[ "${DSHD_KEEP_ROLLBACK:-0}" == 1 ]]; then
+    ok "旧版容器已保留，可用 dshd rollback 恢复应用版本。"
+  elif ! cleanup_upgrade_artifacts automatic; then
+    warn "更新已完成，部分旧资源保留，请查看上述清理提示。"
   fi
 }
 
@@ -3837,15 +3907,17 @@ cmd_update() {
   heading "更新 dsh 镜像"
   pull_best_image || return 1
   DSHD_SAFE_UPGRADE=1 create_container || return 1
-  save_config
-  ok "更新并重建完成；旧容器已保留，可用 dshd rollback 恢复应用版本。"
+  save_config || return 1
+  finish_safe_upgrade
+  ok "更新并重建完成。"
 }
 cmd_recreate() {
   load_config; ensure_docker
   ensure_rollback_slot_free || return 1
   pull_best_image || return 1
   DSHD_SAFE_UPGRADE=1 create_container || return 1
-  save_config
+  save_config || return 1
+  finish_safe_upgrade
 }
 
 cmd_rollback() {
@@ -3853,13 +3925,8 @@ cmd_rollback() {
   local action="${1:-apply}" previous="${DSH_NAME}-rollback" failed="${DSH_NAME}-rollback-failed"
   case "$action" in
     clear)
-      if ! docker_cmd inspect "$previous" >/dev/null 2>&1; then
-        info "没有保留的旧版容器。"
-        return 0
-      fi
-      confirm "只删除停止的旧容器 $previous（不删除数据卷），确认？" N || return 0
-      docker_cmd rm -f "$previous" >/dev/null
-      ok "旧版回滚容器已清理；会话、配置和数据卷均未删除。"
+      confirm "清理当前实例停止的回滚容器及未使用旧镜像（保留数据卷），确认？" N || return 0
+      cleanup_upgrade_artifacts manual
       ;;
     status)
       if docker_cmd inspect "$previous" >/dev/null 2>&1; then
@@ -3867,6 +3934,12 @@ cmd_rollback() {
       else
         info "没有可用的旧版回滚容器。"
       fi
+      local extra
+      for extra in "${DSH_NAME}-rollback-pending" "$failed"; do
+        if docker_cmd inspect "$extra" >/dev/null 2>&1; then
+          info "另有候选容器：$extra；检查后可执行 dshd rollback clear。"
+        fi
+      done
       ;;
     apply)
       docker_cmd inspect "$previous" >/dev/null 2>&1 ||
@@ -5430,7 +5503,7 @@ dshd - DeepSeek Harness Docker 管理器
   dshd token reset         重新生成随机 Token 并重启生效
   dshd backup              备份 /root/.dsh
   dshd restore [file]      恢复持久化数据备份
-  dshd rollback [status|apply|clear]  查看/执行应用容器回滚（保留数据）
+  dshd rollback [status|apply|clear]  回滚状态/恢复/清理容器和旧镜像（保留数据）
   dshd doctor              环境/网络/容器诊断
   dshd doctor plugins      内置插件/浏览器模块/插件 API 诊断（--json 输出）
   dshd self-update         立即检查并更新 dshd 脚本自身
@@ -5579,7 +5652,7 @@ OPTIONS
   [04] 按当前配置重建
   [05] 查看回滚状态
   [06] 回滚到上一版本
-  [07] 清理回滚容器
+  [07] 清理回滚容器及旧镜像
   [08] 更新 dshd 管理器
 OPTIONS
       ;;

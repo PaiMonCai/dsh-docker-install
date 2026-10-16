@@ -81,7 +81,7 @@ dshd edition standard
 输入 `dshd` 打开新的简洁主页：
 
 ```text
-◆ DSH Manager  v0.11.0
+◆ DSH Manager  v0.11.1
 
 [01] 实例管理      查看、创建、切换实例
 [02] 运行管理      状态、启停、日志、Shell
