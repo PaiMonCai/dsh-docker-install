@@ -1,0 +1,17 @@
+    function apply(ctx){
+      ctx.slots.inject('settings.section',()=>ctx.slots.register({
+        name:'settings.section',id:'reverse-prompt-manager',order:30,
+        label:()=> '逆向提示词',
+        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/reverse-prompt',method,payload)})
+      },Panel))
+      ctx.slots.inject('settings.section',()=>ctx.slots.register({
+        name:'settings.section',id:'reverse-workbench',order:31,
+        label:()=> '逆向工作台',
+        inject:()=>({call:(method,payload)=>ctx.connection.rpc.call('/reverse-prompt',method,payload)})
+      },WorkbenchPanel))
+    }
+    exports.apply=apply
+    exports.inject=['slots','connection']
+    return exports
+  }
+})

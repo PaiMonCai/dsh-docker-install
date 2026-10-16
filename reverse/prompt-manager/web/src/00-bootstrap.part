@@ -1,0 +1,20 @@
+/* Native DSH Client module, no DOM replacement or external UI library. */
+window.__ModuleLoader__.load({
+  id:'dsh-reverse-prompt-web',
+  factory(require) {
+    const exports={}
+    const React=require('react')
+    const {createElement:h,useEffect,useState}=React
+    const css={
+      shell:{display:'flex',flexDirection:'column',gap:12,color:'var(--dsw-alias-label-primary)'},
+      line:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'},
+      card:{border:'1px solid var(--dsw-alias-border-l2)',borderRadius:10,padding:12,
+        background:'var(--dsw-alias-bg-module-platform)',display:'flex',flexDirection:'column',gap:9},
+      input:{border:'1px solid var(--dsw-alias-border-l2)',borderRadius:7,padding:'7px 9px',
+        background:'transparent',color:'inherit',minWidth:130,flexGrow:1,font:'inherit'},
+      button:{padding:'6px 10px',borderRadius:7,cursor:'pointer',
+        border:'1px solid var(--dsw-alias-border-l2)',color:'inherit',background:'transparent',font:'inherit'},
+      muted:{fontSize:12,color:'var(--dsw-alias-label-tertiary)',lineHeight:1.5},
+      pre:{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:300,overflow:'auto',
+        fontSize:12,fontFamily:'monospace',color:'var(--dsw-alias-label-secondary)'},
+    }
