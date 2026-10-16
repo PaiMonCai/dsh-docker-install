@@ -105,6 +105,27 @@ class ReverseTaskTest(unittest.TestCase):
             self.mod["worker_once"](second["id"])
         self.assertEqual(self.mod["read_task"](first["id"])["state"], "queued")
 
+    def test_stage_publish_and_discard_share_same_queue_validation(self):
+        staged = self.mod["enqueue"]("triage", [str(self.source)], stage=True)
+        self.assertEqual(staged["state"], "staging")
+        self.assertEqual(self.mod["worker_once"]()["status"], "idle")
+        live = self.mod["publish"](staged["id"])
+        self.assertEqual(live["state"], "queued")
+        with self.assertRaises(ValueError):
+            self.mod["discard"](staged["id"])
+        abandoned = self.mod["enqueue"]("triage", [str(self.source)], stage=True)
+        self.assertTrue(self.mod["discard"](abandoned["id"])["discarded"])
+        with self.assertRaises(ValueError):
+            self.mod["read_task"](abandoned["id"])
+
+    def test_publish_refuses_missing_target_and_broken_case_binding(self):
+        staged = self.mod["enqueue"]("triage", [str(self.source)], stage=True)
+        self.source.unlink()
+        with self.assertRaises(ValueError):
+            self.mod["publish"](staged["id"])
+        self.assertEqual(self.mod["read_task"](staged["id"])["state"], "staging")
+
 if __name__ == "__main__":
     unittest.main()
+
 

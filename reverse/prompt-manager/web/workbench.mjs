@@ -46,7 +46,8 @@ export function tasks() {
       if (item.schema !== 'dsh-reverse-task/v1' || item.id !== entry.slice(0, -5)) continue
       rows.push({ id: item.id, kind: item.kind, state: item.state,
         attempts: item.attempts, created_at: item.created_at,
-        updated_at: item.updated_at, error: item.last_error })
+        updated_at: item.updated_at, error: item.last_error,
+        case_id: typeof item.case_id === 'string' && UUID.test(item.case_id) ? item.case_id : null })
     } catch { /* ignore corrupt records, no disruption to UI */ }
   }
   return rows.sort((a,b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 100)
@@ -58,7 +59,8 @@ export function taskDetail(id) {
   // Never display arbitrary command arguments or raw tool logs to Web clients.
   return { id:data.id, kind:data.kind, state:data.state, attempts:data.attempts,
     created_at:data.created_at, updated_at:data.updated_at, error:data.last_error,
-    exit_code:data.result?.exit_code ?? null }
+    exit_code:data.result?.exit_code ?? null,
+    case_id:typeof data.case_id==='string'&&UUID.test(data.case_id)?data.case_id:null }
 }
 export function report(path) {
   const data = parseFile(workspaceFile(path, MAX_REPORT))
@@ -167,12 +169,25 @@ function caseRecord(id){
     throw Error('invalid case record')
   return item
 }
+// Case identity is independent of the queue. Projects only validate references,
+// not whether task metadata is currently readable or up to date.
+export function caseIdentity(id){
+  const item=caseRecord(id)
+  return {id:item.id,revision:item.revision}
+}
 export function caseDetail(id){
   const item=caseRecord(id)
   const gates={}
   for(const name of ['G1','G2','G3','G4'])
     gates[name]=['pending','passed','blocked'].includes(item.gates?.[name]?.state)
       ? item.gates[name].state:'unknown'
+  const linkedTasks = new Map(item.tasks.slice(0,100).map(t=>[t.id,{
+    id:String(t.id).slice(0,40),kind:String(t.kind).slice(0,40),
+    state:String(t.state).slice(0,40)}]))
+  // Resolve current task status from the same queue as CLI/Web. The Case JSON
+  // remains the immutable investigation ledger, not a second task database.
+  for(const task of tasks().filter(t=>t.case_id===id))
+    linkedTasks.set(task.id,{id:task.id,kind:task.kind,state:task.state})
   return {schema:item.schema,id:item.id,revision:item.revision,
     goal:String(item.goal).slice(0,300),deliverable:String(item.deliverable).slice(0,200),
     updated_at:item.updated_at,gates,
@@ -190,8 +205,6 @@ export function caseDetail(id){
       evidence_ids:Array.isArray(e.evidence_ids)?e.evidence_ids.slice(0,100)
         .filter(id=>typeof id==='string').map(id=>id.slice(0,16)):[]
     })),
-    tasks:item.tasks.slice(0,100).map(t=>({
-      id:String(t.id).slice(0,40),kind:String(t.kind).slice(0,40),state:String(t.state).slice(0,40)
-    }))
+    tasks:[...linkedTasks.values()].slice(0,100)
   }
 }

@@ -347,3 +347,23 @@ reverse-knowledge promote <case-uuid> --platform elf \
 「设置 → 逆向工作台」新增跨平台故障检索、案件关卡与假设—实验—证据关系视图，全部采用现有登录 RPC 和只读数据接口，不增加知识编辑/样本执行权限。Web 默认不显示案件原始观测正文及任务 stdout，完整内容通过本地 `reverse-case show` 审查。
 
 旧版同名 Skill 仍由加载器保留；内置 Reverse Persona 同时提供 `reverse-knowledge` 路由入口提示，确保旧用户无需覆盖自定义 Skill。
+
+
+## Reverse 架构收敛：项目、案件和统一任务队列
+
+`Project` 是工作空间的归档入口；`Case` 是一个可持久化的调查问题；`Task` 负责白名单静态工具的执行；`Evidence` 负责文件哈希和观察记录。现在一个 Project 可以关联既有 Case（不复制 Case 数据或迁移现有 JSON），Web 中可以在新建任务时选定**已经关联的 Case**。关联目标不匹配时，任务会在入队前被拒绝。旧的项目、未关联案件以及独立 CLI 任务继续兼容。
+
+```bash
+# 1. 创建案件（输出 UUID）
+reverse-case create /workspace/sample.elf --goal "解释初始化流程" --deliverable "调用链报告"
+# 2. 在 Web → 逆向工作台 → 项目与任务，将 Case UUID 关联到项目。
+# 3. 新建任务时选择对应 Case，任务数据持久保存 case_id。
+# 4. CLI 仍可直接创建与案件关联的受控任务：
+reverse-task enqueue triage /workspace/sample.elf --case-id <case-uuid>
+```
+
+CLI 与 Web **都由 `reverse-task` 维护任务状态**；Web 采用 `enqueue --stage` 创建暂存记录，关联项目成功后调用 `publish` 才可执行。关联失败调用 `discard`，中断后的 `staging` 不会由执行器自动运行，项目管理员可在 Web 中审查和显式恢复。`reverse-task run-once` 仍需授权主动调用；Web 执行默认关闭。所有操作继续使用同一个全局顺序队列及原白名单。
+
+`reverse-task enqueue ...` 的普通 CLI 行为保持不变，`--stage`、`publish <task-id>` 与 `discard <task-id>` 是供受控关联过程使用的显式状态操作。Web 工作台按“项目与任务 / 案件关系 / 经验检索 / 证据与报告”切换视图，不再一次渲染所有卡片。系统保持文件存储、原 Agent/Skills 和原工具链，不增加数据库与服务端口。
+
+项目中的 Case 关系由 `.reverse-projects/<project>.links.json` 记录 UUID 引用，而不是复制 Case JSON。Case 工作台会从同一 `.reverse-tasks` 任务队列中实时读取与 `case_id` 匹配的近期任务状态，因此 Web 任务状态更新不依赖额外的手工 `sync-task`；手工 `reverse-case sync-task` 仍可在审计账本里保留任务状态快照。证据是否支持结论仍要通过显式证据登记及验证，不能因为任务成功就自动把推测标记为已观察事实。

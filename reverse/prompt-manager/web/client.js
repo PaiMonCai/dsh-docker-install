@@ -215,6 +215,9 @@ window.__ModuleLoader__.load({
         h('p',{style:css.muted},
           '证据 '+evidence.length+' · 假设 '+hypotheses.length+
           ' · 实验 '+experiments.length+' · 任务 '+(data.tasks||[]).length),
+        ...(data.tasks||[]).slice(0,20).map(t=>h('div',{key:t.id,style:css.line},
+          h('code',null,'任务 '+t.id.slice(0,8)),
+          h('span',{style:css.muted},t.kind+' · '+t.state))),
         ...evidence.slice(0,30).map(e=>h('div',{key:e.id,style:{...css.line,fontSize:12}},
           h('code',null,e.id),h('span',{style:css.muted},e.grade+' · '+e.artifact_path))),
         !hypotheses.length?h('p',{style:css.muted},'暂无假设，可通过 reverse-case hypothesis 添加。'):null)
@@ -229,6 +232,8 @@ window.__ModuleLoader__.load({
       const [taskKind,setTaskKind]=useState('triage')
       const [taskInputs,setTaskInputs]=useState('')
       const [runConfirm,setRunConfirm]=useState('')
+      const [taskCaseId,setTaskCaseId]=useState('')
+      const [activeSection,setActiveSection]=useState('project')
       const [orphanStatus,setOrphanStatus]=useState(null)
       const [jobs,setJobs]=useState([])
       const [cases,setCases]=useState([])
@@ -264,7 +269,16 @@ window.__ModuleLoader__.load({
       useEffect(()=>{invoke('workbenchKnowledgeSearch',{query:'',platform:'all'}).then(setKnowledgeResults)
         .catch(error=>setMessage(String(error?.message??error)))},[])
       return h('div',{style:css.shell},
-        h(Section,{title:'分析项目'},
+        h('nav',{style:{...css.line,gap:6},'aria-label':'逆向工作台导航'},
+          ...[['project','项目与任务'],['cases','案件关系'],['knowledge','经验检索'],['reports','证据与报告']]
+          .map(([value,label])=>h('button',{
+            key:value,type:'button','aria-current':activeSection===value?'page':undefined,
+            onClick:()=>setActiveSection(value),
+            style:{...css.button,borderRadius:8,fontWeight:activeSection===value?700:400,
+              background:activeSection===value?'var(--dsw-alias-bg-module-platform)':'transparent',
+              borderColor:activeSection===value?'var(--dsw-alias-label-tertiary)':'var(--dsw-alias-border-l2)'}
+          },label))),
+        activeSection==='project'&&h(Section,{title:'分析项目'},
           h('p',{style:css.muted},'项目元数据持久保存于 Reverse 工作区；样本与报告目前仍按工作区路径管理。'),
           h('div',{style:css.line},
             h(Field,{value:projectName,onChange:setProjectName,placeholder:'新项目名称'}),
@@ -286,9 +300,15 @@ window.__ModuleLoader__.load({
               h('select',{style:css.input,value:taskKind,onChange:e=>setTaskKind(e.target.value)},
                 ...['triage','js-triage','ghidra','diff','verify'].map(k=>h('option',{value:k,key:k},k))),
               h(Field,{value:taskInputs,onChange:setTaskInputs,placeholder:'工作区相对输入路径'}),
+              h('select',{style:css.input,value:taskCaseId,'aria-label':'关联案件',
+                onChange:e=>setTaskCaseId(e.target.value)},
+                h('option',{value:''},'不关联案件'),
+                ...(projectLinks?.entries||[]).filter(e=>e.kind==='case'&&e.valid)
+                  .map(e=>h('option',{key:e.ref,value:e.ref},'案件 '+e.ref.slice(0,8)))),
               h(Control,{disabled:busy||!taskInputs.trim(),onClick:()=>run(async()=>{
                 const inputs=taskInputs.split('\n').map(s=>s.trim()).filter(Boolean)
-                const created=await invoke('workbenchProjectTaskCreate',{id:activeProject.id,kind:taskKind,inputs})
+                const created=await invoke('workbenchProjectTaskCreate',{id:activeProject.id,kind:taskKind,inputs,
+                  caseId:taskCaseId||undefined})
                 setProjectLinks(await invoke('workbenchProjectLinks',{id:activeProject.id}))
                 setJobs(await invoke('workbenchTasks'))
                 setTaskInputs('')
@@ -298,7 +318,8 @@ window.__ModuleLoader__.load({
               h('select',{style:css.input,value:linkKind,onChange:e=>setLinkKind(e.target.value)},
                 h('option',{value:'sample'},'样本文件'),
                 h('option',{value:'task'},'分析任务 UUID'),
-                h('option',{value:'evidence'},'证据 JSON')),
+                h('option',{value:'evidence'},'证据 JSON'),
+                h('option',{value:'case'},'逆向案件 UUID')),
               h(Field,{value:linkRef,onChange:setLinkRef,placeholder:'工作区相对路径或任务 UUID'}),
               h(Control,{disabled:busy||!linkRef.trim(),onClick:()=>run(async()=>{
                 setProjectLinks(await invoke('workbenchProjectAttach',{id:activeProject.id,kind:linkKind,ref:linkRef.trim()}))
@@ -336,13 +357,17 @@ window.__ModuleLoader__.load({
                   setRunConfirm('')
                   setMessage('任务执行结果：'+result.state)
                 })},'执行队首任务'):null,
+              entry.kind==='case'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
+                setActiveCase(await invoke('workbenchCase',{id:entry.ref}))
+                setActiveSection('cases')
+              })},'查看案件'):null,
               entry.kind==='evidence'&&entry.valid?h(Control,{disabled:busy,onClick:()=>run(async()=>{
                 setReportPath(entry.ref)
                 setOpenedReport(await invoke('workbenchReport',{path:entry.ref}))
               })},'查看证据'):null))
           ):null
         ),
-        h(Section,{title:'逆向经验检索 · 只读'},
+        activeSection==='knowledge'&&h(Section,{title:'逆向经验检索 · 只读'},
           h('p',{style:css.muted},'内置条目只提供排查方向；个案经验也不是已独立验证的通用结论。'),
           h('div',{style:css.line},
             h(Field,{value:knowledgeQuery,onChange:setKnowledgeQuery,placeholder:'搜索症状或原因'}),
@@ -374,7 +399,7 @@ window.__ModuleLoader__.load({
             h('p',{style:css.muted},'局限：'+knowledgeItem.limitations),
             knowledgeItem.case_id?h('code',null,'来源案件：'+knowledgeItem.case_id):null):null
         ),
-        h(Section,{title:'逆向案件关系 · 只读'},
+        activeSection==='cases'&&h(Section,{title:'逆向案件关系 · 只读'},
           h('div',{style:css.line},
             h('p',{style:css.muted},'案件 '+cases.length+' 个 · Gate / 假设 / 实验 / 证据引用'),
             h(Control,{disabled:busy,onClick:()=>run(async()=>{
@@ -393,7 +418,7 @@ window.__ModuleLoader__.load({
               h('code',null,activeCase.id.slice(0,8)+' · rev '+activeCase.revision)),
             h(CaseGraph,{data:activeCase})
           ):null),
-        h(Section,{title:'逆向分析工作台 · 只读'},
+        activeSection==='reports'&&h(Section,{title:'逆向分析工作台 · 只读'},
           h('p',{style:css.muted},'展示持久化任务与静态证据报告。运行、重试、删除等操作暂未开放 Web 控制。'),
           h('div',{style:css.line},
             h(Control,{disabled:busy,onClick:()=>run(async()=>{

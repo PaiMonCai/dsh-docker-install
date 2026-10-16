@@ -1,7 +1,7 @@
 /** Enqueue allowlisted offline tasks for a selected Reverse project.
  * Enqueue only: the operator still runs reverse-task run-once explicitly. */
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, lstatSync, readdirSync, openSync, writeFileSync, closeSync, unlinkSync, readFileSync, fsyncSync, renameSync } from 'node:fs'
+import { mkdirSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { resolve, relative, sep, join, isAbsolute } from 'node:path'
 import { project } from './projects.mjs'
 import { projectLinks, attachProjectItem } from './project-links.mjs'
@@ -10,6 +10,20 @@ import { auditRecovery } from './recovery-audit.mjs'
 const ROOT=resolve(process.env.DSH_REVERSE_WORKSPACE_ROOT || '/workspace')
 const STORE=join(ROOT,'.reverse-tasks')
 const ALLOW={triage:1,'js-triage':1,ghidra:1,diff:2,verify:1}
+// The Python queue is the only writer of task lifecycle state in both CLI and Web.
+// Test builds point DSH_REVERSE_TASK_CLI at the checked-out source; images use /usr/local/bin.
+const TASK_CLI=process.env.DSH_REVERSE_TASK_CLI||'/usr/local/bin/reverse-task'
+function queue(...args) {
+  const result=spawnSync(TASK_CLI,args,{
+    cwd:ROOT,env:{...process.env,DSH_REVERSE_WORKSPACE_ROOT:ROOT},
+    encoding:'utf8',timeout:20000,maxBuffer:1024*1024,shell:false
+  })
+  if(result.error||result.status!==0)throw Error(
+    'reverse-task refused operation: '+String(result.stderr||result.error?.message||'unknown').slice(0,250))
+  const item=JSON.parse(result.stdout)
+  if(!item||typeof item!=='object')throw Error('invalid task CLI response')
+  return item
+}
 function boundedInput(value) {
   if(typeof value!=='string'||value.length>1024||!value ||
     isAbsolute(value)||value.split(/[\\/]/).includes('..')||value.includes('\0'))
@@ -33,42 +47,33 @@ function validateTaskStore() {
   if(readdirSync(STORE).filter(x=>x.endsWith('.json')).length>=300)
     throw Error('queue capacity reached')
 }
-export function createProjectTask(projectId,kind,inputs) {
+export function createProjectTask(projectId,kind,inputs,caseId) {
   project(projectId)
   if(!Object.hasOwn(ALLOW,kind)||!Array.isArray(inputs)||inputs.length!==ALLOW[kind])
     throw Error('invalid allowlisted task')
-  // Protect project linkage capacity before creating the task.
-  if(projectLinks(projectId).entries.length>=120)throw Error('project links at capacity')
+  const links=projectLinks(projectId)
+  if(links.entries.length>=120)throw Error('project links at capacity')
+  if(caseId!==undefined&&caseId!==null&&caseId!=='') {
+    if(typeof caseId!=='string'||!links.entries.some(e=>e.kind==='case'&&e.ref===caseId&&e.valid))
+      throw Error('case must be linked to the selected project')
+  }
   const paths=inputs.map(boundedInput)
   validateTaskStore()
-  const id=randomUUID(),now=new Date().toISOString()
-  const data={schema:'dsh-reverse-task/v1',id,kind,inputs:paths,state:'staging',
-    attempts:0,created_at:now,updated_at:now,result:null,last_error:null}
-  const file=join(STORE,id+'.json')
-  const fd=openSync(file,'wx',0o600)
-  try {writeFileSync(fd,JSON.stringify(data,null,2)+'\n');fsyncSync(fd)}
-  finally {closeSync(fd)}
-  // Only queued tasks are executable; linking happens while the task is staged.
-  // If the process crashes, recovery can decide whether to commit or discard.
-  try {attachProjectItem(projectId,'task',id)}
-  catch(e){unlinkSync(file);throw e}
-  publishQueued(file,data)
-  return {id,kind,state:'queued',project_id:projectId}
-}
-
-function publishQueued(file,data) {
-  const temp=file+'.'+randomUUID()+'.tmp'
-  const fd=openSync(temp,'wx',0o600)
-  try {
-    writeFileSync(fd,JSON.stringify({...data,state:'queued',updated_at:new Date().toISOString()},null,2)+'\n')
-    fsyncSync(fd)
-    closeSync(fd)
-    renameSync(temp,file)
-  } catch(e) {
-    try{closeSync(fd)}catch{}
-    try{unlinkSync(temp)}catch{}
-    throw e
+  const args=['enqueue',kind,...paths,'--stage']
+  if(caseId)args.push('--case-id',caseId)
+  const staged=queue(...args)
+  if(staged.schema!=='dsh-reverse-task/v1'||staged.state!=='staging')
+    throw Error('queue failed to stage task')
+  // Only linked tasks may become runnable. Interrupted flows remain staged
+  // and are explicitly recoverable, never silently executed.
+  try {attachProjectItem(projectId,'task',staged.id)}
+  catch(error){
+    try{queue('discard',staged.id)}catch{}
+    throw error
   }
+  const published=queue('publish',staged.id)
+  return {id:staged.id,kind,state:published.state,project_id:projectId,
+    case_id:caseId||null}
 }
 /** Operator-triggered recovery, limited to staged tasks belonging to this project. */
 export function recoverProjectTasks(projectId) {
@@ -89,7 +94,7 @@ export function recoverProjectTasks(projectId) {
         if(rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel))throw Error('unsafe input')
         boundedInput(rel)
       })
-      publishQueued(file,data)
+      queue('publish',id)
       recovered.push(id)
     }catch {skipped.push(id)}
   }
