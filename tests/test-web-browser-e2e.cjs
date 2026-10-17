@@ -8,7 +8,7 @@ const path = require('node:path')
 const net = require('node:net')
 const { chromium } = require('/usr/local/lib/node_modules/playwright')
 const { resolveBindHost } = require('/usr/local/bin/resolve-bind-host.js')
-const { openCredentialForm } = require('./web-browser-onboarding.cjs')
+const { openCredentialForm, openSettingsPanel } = require('./web-browser-onboarding.cjs')
 
 const tokenFile = path.join(process.env.DSH_HOME || '/root/.dsh',
   '.dshd-web-login-token.json')
@@ -193,9 +193,7 @@ async function run() {
   assert.equal(await selects.inputValue(), 'hidden')
 
   // Exercise the real settings module and its authenticated dedicated RPC.
-  await page.getByRole('button', { name: '设置', exact: true }).click({ timeout })
-  const settingsDialog = page.getByRole('dialog', { name: '设置', exact: true })
-  await settingsDialog.waitFor({ state: 'visible', timeout })
+  const settingsDialog = await openSettingsPanel(page, timeout)
   await settingsDialog.getByRole('button', { name: '提示词与执行', exact: true }).click({ timeout })
   const promptText = settingsDialog.getByRole('textbox', { name: '全局附加指令', exact: true })
   await promptText.waitFor({ state: 'visible', timeout })

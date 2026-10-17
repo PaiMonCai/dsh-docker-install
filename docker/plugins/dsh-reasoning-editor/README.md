@@ -3,7 +3,7 @@
 A deliberately small DSH Web extension for hand-declared `llm-pi-ai`
 providers.
 
-DSH 0.2.1-rc.1 already exposes reasoning-level editing in its native Models
+DSH 0.2.1-rc.2 exposes reasoning-level editing in its native Models
 form. This extension adds bulk editing using the same canonical field;
 existing settings need no migration, and the native Composer owns selection.
 
