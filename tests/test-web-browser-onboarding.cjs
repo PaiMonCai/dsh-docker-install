@@ -1,7 +1,7 @@
 'use strict'
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { openCredentialForm } = require('./web-browser-onboarding.cjs')
+const { openCredentialForm, openSettingsPanel } = require('./web-browser-onboarding.cjs')
 
 function fixture(flow, { brokenChoice = false } = {}) {
   let state = 'loading'
@@ -80,4 +80,54 @@ test('missing onboarding is still a failure, not a skipped check', async () => {
 test('account choice must actually open the credential form', async () => {
   const f = fixture('account', { brokenChoice: true })
   await assert.rejects(openCredentialForm(f.page), /credential timeout/)
+})
+
+function settingsFixture(flow, { brokenMenu = false } = {}) {
+  let state = 'loading'
+  const clicks = []
+  function locator(kind) {
+    return {
+      async isVisible() { return state === kind },
+      or(other) {
+        assert.equal(kind, 'account')
+        assert.equal(other, trigger)
+        return { first: () => ({ async waitFor() { state = flow } }) }
+      },
+      async click() {
+        assert.equal(state, kind)
+        clicks.push(kind)
+        state = kind === 'account' ? (brokenMenu ? 'missing' : 'menu') : 'panel'
+      },
+      async waitFor() { if (state !== kind) throw Error('settings panel timeout') },
+    }
+  }
+  const account = locator('account'), trigger = locator('trigger')
+  const menu = locator('menu'), panel = locator('panel')
+  const page = { getByRole(role, options) {
+    assert.equal(options.exact, true)
+    if (role === 'button' && options.name === '\u8d26\u53f7\u83dc\u5355') return account
+    assert.equal(options.name, '\u8bbe\u7f6e')
+    if (role === 'button') return trigger
+    if (role === 'menuitem') return menu
+    assert.equal(role, 'dialog')
+    return panel
+  } }
+  return { page, panel, clicks }
+}
+
+test('current account launcher opens native Settings through its menu item', async () => {
+  const f = settingsFixture('account')
+  assert.equal(await openSettingsPanel(f.page), f.panel)
+  assert.deepEqual(f.clicks, ['account', 'menu'])
+})
+
+test('legacy standalone Settings trigger still opens the native panel', async () => {
+  const f = settingsFixture('trigger')
+  assert.equal(await openSettingsPanel(f.page), f.panel)
+  assert.deepEqual(f.clicks, ['trigger'])
+})
+
+test('a missing account menu item cannot silently skip Settings acceptance', async () => {
+  const f = settingsFixture('account', { brokenMenu: true })
+  await assert.rejects(openSettingsPanel(f.page))
 })

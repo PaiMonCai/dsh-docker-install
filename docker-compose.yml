@@ -4,8 +4,8 @@ services:
       context: .
       args:
         # 与 Dockerfile 中的默认值保持一致；升级时改这里（check-update 工作流会自动维护）。
-        DSH_VERSION: "0.2.1-rc.1"
-        # 与 dsh 0.1.5-rc.2 官方 packageManager 保持一致。
+        DSH_VERSION: "0.2.1-rc.2"
+        # 固定 pnpm 版本，与镜像 Dockerfile 默认值保持一致。
         PNPM_VERSION: "11.7.0"
         # auto=自动检测国内网络并切镜像源；yes/no 强制指定
         IN_CHINA: auto
@@ -35,15 +35,15 @@ services:
       # dsh-whale-widget 的非回环写权限。与 Trusted Hosts、浏览器认证是独立门禁，默认必须留空。
       # 仅在确需通过域名/局域网修改 Whale 配置时显式填写，例如 "dsh.example.com"。
       DSHW_ADMIN_HOSTS: "${DSHW_ADMIN_HOSTS:-}"
-      # 内置自定义模型 reasoningEfforts 编辑器；false 时通过 DSH Plugin Manager 移除。
+      # 推理等级批量编辑器；false 时不加载补丁，保留原生界面与已保存配置。
       DSH_REASONING_EDITOR: "${DSH_REASONING_EDITOR:-true}"
       # Native Icon Dock defaults on in the image; expose the same toggle as Reverse.
       DSH_ICON_DOCK_ENABLED: "${DSH_ICON_DOCK_ENABLED:-true}"
-      # 内置 Web 会话管理菜单，删除时重启并进入回收区；false 时移除该插件。
+      # Web 会话回收站；删除使用原生归档，不重启容器；false 时不加载该插件。
       DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
       # 原生提示词与执行设置页；附加指令和工具禁用名单初始均关闭。
       DSH_PROMPT_MANAGER: "${DSH_PROMPT_MANAGER:-true}"
-      # Search is opt-in; bundled SearXNG runs only when the plugin is enabled.
+      # Search is opt-in; bundled SearXNG starts only when selected as provider.
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
       DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"
       DSH_SEARCH_BRAVE_ENABLED: "${DSH_SEARCH_BRAVE_ENABLED:-false}"

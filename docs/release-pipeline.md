@@ -1,5 +1,8 @@
 # Image release pipeline
 
+For image selection and release commands, see [the CI guide](ci.md).
+For repository ownership and check entrypoints, see [project layout](project-layout.md).
+
 Standard follows upstream DSH. Research, Research Economics and Reverse consume
 the successful Standard artifact; they do not independently install upstream DSH.
 Release jobs use Ubuntu 24.04 runners explicitly, so an `ubuntu-latest`
@@ -43,6 +46,11 @@ against the artifact, including agreement between architectures.
    npm channel aliases are no longer automatically published.
 5. Standard independently queues Research and Reverse with the immutable
    `image@sha256:...` reference and Standard provenance.
+
+Accepted Git release tags include prereleases such as `v1.2.3-rc.1` (no build
+metadata, at most 90 characters). They use the same release track and may move
+floating aliases when their project version is not older; there is no separate
+RC alias policy.
 
 Every downstream workflow checks out its own `github.sha`, matching its workflow
 definition. Tagged Standard dispatches use that same tag ref; development

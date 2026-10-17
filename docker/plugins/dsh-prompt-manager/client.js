@@ -111,6 +111,6 @@ window.__ModuleLoader__.load({
         inject: () => ({ call: (method, payload) => ctx.connection.rpc.call('/dsh-docker-prompt-manager', method, payload) }),
       }, Panel))
     }
-    return { apply }
+    return { inject: ['slots', 'connection'], apply }
   },
 })

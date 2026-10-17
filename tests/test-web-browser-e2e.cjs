@@ -8,7 +8,7 @@ const path = require('node:path')
 const net = require('node:net')
 const { chromium } = require('/usr/local/lib/node_modules/playwright')
 const { resolveBindHost } = require('/usr/local/bin/resolve-bind-host.js')
-const { openCredentialForm } = require('./web-browser-onboarding.cjs')
+const { openCredentialForm, openSettingsPanel } = require('./web-browser-onboarding.cjs')
 
 const tokenFile = path.join(process.env.DSH_HOME || '/root/.dsh',
   '.dshd-web-login-token.json')
@@ -25,6 +25,7 @@ if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) throw Error('invalid CI login token'
 const timeout = 20000
 let browser
 let page
+const clientErrors = []
 
 async function run() {
   proxy = net.createServer(client => {
@@ -49,7 +50,6 @@ async function run() {
     locale: 'zh-CN',
   })
   page = await context.newPage()
-  const clientErrors = []
   page.on('pageerror', error => clientErrors.push(error.message))
   // Do not log authenticated URLs, request/response cookies or tokens.
   await page.goto(base + '/?token=' + encodeURIComponent(token), {
@@ -193,21 +193,17 @@ async function run() {
   assert.equal(await selects.inputValue(), 'hidden')
 
   // Exercise the real settings module and its authenticated dedicated RPC.
-  await page.evaluate(() => {
-    const entry = window.__dshDockerIconDockV1.getAll().find(item => item.id === 'native-panel.settings')
-    if (!entry) throw Error('native Settings entry missing')
-    entry.onClick()
-  })
-  await page.getByText('提示词与执行', { exact: true }).first().click({ timeout })
-  const promptText = page.getByRole('textbox', { name: '全局附加指令', exact: true })
+  const settingsDialog = await openSettingsPanel(page, timeout)
+  await settingsDialog.getByRole('button', { name: '提示词与执行', exact: true }).click({ timeout })
+  const promptText = settingsDialog.getByRole('textbox', { name: '全局附加指令', exact: true })
   await promptText.waitFor({ state: 'visible', timeout })
-  await page.getByRole('checkbox', { name: '启用全局附加指令' }).check()
+  await settingsDialog.getByRole('checkbox', { name: '启用全局附加指令' }).check()
   await promptText.fill('CI literal {{unknown_variable}}')
-  await page.getByRole('button', { name: '保存注入与工具设置', exact: true }).click()
-  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor({ timeout })
-  await page.getByRole('button', { name: '停用附加设置', exact: true }).click()
-  await page.getByRole('status').filter({ hasText: '附加指令和工具禁用名单已停用' }).waitFor({ timeout })
-  assert.equal(await page.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
+  await settingsDialog.getByRole('button', { name: '保存注入与工具设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '已保存' }).waitFor({ timeout })
+  await settingsDialog.getByRole('button', { name: '停用附加设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '附加指令和工具禁用名单已停用' }).waitFor({ timeout })
+  assert.equal(await settingsDialog.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
   assert.equal(await promptText.inputValue(), 'CI literal {{unknown_variable}}')
 
   // A collapsed sidebar may show 2x2 with overflow. The exact UI control
@@ -226,6 +222,9 @@ run().catch(async error => {
       await page.screenshot({ path: '/tmp/dsh-web-e2e-failed.png', fullPage: true })
       console.error('Saved failure screenshot to /tmp/dsh-web-e2e-failed.png')
     } catch { /* page may already be closed */ }
+    for (const message of clientErrors) {
+      console.error('Browser client error: ' + String(message).replaceAll(token, '[REDACTED]'))
+    }
   }
   console.error('Browser E2E FAIL: ' + String(error.message).replaceAll(token, '[REDACTED]'))
   process.exitCode = 1

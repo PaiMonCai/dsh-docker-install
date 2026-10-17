@@ -4,16 +4,28 @@
 
 ## 文件与加载边界
 
-镜像中的每个内置 Web 插件位于 `docker/plugins/<id>/`，至少包含：
+镜像中的公共插件位于 `docker/plugins/<id>/`。有浏览器界面的插件包含：
 
 - `package.json`：稳定 `name`、`exports["./client"]` 和 `dsh.client.platform=web`。
 - `index.js`：DSH 服务端 Cordis 插件，不能在模块导入阶段擅自读写用户 Profile。
 - `client.js`：通过 `window.__ModuleLoader__.load({id, factory})` 注册的浏览器客户端。
 - `cordis.patch.yml`：仅包含该功能的官方 DSH 配置补丁，`name: ./index.js` 从补丁位置解析。
 
+仅服务端的桥接插件无需 `client.js`，并通过 `package.json` 的 `dshDockerServerOnly`
+标记供诊断工具识别，例如 `dsh-bili-ui-bridge`。Reverse、Research 专用扩展留在各自目录。
+
 **新增插件不是直接向用户 Profile 执行 `dsh plugin add`。** 由镜像 Dockerfile 打包，经容器启动脚本的 `append_native_web_patch` 使用官方 `dsh web --patch` 机制装载；全部启动器 `--patch` 参数必须放在 Web 应用的 `--no-open`、`--port` 等选项之前。新插件需有明确环境开关与默认值，且在 CI 中验证启用/禁用行为。
 
 插件必须允许完全禁用，不得因自身可选服务不可用使核心 DSH Web 无法使用；但必需插件文件缺失属于镜像构建错误，应明确失败。
+
+开关与默认值见 [Runtime 环境变量](runtime.md#环境变量)。修改环境变量后重建容器，
+由启动器决定是否加载补丁；关闭界面扩展不会删除已经保存的模型配置或原生会话权限事件。
+提示词与执行设置的配置生效、会话权限恢复见 [专用指南](prompt-manager.md)。
+
+旧版内置 bundle 的迁移由 `docker/prepare-native-web-plugins.js` 处理：只有在
+持久 Web Profile 存在历史选中项时，才将原始 `package.json` 备份为
+`package.json.before-native-web-plugins`，再退出内置 bundle 选中项。
+它保留依赖、第三方 bundle、`node_modules` 和 pnpm 锁文件，不执行重新安装。
 
 ## Icon Dock 快捷入口契约
 

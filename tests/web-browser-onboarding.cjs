@@ -15,4 +15,21 @@ async function openCredentialForm(page, timeout = 15000) {
   return credential
 }
 
-module.exports = { openCredentialForm }
+async function openSettingsPanel(page, timeout = 15000) {
+  const account = page.getByRole('button', { name: '账号菜单', exact: true })
+  const trigger = page.getByRole('button', { name: '设置', exact: true })
+  // Current Web uses the account launcher; older compositions keep the
+  // standalone Settings button. Both open the same native settings dialog.
+  await account.or(trigger).first().waitFor({ state: 'visible', timeout })
+  if (await account.isVisible()) {
+    await account.click()
+    await page.getByRole('menuitem', { name: '设置', exact: true }).click({ timeout })
+  } else {
+    await trigger.click()
+  }
+  const panel = page.getByRole('dialog', { name: '设置', exact: true })
+  await panel.waitFor({ state: 'visible', timeout })
+  return panel
+}
+
+module.exports = { openCredentialForm, openSettingsPanel }
