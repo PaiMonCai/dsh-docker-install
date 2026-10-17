@@ -70,10 +70,13 @@ jobs:
           if (p.name !== 'dsh-docker-web-search') throw Error('wrong package')
           if (p.dsh.bundle.patch !== './cordis.patch.yml') throw Error('missing composition bundle')
           const patch = fs.readFileSync('docker/plugins/dsh-web-search/cordis.patch.yml','utf8')
-          for(const value of ['searchProvider: dsh-docker-search','fetchProvider: http','searchTimeoutMs: 12000']) {
+          for(const value of ['searchProvider: deepseek-official','fetchProvider: http','searchTimeoutMs: 12000']) {
             if (!patch.includes(value)) throw Error('missing '+value)
           }
+          const custom = fs.readFileSync('docker/plugins/dsh-web-search/cordis.searxng.patch.yml','utf8')
+          if (!custom.includes('searchProvider: dsh-docker-search')) throw Error('missing self-hosted overlay')
           const sh = fs.readFileSync('docker/entrypoint.sh','utf8')
+          if (!sh.includes('DSH_SEARCH_ACTIVE_PROVIDER') || !sh.includes('cordis.searxng.patch.yml')) throw Error('missing startup selector')
           if (!sh.includes('append_native_web_patch') || sh.includes('dsh plugin --profile web add')) throw Error('must use official native launcher patch overlays')
           NODE
       - name: Compose syntax validation
