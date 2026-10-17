@@ -32,6 +32,10 @@ def redact(value):
     text = re.sub(r"(?i)([?&](?:token|key|api_key)=)[^\s&\"']+", r"\1[hidden]", text)
     text = re.sub(r"(?i)\b(?:https?|socks5?|vless|trojan|hysteria2|ss)://[^\s\"']+",
                   "[address hidden]", text)
+    text = re.sub(r"(?i)(\bAuthorization\s*:\s*(?:Bearer|Basic)\s+)[^\s,\"']+",
+                  r"\1[hidden]", text)
+    text = re.sub(r"(?i)(\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[\"']?)[^\s,\"'}]+",
+                  r"\1[hidden]", text)
     return re.sub(r"\bsk-[A-Za-z0-9_-]{8,}", "[key hidden]", text)
 
 
@@ -162,8 +166,11 @@ class Manager:
             ):
                 self.clear_release(recheck=bool(self.settings["checkInterval"]))
                 snapshot["release"] = None
-            output = self.run(["docker", "logs", "--tail", "80", description["name"]], merge=True)
-            snapshot["logs"] = redact(output)[-24000:]
+            # A bounded, redacted rolling snapshot consumed only by the authenticated
+            # Web manager. No Docker socket or arbitrary log command in DSH.
+            output = self.run(["docker", "logs", "--tail", "200", description["name"]], merge=True)
+            snapshot["logs"] = redact(output)[-48000:]
+            snapshot["logsUpdatedAt"] = snapshot["heartbeat"]
         except Exception as error:
             snapshot["containerError"] = redact(error)
         try:
