@@ -140,7 +140,14 @@ async function verifyRuntime(expected) {
   compare(expected, actual)
   const mounted = parseLauncherPatches()
   for (const patch of expected.overlays) {
-    assert.ok(mounted.includes(patch.path), 'Standard Web overlay not mounted by Reverse: ' + patch.path)
+    // Search supports two mutually exclusive native overlays since #111.
+    // The startup-selected SearXNG overlay is equivalent to the official
+    // overlay only for this one provider, not for other bundled plugins.
+    const choices = patch.path === '/opt/dsh/plugins/dsh-web-search/cordis.patch.yml'
+      ? [patch.path, '/opt/dsh/plugins/dsh-web-search/cordis.searxng.patch.yml']
+      : [patch.path]
+    assert.ok(choices.some(choice => mounted.includes(choice)),
+      'Standard Web overlay not mounted by Reverse: ' + patch.path)
   }
   const { resolveBindHost } = require('/usr/local/bin/resolve-bind-host.js')
   const host = resolveBindHost(process.env.DSH_BIND_HOST || '')
