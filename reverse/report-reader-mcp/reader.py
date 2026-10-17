@@ -225,8 +225,15 @@ def read_document(root, path, start=0, max_chars=12000):
         completed = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve()), "--convert", suffix],
                                    input=data, capture_output=True, timeout=35, check=False)
     except subprocess.TimeoutExpired as error:
+        if os.environ.get("DSH_REPORT_READER_CI_DIAGNOSTICS") == "1":
+            print(f"[report-reader-ci] format={suffix} timeout=35s", file=sys.stderr, flush=True)
         raise ValueError("document conversion timed out") from error
     if completed.returncode:
+        # Only emit converter stderr for synthetic CI fixtures, never user documents.
+        if os.environ.get("DSH_REPORT_READER_CI_DIAGNOSTICS") == "1":
+            details = completed.stderr.decode("utf-8", errors="replace")[-3000:]
+            print(f"[report-reader-ci] format={suffix} exit={completed.returncode} stderr={details!r}",
+                  file=sys.stderr, flush=True)
         raise ValueError("document conversion failed; encrypted, malformed or unsupported document")
     converted = json.loads(completed.stdout)
     content = converted["text"]
