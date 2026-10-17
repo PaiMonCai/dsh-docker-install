@@ -29,6 +29,15 @@ export const SKILLS=[
   'electron-javascript-analysis',
   'reverse-evidence-report',
 ]
+export const REPORT_READER_SKILLS=[
+  'reverse-report-overview',
+  'reverse-report-compare',
+  'reverse-report-evidence-audit',
+  'reverse-report-briefing',
+  'reverse-report-triage',
+  'reverse-report-finding-check',
+  'reverse-report-sarif',
+]
 // Retire only the original unmodified legacy single-file Android Skill.
 export const RETIRED_ANDROID_BLOB='4af068e110d9cf375a242f77d32678fdcae32abd'
 function retireOldAndroidSkill(dest){
@@ -83,14 +92,14 @@ function skillAssets(root,id){
     throw Error('Invalid bundled reverse Skill: '+id)
   return assets
 }
-export function installSkills(home=process.env.DSH_HOME||join(homedir(),'.dsh'),source=join(ROOT,'skills')){
-  const root=join(home,'reverse-engineering')
+function installSkillSet(home,source,agent,skills){
+  const root=join(home,agent)
   const dest=join(root,'skills')
   ensureSafeDir(home)
   ensureSafeDir(root)
   ensureSafeDir(dest)
-  retireOldAndroidSkill(dest)
-  for(const id of SKILLS){
+  if(agent==='reverse-engineering')retireOldAndroidSkill(dest)
+  for(const id of skills){
     const target=join(dest,id)
     // Existing directories belong to the user (including prior bootstrap copies).
     // Never augment/overwrite them without a future explicit migration protocol.
@@ -112,13 +121,21 @@ export function installSkills(home=process.env.DSH_HOME||join(homedir(),'.dsh'),
       if(existsSync(stage))rmSync(stage,{recursive:true,force:true})
     }
   }
-  return {home,dest,skills:SKILLS}
+  return {home,dest,skills}
+}
+export function installSkills(home=process.env.DSH_HOME||join(homedir(),'.dsh'),source=join(ROOT,'skills')){
+  return installSkillSet(home,source,'reverse-engineering',SKILLS)
+}
+export function installReportReaderSkills(home=process.env.DSH_HOME||join(homedir(),'.dsh'),source=join(ROOT,'report-reader-skills')){
+  return installSkillSet(home,source,'reverse-report-reader',REPORT_READER_SKILLS)
 }
 function safeSymlink(p){try{return lstatSync(p).isSymbolicLink()}catch{return false}}
 export function apply(ctx){
   try{
     const value=installSkills()
+    const reader=installReportReaderSkills()
     ctx.logger?.info?.('Reverse Edition skills ready: %d',value.skills.length)
+    ctx.logger?.info?.('Reverse Report Reader skills ready: %d',reader.skills.length)
   }catch(e){ctx.logger?.error?.('Reverse Edition skill bootstrap failed: %s',e?.message||String(e));throw e}
 }
 export default {name,inject,apply}

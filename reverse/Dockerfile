@@ -42,6 +42,12 @@ RUN uv venv --seed /opt/dsh-reverse/venv \
  && /opt/dsh-reverse/venv/bin/frida --version \
  && /opt/dsh-reverse/venv/bin/python -c "import lief, capa; print('static triage engines ready')"
 
+# Keep report conversion dependencies separate from the analysis engine environment.
+COPY reverse/report-reader-mcp/requirements.txt /opt/dsh-reverse/report-reader-mcp/requirements.txt
+RUN uv venv /opt/dsh-reverse/report-reader-venv \
+ && UV_NO_CACHE=1 uv pip install --python /opt/dsh-reverse/report-reader-venv/bin/python \
+      -r /opt/dsh-reverse/report-reader-mcp/requirements.txt
+
 # Pin official release files to publisher SHA-256.
 RUN set -eux; \
     curl -fsSL --retry 4 \
@@ -78,6 +84,8 @@ RUN set -eux; \
 # The build no longer fetches third-party Agent source or Web bundles.
 COPY reverse/cordis.patch.yml /opt/dsh-reverse/cordis.patch.yml
 COPY reverse/skills/ /opt/dsh-reverse/skills/
+COPY reverse/report-reader-skills/ /opt/dsh-reverse/report-reader-skills/
+COPY reverse/report-reader-mcp/ /opt/dsh-reverse/report-reader-mcp/
 COPY reverse/skills-bootstrap.mjs /opt/dsh-reverse/skills-bootstrap.mjs
 COPY reverse/prompt-manager/ /opt/dsh-reverse/prompt-manager/
 COPY reverse/knowledge/ /opt/dsh-reverse/knowledge/
@@ -116,6 +124,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --check /opt/dsh-reverse/service-health.mjs \
  && node --check /opt/dsh-reverse/reverse-healthcheck.cjs \
+ && /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py \
  && python3 -m py_compile /usr/local/bin/reverse-triage /usr/local/bin/reverse-ghidra /usr/local/bin/reverse-doctor /usr/local/bin/reverse-case \
  && reverse-triage --help >/dev/null \
  && reverse-ghidra --help >/dev/null \
@@ -126,13 +135,15 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && reverse-case --help >/dev/null \
  && reverse-doctor --help >/dev/null \
  && reverse-doctor --json > /tmp/reverse-capabilities.json \
- && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);for(const n of m.SKILLS){if(!fs.existsSync(home+'/reverse-engineering/skills/'+n+'/SKILL.md'))process.exit(1)}if(!fs.existsSync(home+'/reverse-engineering/skills/universal-reverse-core/references/routing.md'))process.exit(1)})" \
+ && node --input-type=module -e "import('/opt/dsh-reverse/skills-bootstrap.mjs').then(async m=>{const fs=await import('node:fs');const home=fs.mkdtempSync('/tmp/dsh-reverse-skill-smoke-');m.installSkills(home);m.installReportReaderSkills(home);for(const [agent,skills] of [['reverse-engineering',m.SKILLS],['reverse-report-reader',m.REPORT_READER_SKILLS]])for(const n of skills){if(!fs.existsSync(home+'/'+agent+'/skills/'+n+'/SKILL.md'))process.exit(1)}for(const ref of ['reverse-engineering/skills/universal-reverse-core/references/routing.md','reverse-report-reader/skills/reverse-report-overview/references/report-formats.md','reverse-report-reader/skills/reverse-report-evidence-audit/references/claim-checks.md'])if(!fs.existsSync(home+'/'+ref))process.exit(1)})" \
  && bash -n /usr/local/bin/dsh-entrypoint \
  && test ! -e /opt/dsh-reverse/purge \
  && test ! -e /opt/dsh-reverse/purge-ui \
  && DSH_HOME="$(mktemp -d)" dsh --profile web \
        --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml \
  && grep -Fq 'dsh-reverse-preset-declaration' /tmp/reverse-config.yml \
+ && grep -Fq 'dsh-reverse-report-reader-declaration' /tmp/reverse-config.yml \
+ && grep -Fq 'reverse-report-reader' /tmp/reverse-config.yml \
  && grep -Fq 'dsh-reverse-prompt-manager' /tmp/reverse-config.yml \
  && grep -Fq 'session-controller' /tmp/reverse-config.yml \
  && grep -Fq 'rea-mcp' /tmp/reverse-config.yml \

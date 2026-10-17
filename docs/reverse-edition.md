@@ -21,13 +21,104 @@ docker compose -f docker-compose.reverse.yml logs -f dsh-reverse
 
 默认容器 `dsh-reverse`、端口 `3081`（Compose 仅绑定宿主机回环地址）、独立 DSH_HOME 和工作区。不挂载 Docker Socket，也无需 privileged。
 
+## 报告解读 Agent
+
+新建会话时可选择「报告解读」（`reverse-report-reader`）。它与「逆向工程」是两个独立的
+原生 Agent 预设：逆向工程负责分析产出，报告解读负责阅读已有结果并帮助人工审阅。
+更新包含该功能的 Reverse 镜像并重建容器后可用，无需另装插件；Standard 不增加该预设。
+
+可直接给它报告目录、某份报告路径或一个具体问题，例如：
+
+```text
+阅读 /workspace/reverse-analysis 下与这个样本相关的报告，先给我一页摘要：
+最重要的发现、证据在哪里、哪些结论还不能确定，以及最值得复核的三个问题。
+
+对比这两份报告：/workspace/reverse-analysis/v1/report.json 和
+/workspace/reverse-analysis/v2/report.json。区分版本差异与报告间的矛盾。
+```
+
+默认先检索索引、案件目标、任务状态和报告摘要，再按需阅读底层证据；输出「结论速览」、
+「关键发现」、必要的「冲突与缺口」和最多三项「建议复核」，保留报告路径及字段、行号、
+函数地址或证据 ID。不同样本哈希的报告分开处理，失败、截断和未验证的结论明确标注。
+它不会把报告自称的哈希校验或任务成功等同于自己完成验证。
+
+该预设注册文件读取、可用时的图片读取、文件搜索、用户问答与按需技能加载工具，显式关闭文件
+`write`、`edit`，不注册 Bash、REA MCP、Jobs 或任务执行入口。另接入报告读取专用的
+stdio MCP，仅提供工作区 SARIF 与文档读取。它将解读结果返回会话，
+需要补充分析时提出建议交给逆向工程 Agent；不会自行创建汇总文件或重跑样本。
+这是该预设的工具配置，不是对用户后来自行添加的插件或整个容器的隔离保证。
+「逆向提示词」的预设和 Hook 仍只作用于「逆向工程」，不改变报告解读 Agent。
+
+CI 的运行时门禁会检查两个预设均已注册且无错误，并分别通过真实
+`sessionController.create` 创建会话；未调用模型，因此不代表报告结论质量已获验收。
+
+### 报告解读专用 Skills
+
+| 技能 | 适用问题 |
+| --- | --- |
+| `reverse-report-overview` | 批量报告初审、范围识别、重要发现归类与去重 |
+| `reverse-report-compare` | 对比版本或多份报告，区分真实变化、覆盖差异与解释冲突 |
+| `reverse-report-evidence-audit` | 沿结论、证据、原始记录追溯，识别证据不足或超出方法范围的表述 |
+| `reverse-report-briefing` | 面向工程师、审阅者或决策者解释影响，提炼优先复核事项 |
+| `reverse-report-triage` | 按威胁模型、触发前提和影响对漏洞报告分诊，优先安排人工审阅 |
+| `reverse-report-finding-check` | 核验可疑安全发现，区分有据支持、范围内反驳与尚无法判断 |
+| `reverse-report-sarif` | 阅读 SARIF 扫描结果，保留规则级别、来源定位、重复提示和抑制状态 |
+
+Agent 根据问题通过原生 `skill` 工具按需加载。总览技能附带本项目的报告字段说明；
+证据审查附带调用图、IPC、哈希和实验结论的常见误读示例，不会每次加载全部参考资料。
+可以直接说“对比这两份报告”“审查这个结论的证据”或“按决策摘要说明”，也可以指定技能名。
+
+镜像源位于 `/opt/dsh-reverse/report-reader-skills/`，启动时将缺失的完整技能目录及参考资料
+安装至 `$DSH_HOME/reverse-report-reader/skills/`。报告解读预设关闭默认技能目录发现，
+仅扫描这一目录；逆向工程仍使用原来的技能目录。已有用户技能及修改不会被升级覆盖或补写，
+因此用户自行维护的同名技能也会保留。
+这些技能提供审阅方法与资料，不增加命令、分析任务或报告文件写入能力。
+后三项改编自 Trail of Bits Skills，使用 CC BY-SA 4.0；每个技能随附上游固定版本、
+修改说明和许可链接。没有加载上游的命令执行、写文件或子 Agent 流程。
+
+外部专业 Skills 与 MCP 的筛选、适用范围和接入限制见
+[报告解读集成调研](report-reader-integrations.md)。
+
+### SARIF 和文档读取
+
+报告解读预设中的 `report_reader` MCP 随镜像安装，在同一容器内通过 stdio 启动；
+不新增端口、独立容器、后台扫描或云服务。依赖固定为 MCP SDK 1.30.0 与
+MarkItDown 0.1.8，位于独立 Python 环境，与原有逆向分析依赖分开。
+
+- `mcp__report_reader__read_sarif`：读取已有 SARIF 2.1.0，支持按级别筛选及分页，
+  每页最多 25 项；保留重复记录、baseline 与 suppression 元数据，不替用户认定漏洞真伪。
+  严重级别按 result、rule 默认值、warning 回退解释；不解析 invocation 配置覆盖或
+  message-string 间接引用，相关限制会出现在返回结果中。有调用级配置覆盖时，
+  `severity_complete` 为 false，此时级别统计和筛选不能当作扫描通过门禁。
+- `mcp__report_reader__read_document`：通过 MarkItDown 读取 PDF、DOCX、XLSX、PPTX，
+  每次返回最多 12000 字符，可按字符偏移继续阅读；转换文本总上限 262144 字符。
+  返回定位属于转换后 Markdown，不能冒充原始页码或行号。
+- 输入限工作区内非链接的普通文件，默认根目录 `/workspace`，可由部署端环境变量
+  `DSH_REVERSE_WORKSPACE_ROOT` 指定；拒绝 URL、file/data URI、路径越界和超过 8 MiB
+  的文件。SARIF 最多 100 个 run、20000 项结果。Office 归档最多 2000 项、解压声明大小
+  合计 32 MiB；转换子进程有超时，Linux 下另有限制 CPU 和地址空间。
+- 文档转换读取文件字节，不调用原版 MCP 的任意 URI 接口，不启用插件、OCR、LLM 或远程
+  转换；不将转换文本写入工作区。扫描版 PDF、图片内容或复杂排版可能无法完整提取。
+  返回的 SHA-256 仅是本次输入报告/文档字节的哈希，不是分析样本哈希或行为验证结论。
+
+例如：
+
+```text
+初审 /workspace/reports/findings.sarif，按证据完整程度列出最值得复核的五项。
+读取 /workspace/reports/analysis.pdf，解释其中的安全结论，标出证据与推断。
+检查这条发现是不是误报，只根据现有报告判断，证据不足的部分列为待复核。
+```
+
+这是工具的输入校验与能力限制，不是操作系统级沙箱或对并发恶意文件替换的隔离保证。
+CI 会验证真实格式转换、MCP stdio 工具调用与预设会话创建；不代表模型解读质量已经验收。
+
 ## 保留内容
 
 - 原生「逆向工程」Agent：persona、Shell、文件操作与搜索、Jobs、Todo、用户交互等工具。
 - REA 6.4.0：通过 `rea mcp` stdio，在逆向 Agent 作用域内加载，而非修改全局 Agent。
 - Ghidra 12.1.4、JADX 1.5.3、JADX Headless MCP、apktool、GDB、strace、ltrace、binutils、patchelf。
 - frida-tools 14.11.0、pwntools 4.15.0。
-- 九个镜像自有逆向 Skills（位于 `/opt/dsh-reverse/skills/`，启动时复制缺失项到 `$DSH_HOME/reverse-engineering/skills/`），不会覆盖用户文件。
+- 十个镜像自有逆向 Skills（位于 `/opt/dsh-reverse/skills/`，启动时复制缺失项到 `$DSH_HOME/reverse-engineering/skills/`），不会覆盖用户文件。
 
 逆向 Agent 来源为仓库的 `reverse/cordis.patch.yml`，镜像启动入口通过 `DSH_REVERSE_AGENT_PATCH` 加载。镜像构建阶段不会联网拉取第三方 Agent 插件源码。
 
