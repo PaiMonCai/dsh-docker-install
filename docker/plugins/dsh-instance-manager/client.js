@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-instance-manager'
+    const LOGS_ENDPOINT = ENDPOINT + '/logs'
     const listeners = new Set()
     const statusListeners = new Set()
     let opened = false
@@ -98,9 +99,51 @@ window.__ModuleLoader__.load({
       const [paused, setPaused] = React.useState(false)
       const [frozen, setFrozen] = React.useState('')
       const [follow, setFollow] = React.useState(true)
+      const [streamLines, setStreamLines] = React.useState([])
+      const [streamUpdated, setStreamUpdated] = React.useState('')
+      const [streamState, setStreamState] = React.useState('connecting')
+      const [streamSeen, setStreamSeen] = React.useState(false)
+      const [reload, setReload] = React.useState(0)
       const preRef = React.useRef(null)
-      const source = paused ? frozen : (logs || '')
-      const lines = source.split(/\r?\n/).filter((line, index, array) => line || index < array.length - 1)
+      const cursorRef = React.useRef({ generation: '', seq: -1 })
+      React.useEffect(() => {
+        if (typeof EventSource !== 'function') {
+          setStreamState('unsupported')
+          return undefined
+        }
+        let alive = true
+        setStreamState('connecting')
+        const stream = new EventSource(LOGS_ENDPOINT, { withCredentials: true })
+        stream.onopen = () => { if (alive) setStreamState('live') }
+        stream.onerror = () => { if (alive) setStreamState('reconnecting') }
+        stream.addEventListener('status', event => {
+          if (!alive) return
+          try {
+            const data = JSON.parse(event.data)
+            setStreamState(data.state === 'error' ? 'error' : 'waiting')
+          } catch { setStreamState('error') }
+        })
+        stream.addEventListener('logs', event => {
+          if (!alive) return
+          let payload
+          try { payload = JSON.parse(event.data) } catch { return }
+          if (!payload || !Array.isArray(payload.lines) || payload.lines.length > 200
+              || payload.lines.some(line => typeof line !== 'string')
+              || !Number.isSafeInteger(payload.seq) || typeof payload.generation !== 'string') return
+          const previous = cursorRef.current
+          if (previous.generation === payload.generation && payload.seq <= previous.seq) return
+          const snapshot = payload.mode === 'snapshot' || previous.generation !== payload.generation
+          setStreamLines(current => (snapshot ? payload.lines : current.concat(payload.lines)).slice(-200))
+          cursorRef.current = { generation: payload.generation, seq: payload.seq }
+          setStreamUpdated(payload.updatedAt || '')
+          setStreamSeen(true)
+          setStreamState('live')
+        })
+        return () => { alive = false; stream.close() }
+      }, [reload])
+      const incoming = streamSeen ? streamLines.join('\n') : (logs || '')
+      const content = paused ? frozen : incoming
+      const lines = content.split(/\r?\n/).filter((line, index, array) => line || index < array.length - 1)
       const filtered = lines.filter(line => {
         if (query && !line.toLowerCase().includes(query.toLowerCase())) return false
         if (level === 'error') return /\b(error|fatal|exception|traceback|failed)\b/i.test(line)
@@ -111,10 +154,18 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (follow && preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
       }, [displayed, follow])
+      const statusText = paused ? '已暂停显示'
+        : streamState === 'live' ? 'SSE 实时连接'
+          : streamState === 'reconnecting' ? '连接中断 · 自动重连中'
+            : streamState === 'waiting' ? '等待宿主机启动日志采集'
+              : streamState === 'error' ? '日志流暂不可用 · 自动重试'
+                : streamState === 'unsupported' ? '不支持 SSE，使用兼容快照自动刷新'
+                  : !online ? '宿主机离线 · 等待连接' : '正在连接 SSE…'
       return h('section', { className: 'dm-log-console', 'aria-label': 'DSH 实时运行日志' },
         h('div', { className: 'dm-log-meta' },
-          h('strong', null, paused ? '已暂停显示' : online ? '自动刷新 · 约 2–3 秒' : '连接中断'),
-          h('span', null, '最近更新：', updatedAt ? formatTime(updatedAt) : '尚未获取')),
+          h('strong', null, statusText),
+          h('span', null, '最近更新：',
+            streamSeen ? formatTime(streamUpdated) : updatedAt ? formatTime(updatedAt) : '尚未获取')),
         h('div', { className: 'dm-log-toolbar' },
           h('input', { type: 'search', value: query, 'aria-label': '搜索运行日志',
             placeholder: '搜索日志内容…', onChange: e => setQuery(e.target.value) }),
@@ -127,18 +178,24 @@ window.__ModuleLoader__.load({
             onChange: e => setMaxLines(Number(e.target.value)) },
             ...[50, 100, 200].map(n => h('option', { key: n, value: n }, String(n))))),
           h('button', { type: 'button', onClick: () => {
-            if (!paused) setFrozen(logs || '')
+            if (!paused) setFrozen(incoming)
             setPaused(!paused)
           } }, paused ? '继续显示' : '暂停显示'),
-          h('button', { type: 'button', onClick: () => { void refresh() } }, '立即刷新'),
+          h('button', { type: 'button', onClick: () => {
+            setStreamState('connecting')
+            cursorRef.current = { generation: '', seq: -1 }
+            setStreamSeen(false)
+            setReload(n => n + 1)
+            void refresh()
+          } }, '重新连接'),
           h('label', null, h('input', { type: 'checkbox', checked: follow,
             onChange: e => setFollow(e.target.checked) }), '自动滚动')),
         h('pre', { ref: preRef, className: 'dm-log dm-log-stream',
           'aria-label': 'DSH 运行日志', role: 'log', 'aria-live': 'off' },
-          displayed || (source ? '没有匹配的日志。' : '暂无运行日志。')),
+          displayed || (content ? '没有匹配的日志。' : '暂无运行日志。')),
         h('div', { className: 'dm-log-meta' },
           h('span', null, '匹配 ', filtered.length, ' 行 · 最多显示 ', maxLines, ' 行'),
-          h('span', null, '日志由宿主机读取并脱敏 · 最多保留最近 200 行 / 48 KB')))
+          h('span', null, 'SSE 自动重连 · 仅保留最近 200 行 · 宿主机脱敏读取')))
     }
     const confirmations = {
       update: '镜像拉取完成后会重启 DSH。页面将暂时断开，恢复后自动读取更新结果。',
@@ -154,8 +211,6 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [disconnected, setDisconnected] = React.useState(false)
       const [tab, setTab] = React.useState(() => embedded ? 'overview' : requestedTab)
-      const tabRef = React.useRef(tab)
-      tabRef.current = tab
       const [sending, setSending] = React.useState(false)
       const submitting = React.useRef(false)
       const [confirmation, setConfirmation] = React.useState(null)
@@ -180,7 +235,7 @@ window.__ModuleLoader__.load({
               for (const listener of statusListeners) listener({ online: false })
             }
           }
-          if (alive) timer = setTimeout(poll, tabRef.current === 'logs' ? 2000 : 3000)
+          if (alive) timer = setTimeout(poll, 3000)
         }
         void poll()
         return () => { alive = false; controller.abort(); clearTimeout(timer) }
