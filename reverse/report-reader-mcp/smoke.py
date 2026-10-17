@@ -106,5 +106,8 @@ async def smoke(root):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="report-reader-smoke-") as temp:
-        asyncio.run(asyncio.wait_for(smoke(Path(temp)), timeout=150))
+        # Under QEMU each sandboxed converter includes emulation overhead.
+        # This applies to synthetic image-build smoke only, never MCP clients.
+        duration = 900 if os.environ.get("DSH_REPORT_READER_CI_EMULATED") == "1" else 150
+        asyncio.run(asyncio.wait_for(smoke(Path(temp)), timeout=duration))
     print("Report reader: four real document conversions and MCP stdio calls passed.")
