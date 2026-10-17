@@ -7,8 +7,13 @@ window.__ModuleLoader__.load({
     const listeners = new Set()
     const statusListeners = new Set()
     let opened = false
+    let requestedTab = 'overview'
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
-    const open = value => { opened = value; for (const fn of listeners) fn() }
+    const open = (value, tab = 'overview') => {
+      if (value) requestedTab = tab
+      opened = value
+      for (const fn of listeners) fn()
+    }
     const labels = {
       check: '检查更新', update: '更新镜像', restart: '重启 DSH', recreate: '重建容器',
       rollback: '回滚版本', cleanup: '清理旧容器与镜像', settings: '保存检查设置',
@@ -39,6 +44,14 @@ window.__ModuleLoader__.load({
       .dm-setting{display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:13px}.dm-setting select{width:auto;max-width:55%}
       .dm-task{padding:13px 0;border-bottom:1px solid var(--dm-line)}.dm-task-head{display:flex;gap:12px;justify-content:space-between;font-size:13px}.dm-task-head button{padding:0;border:0;text-align:left}.dm-task time{font-size:11px;color:var(--dm-muted)}
       .dm-log{white-space:pre-wrap;overflow-wrap:anywhere;padding:15px;font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;background:rgba(128,128,128,.08);border-radius:6px;max-height:340px;overflow:auto;margin:12px 0}
+      .dm-log-console{display:flex;flex-direction:column;gap:12px;min-width:0}
+      .dm-log-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+      .dm-log-toolbar label{display:flex;align-items:center;gap:6px;font-size:12px}
+      .dm-log-toolbar input[type=search],.dm-log-toolbar select{padding:8px 10px;border:1px solid var(--dm-line);border-radius:7px;background:transparent}
+      .dm-log-toolbar input[type=search]{max-width:100%;width:240px}
+      .dm-log-toolbar input[type=checkbox]{accent-color:var(--dm-accent)}
+      .dm-log-stream{height:min(54dvh,540px);min-height:230px;max-height:none;white-space:pre;overflow:auto}
+      .dm-log-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--dm-muted);font-size:12px}
       .dm-dialog{width:min(900px,100%);height:min(790px,92dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
       .dm-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(7,13,24,.5);backdrop-filter:blur(4px)}
       @media(max-width:600px){.dm-overlay{padding:8px}.dm-dialog{height:96dvh;border-radius:10px}.dm-head{padding:18px 16px}.dm-tabs{padding:0 16px;gap:18px}.dm-content{padding:18px 16px}.dm-inputs{grid-template-columns:1fr}.dm-summary{align-items:flex-start}.dm-grid{grid-template-columns:80px minmax(0,1fr);gap:10px}.dm-actions button{flex:1 1 auto}.dm-setting{align-items:flex-start;flex-direction:column}.dm-setting select{width:100%;max-width:100%}}
@@ -55,6 +68,15 @@ window.__ModuleLoader__.load({
       return result
     }
     function currentRelease(data) {
+      const refreshStatus = async () => {
+        try {
+          const next = await request(null, AbortSignal.timeout(12000))
+          setData(next); setDisconnected(false); setError('')
+        } catch (failure) {
+          setDisconnected(true)
+          setError('读取最新运行日志失败：' + failure.message)
+        }
+      }
       const status = data?.status
       const release = status?.release
       if (!release || release.current && release.current !== status.container?.imageId
@@ -77,6 +99,56 @@ window.__ModuleLoader__.load({
       const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('')
       return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
     }
+
+    function LogConsole({ logs, updatedAt, online, refresh }) {
+      const [query, setQuery] = React.useState('')
+      const [level, setLevel] = React.useState('all')
+      const [maxLines, setMaxLines] = React.useState(200)
+      const [paused, setPaused] = React.useState(false)
+      const [frozen, setFrozen] = React.useState('')
+      const [follow, setFollow] = React.useState(true)
+      const preRef = React.useRef(null)
+      const source = paused ? frozen : (logs || '')
+      const lines = source.split(/\r?\n/).filter((line, index, array) => line || index < array.length - 1)
+      const filtered = lines.filter(line => {
+        if (query && !line.toLowerCase().includes(query.toLowerCase())) return false
+        if (level === 'error') return /\b(error|fatal|exception|traceback|failed)\b/i.test(line)
+        if (level === 'warn') return /\b(warn|warning)\b/i.test(line)
+        return true
+      })
+      const displayed = filtered.slice(-maxLines).join('\n')
+      React.useEffect(() => {
+        if (follow && preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+      }, [displayed, follow])
+      return h('section', { className: 'dm-log-console', 'aria-label': 'DSH 实时运行日志' },
+        h('div', { className: 'dm-log-meta' },
+          h('strong', null, paused ? '已暂停显示' : online ? '自动刷新 · 约 2–3 秒' : '连接中断'),
+          h('span', null, '最近更新：', updatedAt ? formatTime(updatedAt) : '尚未获取')),
+        h('div', { className: 'dm-log-toolbar' },
+          h('input', { type: 'search', value: query, 'aria-label': '搜索运行日志',
+            placeholder: '搜索日志内容…', onChange: e => setQuery(e.target.value) }),
+          h('label', null, '级别', h('select', { value: level, 'aria-label': '日志级别',
+            onChange: e => setLevel(e.target.value) },
+            h('option', { value: 'all' }, '全部'),
+            h('option', { value: 'error' }, '错误'),
+            h('option', { value: 'warn' }, '警告'))),
+          h('label', null, '行数', h('select', { value: maxLines, 'aria-label': '日志行数',
+            onChange: e => setMaxLines(Number(e.target.value)) },
+            ...[50, 100, 200].map(n => h('option', { key: n, value: n }, String(n))))),
+          h('button', { type: 'button', onClick: () => {
+            if (!paused) setFrozen(logs || '')
+            setPaused(!paused)
+          } }, paused ? '继续显示' : '暂停显示'),
+          h('button', { type: 'button', onClick: () => { void refresh() } }, '立即刷新'),
+          h('label', null, h('input', { type: 'checkbox', checked: follow,
+            onChange: e => setFollow(e.target.checked) }), '自动滚动')),
+        h('pre', { ref: preRef, className: 'dm-log dm-log-stream',
+          'aria-label': 'DSH 运行日志', role: 'log', 'aria-live': 'off' },
+          displayed || (source ? '没有匹配的日志。' : '暂无运行日志。')),
+        h('div', { className: 'dm-log-meta' },
+          h('span', null, '匹配 ', filtered.length, ' 行 · 最多显示 ', maxLines, ' 行'),
+          h('span', null, '日志由宿主机读取并脱敏 · 最多保留最近 200 行 / 48 KB')))
+    }
     const confirmations = {
       update: '镜像拉取完成后会重启 DSH。页面将暂时断开，恢复后自动读取更新结果。',
       restart: '重启会中断当前运行中的会话任务。页面恢复连接后可查看结果。',
@@ -90,7 +162,9 @@ window.__ModuleLoader__.load({
       const [data, setData] = React.useState(null)
       const [error, setError] = React.useState('')
       const [disconnected, setDisconnected] = React.useState(false)
-      const [tab, setTab] = React.useState('overview')
+      const [tab, setTab] = React.useState(() => embedded ? 'overview' : requestedTab)
+      const tabRef = React.useRef(tab)
+      tabRef.current = tab
       const [sending, setSending] = React.useState(false)
       const submitting = React.useRef(false)
       const [confirmation, setConfirmation] = React.useState(null)
@@ -115,7 +189,7 @@ window.__ModuleLoader__.load({
               for (const listener of statusListeners) listener({ online: false })
             }
           }
-          if (alive) timer = setTimeout(poll, 3000)
+          if (alive) timer = setTimeout(poll, tabRef.current === 'logs' ? 2000 : 3000)
         }
         void poll()
         return () => { alive = false; controller.abort(); clearTimeout(timer) }
@@ -245,8 +319,9 @@ window.__ModuleLoader__.load({
                 h('span', null, states[job.state] || job.state)),
               h('time', null, formatTime(job.startedAt || job.finishedAt))))),
             !jobs.length && h('p', { className: 'dm-muted' }, '暂无管理任务。更新、重启及代理操作的执行结果会保存在这里。')),
-          tab === 'logs' && h('pre', { className: 'dm-log', 'aria-label': 'DSH 运行日志' },
-            status?.logs || '暂无运行日志。')))
+          tab === 'logs' && h(LogConsole, { logs: status?.logs, updatedAt: status?.logsUpdatedAt
+            || status?.heartbeat, online: Boolean(data?.online) && !disconnected,
+            refresh: refreshStatus })))
     }
     function Overlay() {
       const active = React.useSyncExternalStore(subscribe, () => opened)
@@ -328,10 +403,12 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         const entry = { id: 'dsh-docker.instance-manager', label: '实例管理', icon: 'settings', order: 90,
-          onClick: () => open(true) }
+          onClick: () => open(true, 'overview') }
+        const logsEntry = { id: 'dsh-docker.runtime-logs', label: '运行日志', icon: 'terminal', order: 95,
+          onClick: () => open(true, 'logs') }
         const dock = window.__dshDockerIconDockV1
-        if (dock) dock.register(entry)
-        else (window.__dshDockerIconDockPendingV1 ||= []).push(entry)
+        if (dock) { dock.register(entry); dock.register(logsEntry) }
+        else (window.__dshDockerIconDockPendingV1 ||= []).push(entry, logsEntry)
         ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: 'dsh-docker-instance-manager', order: 79, label: () => '实例管理',
         }, (props = {}) => props.view === 'summary' ? '管理 DSH 更新、运行状态与网络出口' : h(Panel, { embedded: true })))
