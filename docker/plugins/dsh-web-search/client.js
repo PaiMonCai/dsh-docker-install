@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect } = React
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-web-search'
+    const MANAGEMENT_ENDPOINT = '/api/dsh-docker-instance-manager'
     // Shared shell overlay state, matching the built-in recycle-bin shortcut.
     const listeners = new Set()
     let opened = false
@@ -47,6 +48,28 @@ window.__ModuleLoader__.load({
       if (!response.ok) throw new Error(json.error || '搜索设置请求失败')
       return json
     }
+
+    // Reuse the existing authenticated host-management bridge. The search
+    // plugin never receives a Docker socket or any host command capability.
+    async function managementRequest(data) {
+      const response = await fetch(MANAGEMENT_ENDPOINT, {
+        credentials: 'same-origin', cache: 'no-store',
+        ...(data ? { method: 'POST', headers: {
+          'content-type': 'application/json', 'x-dsh-management': '1',
+        }, body: JSON.stringify(data) } : {}),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || '实例管理服务不可用')
+      return result
+    }
+    function taskId() {
+      if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+      const bytes = crypto.getRandomValues(new Uint8Array(16))
+      bytes[6] = (bytes[6] & 15) | 64
+      bytes[8] = (bytes[8] & 63) | 128
+      const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('')
+      return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+    }
     function SearchCard({ view, remote, spacious = false }) {
       const [settings, setSettings] = useState(null)
       const [running, setRunning] = useState(false)
@@ -56,6 +79,8 @@ window.__ModuleLoader__.load({
       const [secret, setSecret] = useState('')
       const [busy, setBusy] = useState(false)
       const [message, setMessage] = useState('')
+      const submittingRef = React.useRef(false)
+      const [restartTask, setRestartTask] = useState('')
       // Plugin list summary rows must not fetch runtime settings or credentials.
       // Keep the Settings client ref current without re-reading and discarding
       // unsaved form inputs if DSH recreates its remote proxy while rendering.
@@ -107,9 +132,55 @@ window.__ModuleLoader__.load({
             ? (result.healthy ? '搜索正常：找到 ' + result.results + ' 条结果'
               : '连接成功，但返回 0 条结果。请检查代理出口和搜索引擎。')
             : type === 'restart' ? 'SearXNG 进程已重启。' : result.pendingRestart
-              ? '设置已保存。请在宿主机执行 dshd search restart 以切换搜索提供方。' : '设置已保存。')
+              ? '设置已保存，切换将在重启 DSH 后生效。可点击“保存并应用”直接从 Web 提交重启。' : '设置已保存。')
         } catch (e) { setMessage(e.message || '操作失败') }
         finally { setBusy(false) }
+      }
+
+      const saveAndApply = async () => {
+        if (submittingRef.current || busy || !settings) return
+        if (!window.confirm('保存搜索配置后将重启 DSH，正在执行的会话任务会暂时中断。确认保存并应用吗？')) return
+        submittingRef.current = true
+        setBusy(true); setMessage('')
+        let saved = false
+        try {
+          // Check before writing settings, so unavailable or busy host managers
+          // do not leave an unexpected pending provider change behind.
+          const host = await managementRequest()
+          if (!host.configured) throw new Error('尚未启用 Web 实例管理，请先在宿主机执行 dshd web enable')
+          if (!host.online) throw new Error('宿主机实例管理服务离线，请检查 dshd web status')
+          if (host.jobs?.some(job => ['queued', 'running'].includes(job.state))) {
+            throw new Error('当前已有实例管理任务，不能同时重启 DSH')
+          }
+          const result = await api('save', settings)
+          saved = true
+          if (result.settings) setSettings(result.settings)
+          if (result.running !== undefined) setRunning(result.running)
+          if (result.activeProvider) setActiveProvider(result.activeProvider)
+          setPendingRestart(Boolean(result.pendingRestart))
+          if (!result.pendingRestart) {
+            setMessage('搜索设置已保存并生效，无需重启 DSH。')
+            return
+          }
+          // A unique id makes an accepted restart discoverable from the
+          // instance manager job history if the HTTP response gets cut off.
+          const id = taskId()
+          try {
+            const submitted = await managementRequest({ id, action: 'restart', arguments: {} })
+            setRestartTask(submitted.id || id)
+            setMessage('已提交 DSH 重启任务。页面可能暂时断开；恢复后点击“刷新”核对当前提供方。')
+          } catch (error) {
+            setRestartTask(id)
+            setMessage('设置已保存，但重启任务结果尚未确认：' + error.message +
+              '。请先在实例管理任务记录中核对，避免重复重启。')
+          }
+        } catch (error) {
+          setMessage((saved ? '设置已保存，但未能完成自动应用：' : '未应用设置：') + error.message +
+            (saved ? '。可在实例管理中检查并重试。' : '。仍可使用“保存设置”单独保存。'))
+        } finally {
+          submittingRef.current = false
+          setBusy(false)
+        }
       }
       const keyAction = async clear => {
         if (clear && !window.confirm('确认清除 Brave API Key？')) return
@@ -148,9 +219,9 @@ window.__ModuleLoader__.load({
             h('option', { value: 'searxng' }, 'SearXNG 自建搜索'))),
           h('p', { style: styles.hint }, '当前生效：',
             activeProvider === 'official' ? 'DeepSeek 官方搜索' : 'SearXNG 自建搜索',
-            '。更换提供方需先保存，再重启 DSH。'),
+            '。选择后点击“保存并应用”即可在 Web 中提交切换。'),
           pendingRestart && h('p', { role: 'status', style: styles.hint },
-            '存在待生效的切换。请在宿主机执行 dshd search restart；当前搜索服务会持续使用原有提供方。')),
+            '存在待生效的切换；当前搜索服务会持续使用原有提供方，直到 DSH 重启完成。')),
         h('div', { style: styles.section },
           h('div', { style: styles.row },
             h('strong', null, 'SearXNG 状态：', running ? '运行中' : '未运行'),
@@ -179,7 +250,15 @@ window.__ModuleLoader__.load({
               })) })),
           h('div', { style: styles.row },
             h('button', { type: 'button', style: styles.btn, disabled: busy,
-              onClick: () => { void action('save', settings) } }, '保存设置')),
+              onClick: () => { void action('save', settings) } }, '仅保存设置'),
+            h('button', { type: 'button', style: {
+                ...styles.btn, background: 'var(--dsw-alias-brand-primary, #4d6bfe)',
+                color: '#fff', borderColor: 'transparent',
+              }, disabled: busy,
+              onClick: () => { void saveAndApply() } }, '保存并应用')),
+          h('p', { style: styles.hint },
+            '保存并应用会通过已有实例管理后台重启 DSH，不向搜索插件授予 Docker 权限；如果尚未启用 Web 实例管理，可先仅保存设置。'),
+          restartTask && h('p', { style: styles.hint }, '最近的重启任务：', restartTask),
           h('p', { style: styles.hint }, '0 表示禁止备用调用。开关和额度保存在 DSH 持久化目录，重建容器后保留。')),
         h('div', { style: { paddingTop: '12px' } },
           h('h4', { style: styles.heading }, 'Brave API Key'),
