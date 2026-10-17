@@ -72,6 +72,7 @@ function harness() {
     if (typeof tree.type === 'function') return render(tree.type, tree.props)
     return { ...tree, props: { ...tree.props, children: expand(tree.props.children) } }
   }
+  f.shortcuts = window.__dshDockerIconDockPendingV1 || []
   f.entry = props => render(entries.get('dsh-docker-instance-manager'), props)
   f.notice = () => render(entries.get('dsh-docker.instance-manager-update-notice'))
   f.poll = async delay => {
@@ -168,4 +169,53 @@ test('failed registry checks remain visible in details and never create update n
   f.notice(); f.entry({ view: 'detail' }); await f.settle()
   assert.equal(f.notice(), null)
   assert.match(text(f.entry({ view: 'detail' })), /更新检查失败：registry unavailable/)
+})
+
+test('live runtime logs are reachable from manager and the dedicated shortcut is registered', async () => {
+  const f = harness()
+  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'
+    && entry.label === '运行日志' && entry.icon === 'terminal'))
+  f.data.status.logs = '[INFO] DSH booted\\n[WARN] retry network\\n[ERROR] failed request'
+  f.data.status.logsUpdatedAt = new Date().toISOString()
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const tab = nodes(tree, node => node.props.role === 'tab' && text(node) === '运行日志')[0]
+  assert.ok(tab)
+  tab.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /自动刷新/)
+  assert.match(text(tree), /DSH booted/)
+  const level = nodes(tree, node => node.props['aria-label'] === '日志级别')[0]
+  level.props.onChange({ target: { value: 'error' } })
+  tree = f.entry({ view: 'detail' })
+  const output = nodes(tree, node => node.props['aria-label'] === 'DSH 运行日志')[0]
+  assert.match(text(output), /ERROR/)
+  assert.doesNotMatch(text(output), /WARN|INFO/)
+  // The panel poll period shortens only while the log tab is selected.
+  await f.poll(3000)
+  await f.poll(2000)
+})
+
+test('log search and pause freeze the display while status continues to refresh', async () => {
+  const f = harness()
+  f.data.status.logs = 'startup completed\\nERROR first failure'
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  const search = nodes(tree, n => n.props['aria-label'] === '搜索运行日志')[0]
+  search.props.onChange({ target: { value: 'failure' } })
+  tree = f.entry({ view: 'detail' })
+  assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /startup/)
+  nodes(tree, n => n.type === 'button' && text(n) === '暂停显示')[0].props.onClick()
+  f.data.status.logs = 'ERROR new failure\\nINFO restarted'
+  await f.poll(3000)
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /first failure/)
+  assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
+  nodes(tree, n => n.type === 'button' && text(n) === '继续显示')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
 })
