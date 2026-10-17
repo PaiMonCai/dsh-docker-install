@@ -109,4 +109,25 @@ grep -Fq '待修复' "$TMP/recover-menu.out" || { echo 'degraded state must be v
 search_container_running() { return 0; }
 printf '1\n\n0\n' | cmd_search_menu > "$TMP/running-menu.out" 2>&1
 [[ ! -s "$SEARCH_TEST_LOG" ]] || { echo 'healthy sidecar should not reinstall' >&2; exit 1; }
+# Native official mode intentionally has no SearXNG child. It must not show
+# "repair required" or re-run the install when option 1 is chosen.
+: > "$SEARCH_TEST_LOG"
+search_active_provider() { printf 'official'; }
+search_container_running() { return 1; }
+DSH_SEARCH_ENABLED=true
+save_config
+printf '1\\n\\n0\\n' | cmd_search_menu > "$TMP/official-mode.out"
+grep -Fq '官方搜索' "$TMP/official-mode.out" || {
+  echo 'native official mode must show as healthy' >&2; exit 1;
+}
+grep -Fq '无需启动' "$TMP/official-mode.out" || {
+  echo 'native mode must not require SearXNG' >&2; exit 1;
+}
+! grep -Fq '待修复' "$TMP/official-mode.out" || {
+  echo 'native official mode misreported as degraded' >&2; exit 1;
+}
+[[ ! -s "$SEARCH_TEST_LOG" ]] || {
+  echo 'native official mode triggered unwanted provision' >&2; exit 1;
+}
+
 echo 'test-dshd-search-menu: ok'
