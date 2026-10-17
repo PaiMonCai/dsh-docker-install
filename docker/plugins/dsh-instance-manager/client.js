@@ -157,7 +157,7 @@ window.__ModuleLoader__.load({
       const statusText = paused ? '已暂停显示'
         : streamState === 'live' ? 'SSE 实时连接'
           : streamState === 'reconnecting' ? '连接中断 · 自动重连中'
-            : streamState === 'waiting' ? '等待宿主机启动日志采集'
+            : streamState === 'waiting' ? '等待宿主机日志采集 · 升级后请执行 dshd web enable'
               : streamState === 'error' ? '日志流暂不可用 · 自动重试'
                 : streamState === 'unsupported' ? '不支持 SSE，使用兼容快照自动刷新'
                   : !online ? '宿主机离线 · 等待连接' : '正在连接 SSE…'
