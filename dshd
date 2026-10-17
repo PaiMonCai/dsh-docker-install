@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 DSHD_VERSION="0.12.1"
-WEB_WORKER_SHA256="bbcea8fa5c3f9cb99a21396de7bb5c635fa32a7f1f97bf2497225574599e9945"
+WEB_WORKER_SHA256="ec84b28e7faf3129a47db0feed32748204c2c7ee2804a9a9d1390a0e8bcaada8"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
