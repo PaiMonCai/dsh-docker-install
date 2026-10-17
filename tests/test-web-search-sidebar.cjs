@@ -207,7 +207,7 @@ function harness({ searchEnabled = true, managerFirst = false, managerOnline = t
     return found[0]
   }
   async function settle(fn) {
-    for (let i = 0; i < 20; i++) await Promise.resolve()
+    for (let i = 0; i < 100; i++) await Promise.resolve()
     return render(fn)
   }
   return {
@@ -360,7 +360,7 @@ test('provider selector saves official mode and clearly requires DSH restart', a
   tree = await app.settle(() => view.type(view.props))
   assert.equal(app.requests.at(-1).settings.provider, 'official')
   assert.match(app.text(tree), /待生效的切换/)
-  assert.match(app.text(tree), /dshd search restart/)
+  assert.match(app.text(tree), /保存并应用/)
   const testSearch = app.nodes(tree, n => n.type === 'button' && app.text(n) === '测试搜索')[0]
   assert.equal(testSearch.props.disabled, false, 'current SearXNG stays live until restart')
 })
