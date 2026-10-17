@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EmbeddedSearxng, ensureSearxSettings, SEARCH_ENDPOINT, childEnvironment } from '../docker/plugins/dsh-web-search/embedded.js'
-import { SearchSettings, validate, defaults } from '../docker/plugins/dsh-web-search/settings.js'
+import { SearchSettings, validate, defaults, selectedProvider } from '../docker/plugins/dsh-web-search/settings.js'
 import { SearchRouter } from '../docker/plugins/dsh-web-search/router.js'
 
 test('bundled search configuration is private, loopback-only and excludes Tor engines', async () => {
@@ -33,7 +33,12 @@ test('bundled search rejects symlink settings to prevent credential overwrite', 
 test('Web preferences validate explicit booleans and bounded paid fallback limits', () => {
   assert.equal(defaults({}).braveEnabled, false)
   const valid = { enabled: true, braveEnabled: false, cacheEnabled: true, braveDailyLimit: 0 }
-  assert.deepEqual(validate(valid), valid)
+  assert.deepEqual(validate(valid), { provider: 'searxng', ...valid })
+  assert.equal(selectedProvider(validate(valid)), 'searxng')
+  assert.equal(selectedProvider(validate({ ...valid, provider: 'official' })), 'official')
+  assert.equal(selectedProvider(validate({ ...valid, enabled: false })), 'official')
+  assert.throws(() => validate({ ...valid, provider: 'invalid' }), /invalid/)
+  assert.throws(() => validate({ ...valid, provider: null }), /invalid/)
   assert.throws(() => validate({ ...valid, braveDailyLimit: 10001 }), /invalid/)
   assert.throws(() => validate({ ...valid, injected: 'x' }), /invalid/)
   assert.throws(() => validate({ ...valid, cacheEnabled: 'false' }), /invalid/)
@@ -44,7 +49,10 @@ test('Web preferences persist across restarts without credentials', async () => 
     const store = new SearchSettings(home)
     const data = { enabled: false, braveEnabled: true, braveDailyLimit: 3, cacheEnabled: false }
     await store.save(data)
-    assert.deepEqual(await new SearchSettings(home).load(), data)
+    assert.deepEqual(await new SearchSettings(home).load(), { provider: 'searxng', ...data })
+    const official = { ...data, provider: 'official', enabled: true }
+    await store.save(official)
+    assert.deepEqual(await new SearchSettings(home).load(), official)
     assert.doesNotMatch(await readFile(store.path, 'utf8'), /API_KEY|password|secret/)
   } finally { await rm(home, { recursive: true, force: true }) }
 })
