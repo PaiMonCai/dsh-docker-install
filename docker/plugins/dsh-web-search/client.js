@@ -50,6 +50,8 @@ window.__ModuleLoader__.load({
     function SearchCard({ view, remote, spacious = false }) {
       const [settings, setSettings] = useState(null)
       const [running, setRunning] = useState(false)
+      const [activeProvider, setActiveProvider] = useState('searxng')
+      const [pendingRestart, setPendingRestart] = useState(false)
       const [info, setInfo] = useState(null)
       const [secret, setSecret] = useState('')
       const [busy, setBusy] = useState(false)
@@ -63,20 +65,28 @@ window.__ModuleLoader__.load({
         if (view === 'summary') return undefined
         let live = true
         api().then(value => {
-          if (live) { setSettings(value.settings); setRunning(value.running); if (value.error) setMessage(value.error) }
+          if (live) {
+            setSettings(value.settings)
+            setRunning(value.running)
+            setActiveProvider(value.activeProvider || 'searxng')
+            setPendingRestart(Boolean(value.pendingRestart))
+            if (value.error) setMessage(value.error)
+          }
         }).catch(e => { if (live) setMessage(e.message) })
         credentialsRef.current.describe(['BRAVE_SEARCH_API_KEY']).then(result => {
           if (live && result.ok) setInfo(result.value.BRAVE_SEARCH_API_KEY)
         }).catch(() => {})
         return () => { live = false }
       }, [view])
-      if (view === 'summary') return '内置 SearXNG · 共享 DSH 网络与代理 · Brave 可选备用'
+      if (view === 'summary') return 'DeepSeek 官方 / 内置 SearXNG · 可切换提供方 · Brave 可选备用'
       const refreshStatus = async () => {
         setBusy(true); setMessage('')
         try {
           const value = await api()
           if (value.settings) setSettings(value.settings)
           setRunning(Boolean(value.running))
+          setActiveProvider(value.activeProvider || 'searxng')
+          setPendingRestart(Boolean(value.pendingRestart))
           setMessage(value.error || '状态已刷新。')
         } catch (e) { setMessage(e.message || '状态刷新失败。') }
         finally { setBusy(false) }
@@ -91,10 +101,13 @@ window.__ModuleLoader__.load({
           const result = await api(type, next)
           if (result.settings) setSettings(result.settings)
           if (result.running !== undefined) setRunning(result.running)
+          if (result.activeProvider) setActiveProvider(result.activeProvider)
+          if (result.pendingRestart !== undefined) setPendingRestart(Boolean(result.pendingRestart))
           setMessage(type === 'test'
             ? (result.healthy ? '搜索正常：找到 ' + result.results + ' 条结果'
               : '连接成功，但返回 0 条结果。请检查代理出口和搜索引擎。')
-            : type === 'restart' ? '搜索进程已重启。' : '设置已保存。')
+            : type === 'restart' ? 'SearXNG 进程已重启。' : result.pendingRestart
+              ? '设置已保存。请在宿主机执行 dshd search restart 以切换搜索提供方。' : '设置已保存。')
         } catch (e) { setMessage(e.message || '操作失败') }
         finally { setBusy(false) }
       }
@@ -120,24 +133,39 @@ window.__ModuleLoader__.load({
         className: spacious ? 'dsh-search-settings' : undefined,
         style: { ...styles.root, ...(spacious ? { maxWidth: 'none', padding: '16px 26px 28px' } : {}) },
       },
-        h('h3', { style: { marginTop: 0 } }, spacious ? '搜索服务设置' : 'Web Search · 内置搜索'),
+        h('h3', { style: { marginTop: 0 } }, spacious ? '搜索服务设置' : 'Web Search · 提供方管理'),
         h('p', { style: styles.hint },
-          'SearXNG 随 DSH 镜像预装，仅在搜索插件启用时运行。监听容器内 127.0.0.1:18788，共享 DSH 的 sing-box/HTTP 代理出口。'),
+          '可选择 DeepSeek 官方搜索或自建 SearXNG。自建引擎只监听容器内 127.0.0.1:18788，共享 DSH 网络及代理出口。'),
+        settings && h('div', { style: styles.section },
+          h('h4', { style: styles.heading }, '默认搜索提供方'),
+          h('label', { style: { ...styles.row, justifyContent: 'space-between' } },
+            h('span', null, '搜索方式'),
+            h('select', { value: settings.provider || 'searxng', disabled: busy,
+              'aria-label': '搜索提供方',
+              style: { ...styles.field, width: 'min(320px,100%)' },
+              onChange: e => setSettings(current => ({ ...current, provider: e.target.value })) },
+            h('option', { value: 'official' }, 'DeepSeek 官方搜索'),
+            h('option', { value: 'searxng' }, 'SearXNG 自建搜索'))),
+          h('p', { style: styles.hint }, '当前生效：',
+            activeProvider === 'official' ? 'DeepSeek 官方搜索' : 'SearXNG 自建搜索',
+            '。更换提供方需先保存，再重启 DSH。'),
+          pendingRestart && h('p', { role: 'status', style: styles.hint },
+            '存在待生效的切换。请在宿主机执行 dshd search restart；当前搜索服务会持续使用原有提供方。')),
         h('div', { style: styles.section },
           h('div', { style: styles.row },
-            h('strong', null, '运行状态：', running ? '运行中' : '未运行'),
+            h('strong', null, 'SearXNG 状态：', running ? '运行中' : '未运行'),
             h('button', { type: 'button', style: styles.btn, disabled: busy,
               onClick: () => { void refreshStatus() } },
               '刷新'),
-            h('button', { type: 'button', style: styles.btn, disabled: busy || !settings?.enabled,
+            h('button', { type: 'button', style: styles.btn, disabled: busy || activeProvider !== 'searxng',
               onClick: () => { void action('test') } }, '测试搜索'),
-            h('button', { type: 'button', style: styles.btn, disabled: busy || !settings?.enabled,
+            h('button', { type: 'button', style: styles.btn, disabled: busy || activeProvider !== 'searxng',
               onClick: () => { void action('restart') } }, '重启搜索')),
           h('p', { style: styles.hint },
-            '关闭本插件的运行开关会停止内置搜索；完全卸载搜索 Provider 仍可使用 dshd search disable。')),
+            '关闭自建引擎后，保存并重启 DSH 即使用官方搜索；dshd search disable 则会完全卸载自建插件补丁。')),
         settings && h('div', { style: styles.section },
           h('h4', { style: styles.heading }, '搜索与缓存'),
-          toggle('enabled', '启动内置 SearXNG'),
+          toggle('enabled', '启用 SearXNG 后端（关闭后重启切回官方）'),
           toggle('cacheEnabled', '启用内存搜索缓存（最长 15 分钟）'),
           toggle('braveEnabled', '允许 Brave API 作为故障备用（可能产生费用）'),
           h('label', { style: { ...styles.row, justifyContent: 'space-between' } },
@@ -242,7 +270,7 @@ window.__ModuleLoader__.load({
           style: { fontSize: 21, fontWeight: 650, margin: 0 } }, '网络搜索'),
         h('p', { style: { fontSize: 12, margin: '7px 0 0',
           color: 'var(--dsw-alias-label-secondary, #777)' } },
-        '管理内置 SearXNG、搜索缓存与 Brave 备用搜索')),
+        '切换 DeepSeek 官方搜索与 SearXNG，管理缓存和 Brave 备用搜索')),
       h('button', {
         type: 'button', className: 'dsh-search-close',
         'aria-label': '关闭网络搜索', title: '关闭',
