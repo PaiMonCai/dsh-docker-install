@@ -8,7 +8,8 @@ import http from 'node:http'
 
 export const name = 'dsh-bili-domain-ui'
 export const inject = ['connection', 'webServer']
-export const PREFIX = '/__bili/'
+// DSH's segment-prefix matcher appends "/" when matching child routes.
+export const PREFIX = '/__bili'
 const MAX_URL = 4096
 const MAX_BODY = 128 * 1024
 const MAX_RESPONSE = 16 * 1024 * 1024
