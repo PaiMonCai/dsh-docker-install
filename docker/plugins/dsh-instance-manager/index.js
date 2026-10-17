@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 export const name = 'dsh-docker-instance-manager'
 export const inject = []
 export const ENDPOINT = '/api/dsh-docker-instance-manager'
+export const LOGS_ENDPOINT = ENDPOINT + '/logs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'cleanup',
@@ -83,6 +84,21 @@ export class HostBridge {
       jobs: jobs.filter(Boolean).sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || ''))).slice(0, 50),
     }
   }
+  async logStream() {
+    await this.guard()
+    const stream = await readJSON(join(this.results, 'log-stream.json'), 65536)
+      .catch(error => { if (error.code === 'ENOENT') return null; throw error })
+    if (!stream) return null
+    if (!UUID.test(stream.generation) || !Number.isSafeInteger(stream.seq) || stream.seq < 0
+      || !Array.isArray(stream.entries) || stream.entries.length > 200
+      || stream.entries.some(item => !Number.isSafeInteger(item?.seq)
+        || item.seq < 1 || item.seq > stream.seq
+        || typeof item.text !== 'string' || item.text.length > 8192)
+      || typeof stream.updatedAt !== 'string' || stream.updatedAt.length > 64) {
+      refuse(503, 'invalid-log-stream')
+    }
+    return stream
+  }
   async submit(data) {
     if (!data || Object.keys(data).sort().join(',') !== 'action,arguments,id'
       || typeof data.id !== 'string' || !UUID.test(data.id)) refuse(400, 'invalid-task')
@@ -123,12 +139,122 @@ async function body(req) {
   catch { refuse(400, 'invalid-json') }
 }
 
+const MAX_LOG_CLIENTS = 6
+let openLogClients = 0
+
+/**
+ * Authenticated SSE endpoint: initial bounded snapshot, then only new lines.
+ * EventSource reconnects automatically, carrying Last-Event-ID when possible.
+ * This tailing endpoint never executes Docker or writes to the host.
+ */
+export async function serveLogStream(req, res, bridge, logger = () => {}) {
+  if (openLogClients >= MAX_LOG_CLIENTS) return send(res, 429, { error: 'too-many-log-streams' })
+  const status = await bridge.status()
+  if (!status.configured) return send(res, 503, { error: 'host-executor-unconfigured' })
+
+  openLogClients++
+  let stopped = false
+  let checking = false
+  let lastGeneration = ''
+  let lastSequence = -1
+  let hadError = false
+  let latestEvent = String(req.headers['last-event-id'] || '')
+  const match = /^([0-9a-f-]{36}):(\d{1,15})$/.exec(latestEvent)
+  if (match) {
+    lastGeneration = match[1]
+    lastSequence = Number(match[2])
+  }
+
+  const write = value => {
+    if (stopped || res.writableEnded || res.destroyed) return false
+    try {
+      // Under backpressure, close and let EventSource resume with its event id;
+      // never accumulate unbounded browser-facing output.
+      if (res.write(value) === false) { res.end(); stop(); return false }
+      return true
+    } catch { stop(); return false }
+  }
+  const event = (name, payload, id) => write(
+    (id ? 'id: ' + id + '\n' : '') +
+    'event: ' + name + '\ndata: ' + JSON.stringify(payload) + '\n\n'
+  )
+  let pollTimer, heartbeatTimer
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    clearInterval(pollTimer)
+    clearInterval(heartbeatTimer)
+    openLogClients--
+    if (!res.writableEnded && !res.destroyed) res.end()
+  }
+  res.on('close', stop)
+  req.on?.('aborted', stop)
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    'connection': 'keep-alive',
+    'x-accel-buffering': 'no',
+    'x-content-type-options': 'nosniff',
+  })
+  res.flushHeaders?.()
+  write('retry: 1500\n\n')
+  const poll = async () => {
+    if (stopped || checking) return
+    checking = true
+    try {
+      const stream = await bridge.logStream()
+      if (stopped) return
+      if (!stream) {
+        if (!hadError) event('status', { state: 'waiting', message: 'host-log-stream-not-ready' })
+        hadError = true
+        return
+      }
+      hadError = false
+      const first = stream.entries[0]?.seq ?? (stream.seq + 1)
+      const restart = lastGeneration !== stream.generation
+        || lastSequence < first - 1 || lastSequence > stream.seq
+      const fresh = restart ? stream.entries : stream.entries.filter(item => item.seq > lastSequence)
+      if (restart || fresh.length) {
+        if (event('logs', {
+          mode: restart ? 'snapshot' : 'append',
+          lines: fresh.map(item => item.text),
+          generation: stream.generation,
+          seq: stream.seq,
+          updatedAt: stream.updatedAt,
+        }, stream.generation + ':' + stream.seq)) {
+          lastGeneration = stream.generation
+          lastSequence = stream.seq
+        }
+      }
+    } catch (error) {
+      logger(error)
+      if (!hadError) event('status', { state: 'error', message: 'host-log-stream-unavailable' })
+      hadError = true
+    } finally {
+      checking = false
+    }
+  }
+  pollTimer = setInterval(() => { void poll() }, 350)
+  heartbeatTimer = setInterval(() => { write(': heartbeat\n\n') }, 15000)
+  void poll()
+}
+
 export function apply(ctx) {
   const bridge = new HostBridge()
   let tail = Promise.resolve()
   // connection/request is downstream of DSH's normal browser authentication.
   ctx.on('connection/request', async (req, res, next) => {
-    if (new URL(req.url || '/', 'http://localhost').pathname !== ENDPOINT) return next()
+    const pathname = new URL(req.url || '/', 'http://localhost').pathname
+    if (pathname !== ENDPOINT && pathname !== LOGS_ENDPOINT) return next()
+    if (pathname === LOGS_ENDPOINT) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' })
+      if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site']))
+        return send(res, 403, { error: 'same-origin-request-required' })
+      try { return await serveLogStream(req, res, bridge, error =>
+        ctx.logger?.warn?.('dsh live logs: ' + String(error))) }
+      catch (error) { if (!res.headersSent) send(res, 503, { error: 'log-stream-unavailable' }) }
+      return
+    }
     if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'method-not-allowed' })
     if (req.method === 'POST' && (req.headers['x-dsh-management'] !== '1'
       || !String(req.headers['content-type'] || '').startsWith('application/json')

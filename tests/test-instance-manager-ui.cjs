@@ -15,9 +15,16 @@ const initial = () => ({
     settings: { checkInterval: 21600 }, proxy: { nodes: [], running: false },
   },
 })
-function harness() {
+function harness({ sse = false } = {}) {
   let definition, current, cursor
   const stores = new Map(), entries = new Map(), timers = new Map(), storage = new Map()
+  const sources = []
+  class FakeEventSource {
+    constructor(url, options) { this.url = url; this.options = options; this.handlers = {}; this.closed = false; sources.push(this) }
+    addEventListener(type, fn) { this.handlers[type] = fn }
+    emit(type, data) { this.handlers[type]?.({ data: JSON.stringify(data) }) }
+    close() { this.closed = true }
+  }
   let nextTimer = 0
   const f = { data: initial(), calls: 0, fail: false }
   const React = {
@@ -35,10 +42,11 @@ function harness() {
       return current.values[index]
     },
     useEffect(effect, deps) {
-      const index = cursor++, previous = current.deps[index]
+      const index = cursor++, store = current, previous = store.deps[index]
       if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) {
-        current.deps[index] = [...deps]
-        current.effects.push(effect)
+        store.cleanups[index]?.()
+        store.deps[index] = [...deps]
+        store.effects.push(() => { store.cleanups[index] = effect() })
       }
     },
     useSyncExternalStore: (_subscribe, read) => read(),
@@ -47,6 +55,7 @@ function harness() {
   const window = { __ModuleLoader__: { load: value => { definition = value } } }
   vm.runInNewContext(source, {
     window, console, localStorage: memory, sessionStorage: memory,
+    ...(sse ? { EventSource: FakeEventSource } : {}),
     AbortController, AbortSignal,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id },
     clearTimeout: id => timers.delete(id),
@@ -60,7 +69,7 @@ function harness() {
     slots: { inject: (_name, fn) => fn(), register: (meta, component) => entries.set(meta.id, component) },
   })
   function render(component, props = {}) {
-    if (!stores.has(component)) stores.set(component, { values: [], deps: [], effects: [] })
+    if (!stores.has(component)) stores.set(component, { values: [], deps: [], effects: [], cleanups: {} })
     current = stores.get(component); cursor = 0
     const tree = component(props)
     for (const effect of current.effects.splice(0)) effect()
@@ -72,6 +81,8 @@ function harness() {
     if (typeof tree.type === 'function') return render(tree.type, tree.props)
     return { ...tree, props: { ...tree.props, children: expand(tree.props.children) } }
   }
+  f.shortcuts = window.__dshDockerIconDockPendingV1 || []
+  f.sources = sources
   f.entry = props => render(entries.get('dsh-docker-instance-manager'), props)
   f.notice = () => render(entries.get('dsh-docker.instance-manager-update-notice'))
   f.poll = async delay => {
@@ -168,4 +179,89 @@ test('failed registry checks remain visible in details and never create update n
   f.notice(); f.entry({ view: 'detail' }); await f.settle()
   assert.equal(f.notice(), null)
   assert.match(text(f.entry({ view: 'detail' })), /更新检查失败：registry unavailable/)
+})
+
+test('live runtime logs are reachable from manager and the dedicated shortcut is registered', async () => {
+  const f = harness()
+  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'
+    && entry.label === '运行日志' && entry.icon === 'terminal'))
+  f.data.status.logs = '[INFO] DSH booted\n[WARN] retry network\n[ERROR] failed request'
+  f.data.status.logsUpdatedAt = new Date().toISOString()
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const tab = nodes(tree, node => node.props.role === 'tab' && text(node) === '运行日志')[0]
+  assert.ok(tab)
+  tab.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /兼容快照自动刷新/)
+  assert.match(text(tree), /DSH booted/)
+  const level = nodes(tree, node => node.props['aria-label'] === '日志级别')[0]
+  level.props.onChange({ target: { value: 'error' } })
+  tree = f.entry({ view: 'detail' })
+  const output = nodes(tree, node => node.props['aria-label'] === 'DSH 运行日志')[0]
+  assert.match(text(output), /ERROR/)
+  assert.doesNotMatch(text(output), /WARN|INFO/)
+  // Management status keeps its existing cadence; logs arrive by SSE where available.
+  await f.poll(3000)
+  await f.poll(3000)
+})
+
+test('log search and pause freeze the display while status continues to refresh', async () => {
+  const f = harness()
+  f.data.status.logs = 'startup completed\nERROR first failure'
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  const search = nodes(tree, n => n.props['aria-label'] === '搜索运行日志')[0]
+  search.props.onChange({ target: { value: 'failure' } })
+  tree = f.entry({ view: 'detail' })
+  assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /startup/)
+  nodes(tree, n => n.type === 'button' && text(n) === '暂停显示')[0].props.onClick()
+  f.data.status.logs = 'ERROR new failure\nINFO restarted'
+  await f.poll(3000)
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /first failure/)
+  assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
+  nodes(tree, n => n.type === 'button' && text(n) === '继续显示')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
+})
+
+test('SSE subscription receives snapshots and appends, deduplicates and reconnects', async () => {
+  const f = harness({ sse: true })
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.equal(f.sources.length, 1)
+  const source = f.sources[0]
+  assert.equal(source.url, '/api/dsh-docker-instance-manager/logs')
+  source.onopen()
+  const generation = '123e4567-e89b-42d3-a456-426614174000'
+  source.emit('logs', { mode: 'snapshot', generation, seq: 2,
+    lines: ['INFO first', 'WARN second'], updatedAt: new Date().toISOString() })
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /SSE 实时连接/)
+  let output = nodes(tree, n => n.props.role === 'log')[0]
+  assert.match(text(output), /first/)
+  source.emit('logs', { mode: 'append', generation, seq: 3,
+    lines: ['ERROR third'], updatedAt: new Date().toISOString() })
+  source.emit('logs', { mode: 'append', generation, seq: 3,
+    lines: ['ERROR duplicate'], updatedAt: new Date().toISOString() })
+  tree = f.entry({ view: 'detail' })
+  output = nodes(tree, n => n.props.role === 'log')[0]
+  assert.match(text(output), /third/)
+  assert.doesNotMatch(text(output), /duplicate/)
+  source.onerror()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /自动重连中/)
+  nodes(tree, n => n.type === 'button' && text(n) === '重新连接')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.equal(f.sources.length, 2)
+  assert.equal(source.closed, true)
 })

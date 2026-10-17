@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Host-side executor for the image-bundled DSH management plugin."""
 import argparse
+from collections import deque
 import contextlib
 import datetime
 import json
 import os
 from pathlib import Path
 import re
+import selectors
 import stat
 import subprocess
+import threading
 import time
 import uuid
 
@@ -32,6 +35,13 @@ def redact(value):
     text = re.sub(r"(?i)([?&](?:token|key|api_key)=)[^\s&\"']+", r"\1[hidden]", text)
     text = re.sub(r"(?i)\b(?:https?|socks5?|vless|trojan|hysteria2|ss)://[^\s\"']+",
                   "[address hidden]", text)
+    # Explicitly mask JSON-formatted secrets as well as CLI-style key=value.
+    text = re.sub(r'(?i)("(?:token|api[_-]?key|access[_-]?token|password|secret|authorization)"\s*:\s*")[^"]*(")',
+                  r"\1[hidden]\2", text)
+    text = re.sub(r"(?i)(\bAuthorization\s*:\s*(?:Bearer|Basic)\s+)[^\s,\"']+",
+                  r"\1[hidden]", text)
+    text = re.sub(r"(?i)(\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[\"']?)[^\s,\"'}]+",
+                  r"\1[hidden]", text)
     return re.sub(r"\bsk-[A-Za-z0-9_-]{8,}", "[key hidden]", text)
 
 
@@ -116,6 +126,15 @@ class Manager:
         self.refresh_pending = False
         self.next_check = 0
         self.next_snapshot = 0
+        # A single host-owned Docker follower publishes a bounded redacted
+        # window to the existing read-only bridge. The Web host never receives
+        # a Docker socket, arbitrary executable, or unredacted pipe.
+        self.log_generation = str(uuid.uuid4())
+        self.log_seq = 0
+        self.log_lines = deque(maxlen=200)
+        self.log_stop = threading.Event()
+        self.log_thread = None
+        self.log_process = None
 
     @staticmethod
     def validate_settings(data):
@@ -141,6 +160,105 @@ class Manager:
     def inspect(self, name):
         return json.loads(self.run(["docker", "inspect", name]))[0]
 
+    def append_log_line(self, line):
+        # Limit individual lines *before* they reach the persistent bridge.
+        safe = redact(line).replace("\x00", "")[-8192:]
+        self.log_seq += 1
+        self.log_lines.append({"seq": self.log_seq, "text": safe})
+        # Strict UTF-8 byte budget for JSON persisted through a 0600 file.
+        # Reserve room for metadata and escaping.
+        while self.log_lines and sum(len(json.dumps(item, ensure_ascii=True)) for item in self.log_lines) > 44000:
+            self.log_lines.popleft()
+
+    def publish_log_stream(self):
+        write_json(self.results / "log-stream.json", {
+            "generation": self.log_generation, "seq": self.log_seq,
+            "updatedAt": now(), "entries": list(self.log_lines),
+        })
+
+    def follow_logs(self):
+        """Follow only this DSH container; restart the follower on Docker EOF."""
+        while not self.log_stop.is_set():
+            process = None
+            selector = None
+            pending = b""
+            dirty = False
+            last_publish = 0
+            try:
+                name = self.describe()["name"]
+                if not NAME.fullmatch(name):
+                    raise ValueError("invalid DSH container name")
+                process = subprocess.Popen(
+                    ["docker", "logs", "--follow", "--tail", "200", name],
+                    env=self.env, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                self.log_process = process
+                selector = selectors.DefaultSelector()
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while not self.log_stop.is_set():
+                    events = selector.select(timeout=0.2)
+                    if events:
+                        chunk = os.read(process.stdout.fileno(), 8192)
+                        if not chunk:
+                            break
+                        pending += chunk
+                        while b"\n" in pending:
+                            line, pending = pending.split(b"\n", 1)
+                            self.append_log_line(line.decode("utf-8", "replace").rstrip("\r"))
+                            dirty = True
+                        # Do not let an untrusted line grow without a newline.
+                        if len(pending) > 32768:
+                            self.append_log_line(pending[-8192:].decode("utf-8", "replace"))
+                            pending = b""
+                            dirty = True
+                    if dirty and time.monotonic() - last_publish >= 0.25:
+                        self.publish_log_stream()
+                        dirty = False
+                        last_publish = time.monotonic()
+                    if process.poll() is not None and not events:
+                        break
+                if pending:
+                    self.append_log_line(pending.decode("utf-8", "replace"))
+                    dirty = True
+            except Exception as error:
+                self.append_log_line("[log stream unavailable] " + redact(error))
+                dirty = True
+            finally:
+                if dirty:
+                    with contextlib.suppress(Exception):
+                        self.publish_log_stream()
+                if selector:
+                    selector.close()
+                if process:
+                    if process.poll() is None:
+                        process.terminate()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        process.wait(timeout=2)
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                    if process.stdout:
+                        process.stdout.close()
+                self.log_process = None
+            # The container may have been replaced. Reattach by name.
+            self.log_stop.wait(1)
+
+    def start_log_stream(self):
+        if self.log_thread is not None:
+            return
+        self.publish_log_stream()
+        self.log_thread = threading.Thread(target=self.follow_logs, daemon=True, name="dsh-log-follower")
+        self.log_thread.start()
+
+    def stop_log_stream(self):
+        self.log_stop.set()
+        if self.log_process and self.log_process.poll() is None:
+            self.log_process.terminate()
+        if self.log_thread:
+            self.log_thread.join(timeout=3)
+
     def snapshot(self):
         description = self.describe()
         snapshot = {"schema": 1, "heartbeat": now(), "instance": description,
@@ -162,8 +280,11 @@ class Manager:
             ):
                 self.clear_release(recheck=bool(self.settings["checkInterval"]))
                 snapshot["release"] = None
-            output = self.run(["docker", "logs", "--tail", "80", description["name"]], merge=True)
-            snapshot["logs"] = redact(output)[-24000:]
+            # A bounded, redacted rolling snapshot consumed only by the authenticated
+            # Web manager. No Docker socket or arbitrary log command in DSH.
+            output = self.run(["docker", "logs", "--tail", "200", description["name"]], merge=True)
+            snapshot["logs"] = redact(output)[-48000:]
+            snapshot["logsUpdatedAt"] = snapshot["heartbeat"]
         except Exception as error:
             snapshot["containerError"] = redact(error)
         try:
@@ -350,12 +471,16 @@ def main():
     with open(manager.private / "executor.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         manager.recover()
-        while True:
-            try:
-                manager.tick()
-            except Exception as error:
-                print(redact(error), flush=True)
-            time.sleep(3)
+        manager.start_log_stream()
+        try:
+            while True:
+                try:
+                    manager.tick()
+                except Exception as error:
+                    print(redact(error), flush=True)
+                time.sleep(3)
+        finally:
+            manager.stop_log_stream()
 
 
 if __name__ == "__main__":

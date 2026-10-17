@@ -377,8 +377,12 @@ jobs:
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
               --dump-config | grep -Fq "dsh-docker-reasoning-editor"
+            # Search defaults to official; an explicit SearXNG overlay opts into local search.
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
+              --dump-config | grep -Fq "searchProvider: deepseek-official"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-web-search/cordis.searxng.patch.yml \
               --dump-config | grep -Fq "searchProvider: dsh-docker-search"
             # DSH launcher supports multiple --patch flags BEFORE app args.
             DSH_HOME="$native_home" dsh --profile web \

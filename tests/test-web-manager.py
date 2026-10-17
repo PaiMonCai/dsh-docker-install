@@ -107,6 +107,57 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.remote_image_id(manifests, "linux", "amd64")
 
+    def test_runtime_log_snapshot_is_bounded_redacted_and_stamped(self):
+        self.manager.snapshot()
+        status = MODULE.read_json(self.manager.results / "status.json")
+        self.assertLessEqual(len(status["logs"]), 48000)
+        self.assertIn("logsUpdatedAt", status)
+        self.assertNotIn("token=secret", status["logs"])
+
+        secret = ('Authorization: Bearer private-bearer-token\n'
+                  'api_key=provider-private-token\n'
+                  'password: privatepassword\n'
+                  'https://demo:password@example.org/?token=secret\n')
+        safe = MODULE.redact(secret)
+        for value in ("private-bearer-token", "provider-private-token",
+                      "privatepassword", "demo:password", "token=secret"):
+            self.assertNotIn(value, safe)
+
+    def test_log_tail_reads_only_target_container_and_is_bounded(self):
+        commands = []
+        original = self.manager.run
+        def traced(args, **kwargs):
+            commands.append(args)
+            return original(args, **kwargs)
+        self.manager.run = traced
+        self.manager.snapshot()
+        self.assertIn(["docker", "logs", "--tail", "200", "dsh-test"], commands)
+
+    def test_sse_log_ring_is_redacted_bounded_and_atomic(self):
+        self.manager.append_log_line("Authorization: Bearer abc-secret")
+        for index in range(275):
+            self.manager.append_log_line("INFO line %s" % index)
+        self.manager.publish_log_stream()
+        path = self.manager.results / "log-stream.json"
+        stream = MODULE.read_json(path, 65536)
+        self.assertEqual(stream["seq"], 276)
+        self.assertLessEqual(len(stream["entries"]), 200)
+        self.assertEqual(stream["generation"], self.manager.log_generation)
+        self.assertLessEqual(path.stat().st_size, 65536)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertIn("INFO line 274", stream["entries"][-1]["text"])
+        self.assertNotIn("abc-secret", json.dumps(stream))
+        self.assertEqual([line["seq"] for line in stream["entries"]],
+                         sorted(line["seq"] for line in stream["entries"]))
+        self.manager.append_log_line("password=other-secret")
+        self.manager.publish_log_stream()
+        updated = MODULE.read_json(path, 65536)
+        self.assertEqual(updated["seq"], 277)
+        self.assertNotIn("other-secret", json.dumps(updated))
+        safe_json = MODULE.redact('{"password": "topsecret", "api_key":"secretkey", "token":"private"}')
+        for secret in ("topsecret", "secretkey", "private"):
+            self.assertNotIn(secret, safe_json)
+
     def test_external_upgrade_discards_cached_notice_and_checks_the_running_image(self):
         self.manager.check()
         self.assertTrue(self.manager.release["available"])
