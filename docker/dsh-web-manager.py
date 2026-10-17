@@ -35,6 +35,9 @@ def redact(value):
     text = re.sub(r"(?i)([?&](?:token|key|api_key)=)[^\s&\"']+", r"\1[hidden]", text)
     text = re.sub(r"(?i)\b(?:https?|socks5?|vless|trojan|hysteria2|ss)://[^\s\"']+",
                   "[address hidden]", text)
+    # Explicitly mask JSON-formatted secrets as well as CLI-style key=value.
+    text = re.sub(r'(?i)("(?:token|api[_-]?key|access[_-]?token|password|secret|authorization)"\s*:\s*")[^"]*(")',
+                  r"\1[hidden]\2", text)
     text = re.sub(r"(?i)(\bAuthorization\s*:\s*(?:Bearer|Basic)\s+)[^\s,\"']+",
                   r"\1[hidden]", text)
     text = re.sub(r"(?i)(\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[\"']?)[^\s,\"'}]+",
