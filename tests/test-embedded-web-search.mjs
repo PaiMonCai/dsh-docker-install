@@ -32,6 +32,7 @@ test('bundled search rejects symlink settings to prevent credential overwrite', 
 })
 test('Web preferences validate explicit booleans and bounded paid fallback limits', () => {
   assert.equal(defaults({}).braveEnabled, false)
+  assert.equal(defaults({}).provider, 'official')
   const valid = { enabled: true, braveEnabled: false, cacheEnabled: true, braveDailyLimit: 0 }
   assert.deepEqual(validate(valid), { provider: 'searxng', ...valid })
   assert.equal(selectedProvider(validate(valid)), 'searxng')
