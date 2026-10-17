@@ -7,6 +7,7 @@ on:
       - docker/dsh-web-manager.py
       - docker/plugins/dsh-instance-manager/**
       - tests/test-instance-manager.mjs
+      - tests/test-instance-manager-ui.cjs
       - tests/test-web-manager.py
       - tests/test-dshd-web-management.sh
       - .github/workflows/instance-manager-tests.yml
@@ -17,6 +18,7 @@ on:
       - docker/dsh-web-manager.py
       - docker/plugins/dsh-instance-manager/**
       - tests/test-instance-manager.mjs
+      - tests/test-instance-manager-ui.cjs
       - tests/test-web-manager.py
       - tests/test-dshd-web-management.sh
       - .github/workflows/instance-manager-tests.yml
@@ -39,7 +41,7 @@ jobs:
           bash tests/test-dshd-web-management.sh
           python3 tests/test-web-manager.py
           node --check docker/plugins/dsh-instance-manager/client.js
-          node --test tests/test-instance-manager.mjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
+          node --test tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
       - name: Exercise existing lifecycle and proxy behavior
         run: |
           bash tests/test-dshd-rollback.sh

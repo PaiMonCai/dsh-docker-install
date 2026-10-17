@@ -181,6 +181,9 @@ async function run() {
 
   // The editor must be reachable through the original Plugins page.
   await dock.getByRole('button', { name: '插件' }).click()
+  await page.getByText('管理 DSH 更新、运行状态与网络出口', { exact: true }).waitFor({ timeout })
+  assert.equal(await page.getByRole('tab', { name: '运行与更新', exact: true }).count(), 0,
+    'instance manager must not expand its controls in the plugin list')
   const editorLink = page.getByText('快捷入口管理', { exact: true }).first()
   await editorLink.waitFor({ state: 'visible', timeout })
   await editorLink.click()

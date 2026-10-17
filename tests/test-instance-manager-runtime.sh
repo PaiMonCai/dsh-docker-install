@@ -80,9 +80,9 @@ async function until(fn, timeout = 240000) {
   }
   throw Error('Timed out waiting for instance task')
 }
-async function task(action) {
+async function task(action, args = {}) {
   const id = randomUUID()
-  await call({ id, action, arguments: {} })
+  await call({ id, action, arguments: args })
   return until(async () => {
     const job = (await call()).jobs.find(job => job.id === id)
     return job && !['running', 'queued'].includes(job.state) ? job : null
@@ -99,10 +99,12 @@ async function task(action) {
   const goodImage = docker('commit', '--change', 'LABEL io.dsh.ci.generation=2', name, image)
   assert.equal((await task('check')).state, 'succeeded')
   await until(async () => (await call()).status.release?.available === true)
+  assert.equal((await task('settings', { checkInterval: 0 })).state, 'succeeded')
   const update = await task('update')
   assert.equal(update.state, 'succeeded', update.error)
   assert.notEqual(docker('inspect', '-f', '{{.Id}}', name), oldId)
   assert.equal(docker('inspect', '-f', '{{.Image}}', name), goodImage)
+  await until(async () => (await call()).status.release?.available === false)
   assert.equal(docker('exec', name, 'node', '/usr/local/bin/dsh-web-token.js', 'print'), token)
   assert.ok(!docker('inspect', '-f', '{{json .Mounts}}', name).includes('docker.sock'))
   assert.ok(!JSON.stringify((await call()).jobs).includes(token), 'task history must not expose the login token')

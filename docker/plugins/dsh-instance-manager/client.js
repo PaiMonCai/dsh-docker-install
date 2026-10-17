@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const ENDPOINT = '/api/dsh-docker-instance-manager'
     const listeners = new Set()
+    const statusListeners = new Set()
     let opened = false
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
     const open = value => { opened = value; for (const fn of listeners) fn() }
@@ -50,7 +51,19 @@ window.__ModuleLoader__.load({
       })
       const result = await response.json()
       if (!response.ok) throw Error(errors[result.error] || result.error || '请求失败')
+      if (!data) for (const listener of statusListeners) listener(result)
       return result
+    }
+    function currentRelease(data) {
+      const status = data?.status
+      const release = status?.release
+      if (!release || release.current && release.current !== status.container?.imageId
+        || release.target && release.target !== status.instance?.image) return null
+      return release.error || typeof release.current === 'string'
+        && release.current === status.container?.imageId ? release : null
+    }
+    function shortDigest(value) {
+      return typeof value === 'string' ? value.replace(/^sha256:/, '').slice(0, 12) : ''
     }
     function formatTime(value) {
       return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未检查'
@@ -97,7 +110,10 @@ window.__ModuleLoader__.load({
             const next = await request(null, AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]))
             if (alive) { setData(next); setDisconnected(false) }
           } catch {
-            if (alive) setDisconnected(true)
+            if (alive) {
+              setDisconnected(true)
+              for (const listener of statusListeners) listener({ online: false })
+            }
           }
           if (alive) timer = setTimeout(poll, 3000)
         }
@@ -134,7 +150,7 @@ window.__ModuleLoader__.load({
         }, labels[action])
       }
       const selectedJob = jobs.find(job => job.id === selected) || jobs[0]
-      const release = status?.release
+      const release = currentRelease(data)
       const section = (title, ...children) => h('section', { className: 'dm-section' }, h('h3', null, title), ...children)
       const details = entries => h('dl', { className: 'dm-grid' }, ...entries.flatMap(([key, value]) => [
         h('dt', { key: key + '-label' }, key), h('dd', { key }, value || '—'),
@@ -169,12 +185,15 @@ window.__ModuleLoader__.load({
               h('p', { className: 'dm-muted', style: { margin: '6px 0 0' } }, status.instance.edition)),
               actionButton('restart')),
             section('镜像与更新',
-              details([['当前版本', status.container?.version], ['镜像', status.instance.image],
+              details([['当前 DSH 版本', status.container?.version], ['镜像', status.instance.image],
+                ['当前镜像标识', shortDigest(status.container?.imageId)], ['远端镜像标识', shortDigest(release?.latest)],
                 ['健康检查', status.container?.health], ['最近检查', formatTime(release?.checkedAt)]]),
               h('div', { className: 'dm-banner', 'data-error': Boolean(release?.error) },
                 release?.error ? '更新检查失败：' + release.error
                   : release?.available === true ? '检测到可用更新。更新将在后台执行，重启后可在任务记录查看结果。'
-                    : release?.available === false ? '当前运行镜像与远端一致。' : '尚未完成更新检查。'),
+                    : release?.available === false ? '当前运行镜像与远端一致。'
+                      : status.release ? '运行镜像或更新源已变化，请重新检查更新。' : '尚未完成更新检查。'),
+              h('p', { className: 'dm-muted' }, '按当前平台的镜像内容检查更新。DSH 版本号相同，镜像内的插件与修复仍可能有更新。'),
               h('div', { className: 'dm-actions' }, actionButton('check'), actionButton('update', {}, true)),
               h('div', { className: 'dm-setting', style: { marginTop: 18 } },
                 h('label', { htmlFor: embedded ? 'dm-check-embedded' : 'dm-check' }, '自动检查更新'),
@@ -266,35 +285,44 @@ window.__ModuleLoader__.load({
     }
     function UpdateNotice() {
       const [update, setUpdate] = React.useState(null)
+      const active = React.useSyncExternalStore(subscribe, () => opened, () => false)
       React.useEffect(() => {
         let alive = true
+        let timer
+        const controller = new AbortController()
+        const receive = data => {
+          const release = currentRelease(data)
+          const key = 'dsh-management-notice-' + data.status?.instance?.id + '-' + data.status?.instance?.image
+          let dismissed
+          try { dismissed = sessionStorage.getItem(key) } catch {}
+          const replacing = data.jobs?.some(job => ['queued', 'running'].includes(job.state)
+            && ['update', 'recreate', 'rollback'].includes(job.action))
+          if (alive) setUpdate(data.online && release?.available === true && !replacing && dismissed !== release.latest
+            ? { latest: release.latest, key } : null)
+        }
+        statusListeners.add(receive)
         const poll = async () => {
           try {
-            const data = await request(null, AbortSignal.timeout(12000))
-            const release = data.status?.release
-            const key = 'dsh-management-notice-' + data.status?.instance?.id
-            let dismissed
-            try { dismissed = sessionStorage.getItem(key) } catch {}
-            if (alive) setUpdate(data.online && release?.available && dismissed !== release.latest
-              ? { latest: release.latest, key } : null)
-          } catch { /* Instance may be restarting; the open panel handles reconnection. */ }
+            await request(null, AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]))
+          } catch { if (alive) setUpdate(null) }
+          if (alive) timer = setTimeout(poll, 60000)
         }
         void poll()
-        const timer = setInterval(poll, 60000)
-        return () => { alive = false; clearInterval(timer) }
+        return () => { alive = false; controller.abort(); clearTimeout(timer); statusListeners.delete(receive) }
       }, [])
-      if (!update) return null
+      if (!update || active) return null
+      const dismiss = () => {
+        try { sessionStorage.setItem(update.key, update.latest) } catch {}
+        setUpdate(null)
+      }
       return h('aside', { className: 'dsh-manage', 'aria-label': 'DSH 更新提醒',
         style: { position: 'fixed', right: 18, bottom: 18, zIndex: 9000, padding: 12, borderRadius: 10,
           border: '1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25))',
           background: 'var(--dsw-alias-bg-primary,var(--surface-primary,#fff))' } },
       h('style', null, css),
       h('span', { style: { fontSize: 13, marginRight: 12 } }, 'DSH 有可用镜像更新'),
-      h('button', { type: 'button', onClick: () => { open(true); setUpdate(null) } }, '查看更新'),
-      h('button', { type: 'button', 'aria-label': '稍后提醒', style: { marginLeft: 8 }, onClick: () => {
-        try { sessionStorage.setItem(update.key, update.latest) } catch {}
-        setUpdate(null)
-      } }, '稍后'))
+      h('button', { type: 'button', onClick: () => { dismiss(); open(true) } }, '查看更新'),
+      h('button', { type: 'button', 'aria-label': '稍后提醒', style: { marginLeft: 8 }, onClick: dismiss }, '稍后'))
     }
     return {
       inject: ['slots'],
@@ -306,7 +334,7 @@ window.__ModuleLoader__.load({
         else (window.__dshDockerIconDockPendingV1 ||= []).push(entry)
         ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: 'dsh-docker-instance-manager', order: 79, label: () => '实例管理',
-        }, () => h(Panel, { embedded: true })))
+        }, (props = {}) => props.view === 'summary' ? '管理 DSH 更新、运行状态与网络出口' : h(Panel, { embedded: true })))
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'dsh-docker.instance-manager-panel',
         }, Overlay))

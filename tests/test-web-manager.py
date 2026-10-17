@@ -16,12 +16,13 @@ SPEC.loader.exec_module(MODULE)
 
 class FakeManager(MODULE.Manager):
     def describe(self):
-        return {"name": "dsh-test", "image": "example/dsh:latest", "edition": "standard"}
+        return {"name": "dsh-test", "image": getattr(self, "target", "example/dsh:latest"), "edition": "standard"}
 
     def inspect(self, name):
         if name.endswith("-proxy"):
             raise RuntimeError("absent")
-        return {"Image": "sha256:" + "a" * 64, "State": {"Status": "running", "Running": True}}
+        return {"Image": getattr(self, "image_id", "sha256:" + "a" * 64),
+                "State": {"Status": "running", "Running": True}}
 
     def run(self, args, timeout=30, merge=False):
         if args[:3] == ["docker", "image", "inspect"]:
@@ -105,6 +106,69 @@ class Tests(unittest.TestCase):
         self.assertEqual(MODULE.remote_image_id(manifests, "linux", "arm64", "v8"), "sha256:" + "c" * 64)
         with self.assertRaises(ValueError):
             MODULE.remote_image_id(manifests, "linux", "amd64")
+
+    def test_external_upgrade_discards_cached_notice_and_checks_the_running_image(self):
+        self.manager.check()
+        self.assertTrue(self.manager.release["available"])
+        self.manager.image_id = "sha256:" + "b" * 64
+        self.manager.snapshot()
+        self.assertIsNone(MODULE.read_json(self.manager.results / "status.json")["release"])
+        self.assertIsNone(MODULE.read_json(self.manager.private / "release.json"))
+        self.assertTrue(self.manager.refresh_pending)
+        self.manager.tick()
+        self.assertFalse(self.manager.release["available"])
+        self.assertEqual(self.manager.release["current"], self.manager.image_id)
+        restored = FakeManager(self.temp.name, "/usr/local/bin/dshd")
+        restored.recover()
+        self.assertFalse(restored.release["available"])
+
+    def test_switching_update_source_invalidates_results_even_with_periodic_checks_disabled(self):
+        self.manager.check()
+        self.manager.settings["checkInterval"] = 0
+        self.manager.target = "example/dsh:reverse"
+        self.manager.snapshot()
+        self.assertIsNone(self.manager.release)
+        self.assertFalse(self.manager.refresh_pending)
+        self.assertIsNone(MODULE.read_json(self.manager.private / "release.json"))
+
+    def test_explicit_refresh_runs_once_when_periodic_checks_are_disabled(self):
+        self.manager.settings["checkInterval"] = 0
+        self.manager.image_id = "sha256:" + "b" * 64
+        self.manager.clear_release(recheck=True)
+        self.manager.tick()
+        self.assertFalse(self.manager.release["available"])
+        self.assertFalse(self.manager.refresh_pending)
+        self.assertEqual(self.manager.release["target"], "example/dsh:latest")
+        previous = self.manager.release["checkedAt"]
+        self.manager.tick()
+        self.assertEqual(self.manager.release["checkedAt"], previous)
+
+    def test_registry_failure_is_unknown_and_not_reported_as_latest(self):
+        run = self.manager.run
+        def unavailable(args, **kwargs):
+            if args[:3] == ["docker", "manifest", "inspect"]:
+                raise RuntimeError("registry unavailable")
+            return run(args, **kwargs)
+        self.manager.run = unavailable
+        with self.assertRaisesRegex(RuntimeError, "registry unavailable"):
+            self.manager.check()
+        self.manager.snapshot()
+        release = MODULE.read_json(self.manager.results / "status.json")["release"]
+        self.assertIsNone(release["available"])
+        self.assertIn("registry unavailable", release["error"])
+
+    def test_container_replaced_during_registry_check_cannot_publish_an_outdated_update(self):
+        run = self.manager.run
+        def changing(args, **kwargs):
+            if args[:3] == ["docker", "manifest", "inspect"]:
+                self.manager.image_id = "sha256:" + "b" * 64
+            return run(args, **kwargs)
+        self.manager.run = changing
+        with self.assertRaisesRegex(RuntimeError, "instance changed"):
+            self.manager.check()
+        self.assertIsNone(self.manager.release["available"])
+        self.manager.snapshot()
+        self.assertIsNone(self.manager.release)
 
     def test_settings_are_validated_and_persisted_in_private_directory(self):
         self.assertEqual(self.manager.validate_settings({"checkInterval": 86400}), {"checkInterval": 86400})

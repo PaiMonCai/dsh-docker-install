@@ -39,6 +39,33 @@ test('client patch touches only browser UI, preserves model address and is rever
    assert.equal(apply(home,false).status,'disabled')
  }finally{fs.rmSync(home,{recursive:true,force:true})}
 })
+test('clients without embed preflight still receive same-origin iframe and external UI',()=>{
+ const source=clientSource.split('\n').filter(line=>!line.includes('probeEmbedRoute')).join('\n')
+ const patched=transform(source)
+ assert.equal(patched.status,'patched')
+ assert.ok(patched.code.includes('src: '+tick+'/__bili/?embed=1&lang='))
+ assert.ok(patched.code.includes('openExternal("/__bili/")'))
+ assert.equal(transform(patched.code).status,'already-patched')
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-bili-no-probe-'))
+ try{
+   const dir=path.join(home,'profiles','web','node_modules','billion-context','dist','agent')
+   fs.mkdirSync(dir,{recursive:true})
+   fs.writeFileSync(path.join(dir,'../../package.json'),JSON.stringify({name:'billion-context',version:'0.1.197'}))
+   const file=path.join(dir,'dsh-native-client.js')
+   fs.writeFileSync(file,source)
+   assert.equal(apply(home,true).status,'patched')
+   assert.equal(apply(home,false).status,'restored')
+   assert.equal(fs.readFileSync(file,'utf8'),source)
+ }finally{fs.rmSync(home,{recursive:true,force:true})}
+})
+test('changed preflight or missing iframe fails closed',()=>{
+ for(const changed of [
+   clientSource.replace('fetch('+tick,'fetchOther('+tick),
+   clientSource.replace('src: '+tick,'unknown: '+tick),
+ ]){
+   assert.throws(()=>transform(changed),/unsupported UI bundle layout/)
+ }
+})
 async function listen(handler){
  const server=http.createServer(handler)
  await new Promise((resolve,reject)=>server.once('error',reject).listen(0,'127.0.0.1',resolve))
