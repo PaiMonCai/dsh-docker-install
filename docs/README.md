@@ -1,12 +1,48 @@
 # 文档索引
 
-DSH Docker 的根 README 只负责项目定位、快速开始和主要入口。详细说明按职责拆分：
+[项目首页](../README.md) 提供定位、镜像选择和快速开始。详细操作与维护说明按用途组织。
 
-- [部署与访问](deployment.md)：安装、dshd、自更新、存储、API/Base URL、Token、Remote Settings、反向代理与 Plugin Hub。
-- [Runtime 与运维](runtime.md)：运行时设计、文件沙箱、开发环境、Docker Socket、浏览器、国内镜像、其他运行模式、环境变量。
-- [Web 实例管理](web-management.md)：内置更新、重启、sing-box 管理、宿主机执行器和故障恢复。
-- [国际网络出口 / sing-box](proxy.md)：可选 sidecar 出口、代理节点管理、运行时环境变量、诊断与安全边界。
-- [自定义模型推理等级](reasoning-editor.md)：Models 页 `reasoningEfforts` 编辑器；Composer 保持 DSH 原版交互。
-- [提示词与执行设置](prompt-manager.md)：逐轮附加指令、工作区补充、会话审批/沙箱和实例工具禁用名单。
-- [镜像构建与自动更新](ci.md)：Standard / Research CI、GHCR 发布和 DSH 版本自动更新。
-- [Research Edition](../research/README.md)：Research Engine、Economics Pack、Dashboard、V2 架构与 RC Gate。
+## 安装与日常运维
+
+| 文档 | 内容 |
+|---|---|
+| [部署与访问](deployment.md) | 安装、Compose、API/Base URL、Token、Trusted Hosts、反向代理、Plugin Hub、文件面板 405 |
+| [Runtime 与运维](runtime.md) | 运行设计、文件沙箱、开发环境、Docker Socket、浏览器、环境变量、会话回收站 |
+| [多实例部署与运维](multi-instance.md) | 命名实例、端口和数据隔离、实例选择与恢复 |
+| [Web 实例管理](web-management.md) | 宿主机执行器、定时镜像检查、更新与回滚、SSE 运行日志、故障恢复 |
+| [安全升级与回滚](safe-upgrade-rollback.md) | 容器替换、失败恢复、回滚点、旧镜像清理与数据边界 |
+| [国际网络出口 / sing-box](proxy.md) | 节点、订阅、环境变量代理、诊断与安全边界 |
+
+## Web 功能与插件
+
+| 文档 | 内容 |
+|---|---|
+| [自定义模型推理等级](reasoning-editor.md) | 原生表单兼容、Provider 批量编辑、字段映射及禁用方式 |
+| [提示词与执行设置](prompt-manager.md) | 附加指令、工作区 `DSH_PROMPT.md`、会话审批/沙箱和工具禁用名单 |
+| [Web Search](web-search.md) | 官方搜索 / SearXNG 切换、保存并应用、Brave 备用及预算 |
+| [Icon Dock](icon-dock.md) | 快捷栏布局、排序/隐藏、原生导航与扩展接口 |
+| [billion-context 域名管理页](billion-context-domain-ui.md) | 已安装第三方插件的同源桥接与排障 |
+| [插件诊断](plugin-diagnostics.md) | 内置插件加载自检、认证 API 与 Chromium E2E |
+
+## Research 与 Reverse
+
+| 文档 | 内容 |
+|---|---|
+| [Research Edition](../research/README.md) | Research Engine、Economics Pack、Dashboard、数据/运行/结果协议及 RC Gate |
+| [Research 原生适配器](../research/adapter/README.md) | Agent/工具接入、wrapper 与 smoke test |
+| [Reverse Edition](reverse-edition.md) | 独立安装、原生 Agent、分析工具链、报告解读、提示词与工作台 |
+| [报告解读集成](report-reader-integrations.md) | 外部 Skills/MCP 的来源、已集成范围与候选方案 |
+
+## 开发与发布
+
+| 文档 | 内容 |
+|---|---|
+| [项目结构与维护](project-layout.md) | 目录职责、配置来源、生成文件与按改动选择检查 |
+| [内置 Web 插件接入规范](builtin-plugin-contract.md) | 原生 `--patch` 加载、插件开关、Icon Dock 契约与验收 |
+| [推理等级插件实现说明](../docker/plugins/dsh-reasoning-editor/README.md) | 同一 `reasoningEfforts` 字段、批量保存与加载方式 |
+| [镜像构建与自动更新](ci.md) | 开发版 / Git 标签发布、工作流依赖、上游更新与发布操作 |
+| [发布流水线](release-pipeline.md) | OCI 合同、digest 固定、promotion、重跑与 reconciliation |
+| [上游补丁兼容性](upstream-patch-compatibility.md) | 补丁清单、风险、校验和移除条件 |
+
+镜像构建规则以工作流与 `ci/` 实现为准；默认配置以 Dockerfile、Compose、`docker/entrypoint.sh`
+及 `dshd` 为准。文档描述功能与验证入口，不将历史 CI 通过记录当作当前提交的验收结果。

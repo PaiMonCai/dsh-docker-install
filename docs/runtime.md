@@ -225,7 +225,12 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_PORT` | `3080` | 监听端口（命令行 `--port` 优先） |
 | `DSH_BIND_HOST` | 容器具体网卡 IP（自动解析） | 支持显式设置具体 IPv4/IPv6；禁止 `0.0.0.0` / `::`；无外部网卡回退 127.0.0.1 |
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
-| `DSH_REASONING_EDITOR` | `true` | 是否启用内置自定义模型 `reasoningEfforts` 编辑器；`false` 时通过 DSH Plugin Manager 移除 |
+| `DSH_REASONING_EDITOR` | `true` | 自定义模型推理等级批量编辑器；`false` 时不加载该补丁，已保存配置仍可原生使用 |
+| `DSH_ICON_DOCK_ENABLED` | `true` | 快捷入口管理和原生导航图标化 |
+| `DSH_SESSION_MANAGER_WEB` | `true` | Web 会话回收站与批量操作 |
+| `DSH_INSTANCE_MANAGER` | `true` | 实例管理 Web 插件；宿主机后台另需 `dshd web enable` |
+| `DSH_BILI_UI_BRIDGE` | `true` | 已安装 billion-context 插件的同源管理页桥接 |
+| `DSH_SEARCH_ENABLED` | `false` | 启用搜索设置插件；SearXNG 仅在被选为提供方时启动 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_PROMPT_MANAGER` | `true` | 原生「提示词与执行」设置页；附加指令与工具禁用名单默认关闭，支持显式切换会话权限预设 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
@@ -264,7 +269,13 @@ Token 仅进入 Web 进程环境，未进入 Docker 配置的环境变量列表�
 
 ## Web 原生导航图标化
 
-内置 Web 插件（Icon Dock、Web Search、回收站管理、推理等级编辑器）的 `cordis.patch.yml` 与 Docker Web bind 补丁通过 DSH CLI 可重复的 `--patch` 参数原生加载（所有 `--patch` 必须放在 `--no-open`、`--port` 等 Web 应用参数之前），**不经 pnpm / `dsh plugin add` 安装流程**；首次启动会备份持久 Web Profile 的原配置，仅退出内置插件旧版 bundle 选中项，保留其它依赖、第三方插件和锁文件。
+内置 Web 插件的 `cordis.patch.yml` 与 Docker Web bind 补丁通过 DSH CLI 可重复的
+`--patch` 参数原生加载（所有 `--patch` 必须放在 `--no-open`、`--port` 等 Web 应用参数之前），
+**不经 pnpm / `dsh plugin add` 安装流程**。这包括 Icon Dock、Web Search、回收站、
+推理等级批量编辑器、实例管理、提示词与执行设置及 billion-context 桥接。
+旧 Profile 存在内置插件选中项时，启动迁移会先备份 manifest，再退出这些选中项，
+保留其他依赖、第三方插件和锁文件。各插件开关变更后需重建容器；完整规则见
+[内置插件接入规范](builtin-plugin-contract.md)。
 
 `dsh-docker-icon-dock` 默认自动接管上游注册到 `sidebar.panellist` 的原生导航（包括「插件」「自动化任务」及其他接入该插槽的页面），从同一注册项**复用官方原始 React Icon 组件**并通过 `ctx.layout.selectPanel(id)` 打开原生页面；仅无法安全渲染的组件使用后备图标。原本位于新会话下方的文字导航由 Icon Dock 统一显示为侧边栏底部小图标，可隐藏、排序和调整大小。兼容不完整时回退到原生文字导航；「插件 → 快捷入口管理 → 接管官方导航」支持手动关闭接管。实现和限制参见 [Icon Dock](icon-dock.md)。
 

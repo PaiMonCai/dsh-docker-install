@@ -51,4 +51,4 @@ DSH 的 `complete` 提示词可在组装 Hook 之后替换分块，因此附加�
 
 本地可运行 `node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs`。发布包回归使用 `tests/test-prompt-manager-published.mjs`，需把 `DSH_PROMPT_RUNTIME_ROOT` 指向安装了当前 DSH 依赖的 package 根目录。
 
-CI 在构建镜像内验证真实 SystemPrompt 渲染、工具调用拦截、嵌套调用和插件卸载；原有 Chromium E2E 增加原生设置页及登录后 RPC 保存/停用检查。测试配置只写入临时目录/隔离 CI 卷。
+CI 在构建镜像内验证客户端的 Cordis 服务依赖声明、真实 SystemPrompt 渲染、工具调用拦截、嵌套调用和插件卸载；Chromium E2E 检查原生设置页及登录后 RPC 保存/停用。客户端必须声明 `slots`、`connection`，才能在原生生命周期中访问对应服务。测试配置只写入临时目录/隔离 CI 卷。

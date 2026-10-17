@@ -2,298 +2,134 @@
 
 **Deploy DSH. Do reproducible research.**
 
-**容器运行时：Ubuntu 24.04 LTS (Noble)**。Standard 镜像及继承它的 Research 镜像均采用 Ubuntu 24.04，保持 Node.js 24、Python 3.12、Go、Docker CLI、Chromium/Playwright 与内置 SearXNG。宿主机无需改装 Ubuntu，只需具备受支持的 Docker 运行环境。
+面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。
+将官方 npm 包封装为可安装、可更新、可持久化、可反代的容器，并提供 Research、Economics 和 Reverse 衍生镜像。
+不维护 DSH Core 分支；Web 增强优先使用官方扩展点，必要的版本适配见 [补丁兼容性清单](docs/upstream-patch-compatibility.md)。
 
-这是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。它不 fork DSH Core，而是把官方 npm 包稳定地封装成可安装、可更新、可持久化、可反代的容器，并在此基础上提供可选的 Research Edition。
+基础运行时为 Ubuntu 24.04 LTS，包含 Node.js 24、Python 3.12、Go、Docker CLI、
+Chromium/Playwright 和按需启动的 SearXNG。宿主机只需具备受支持的 Docker 环境。
 
-上游 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 引擎自身版本见 [research/VERSION](research/VERSION)。项目镜像发布版本由 `v<SemVer>` Git 标签决定；普通 `main` 构建只更新开发版镜像，各组件版本分别保存在镜像元数据中。
+## 选择镜像
 
-## 你应该用哪个版本
-
-| 版本 | 镜像标签 | 适合 |
+| 版本 | 正式入口 / 固定版本 / 开发入口 | 用途 |
 |---|---|---|
-| Standard | `:latest` / `:<发布版本>` / `:dev` | 日常 DSH Agent、Web UI、开发环境 |
-| Research Core | `:research` / `:research-<发布版本>` / `:research-dev` | 一般科研、文献、数据、可复现分析 |
-| Research Economics | `:research-economics` / `:research-economics-<发布版本>` / `:research-economics-dev` | 经济学、计量、DiD / Event Study |
-| Reverse Edition | `:reverse` / `:reverse-<发布版本>` / `:reverse-dev`（独立镜像、待 CI 验收发布） | 原生逆向 Agent + REA + Ghidra/JADX/GDB/Frida；不再包含 dsh-purge；独立容器和数据卷 |
+| Standard | `:latest` / `:<版本>` / `:dev` | 日常 DSH Agent、Web UI、开发环境 |
+| Research Core | `:research` / `:research-<版本>` / `:research-dev` | 文献、数据、可复现分析 |
+| Research Economics | `:research-economics` / `:research-economics-<版本>` / `:research-economics-dev` | 计量、DiD、Event Study |
+| Reverse Edition | `:reverse` / `:reverse-<版本>` / `:reverse-dev` | 原生逆向 Agent、报告解读、REA 与逆向工具链 |
 
-关系始终是：
+镜像仓库为 `ghcr.io/paimoncai/dsh-docker-install`。`<版本>` 指本项目 Git 发布标签去掉 `v`，
+与镜像中的 DSH 包版本独立。上游 DSH 版本见 [Dockerfile](Dockerfile)，Research 引擎版本见 [research/VERSION](research/VERSION)。
+各 edition 独立验收和发布，某一标签触发构建不代表所有衍生镜像均已可用；详见 [发布流程](docs/ci.md)。
 
 ```text
-DSH Standard
-   ├─ Research Core
-   │    └─ Economics Pack
-   └─ Reverse Edition（独立容器；原生逆向 Agent 和 REA 工具链）
+Standard
+  +-- Research Core
+  |     +-- Economics Pack
+  +-- Reverse Edition
 ```
-
-Reverse Edition 的入口为 [独立逆向镜像指南](docs/reverse-edition.md)。 正式发布后可通过 `bash install.sh reverse` / `dshd reverse install` 在独立数据目录中安装，通过 `dshd reverse update` 更新；安装脚本不会用 Reverse 覆盖已有 Standard 的容器。新版 Reverse 不再加载 dsh-purge；旧版的红队 Agent、Clean/Apply 和工作台不再包含。
 
 ## 快速开始
 
-推荐直接运行安装器：
+在 Linux 宿主机运行交互安装器：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/install.sh | bash
 ```
 
-安装完成后使用：
-
-```bash
-dshd
-```
-
-常用命令：
+安装后输入 `dshd` 打开六分类菜单，或直接执行：
 
 ```bash
 dshd status
 dshd logs
 dshd update
-dshd restart
 dshd token
 dshd shell
-dshd mounts show
-dshd mounts add /opt/dsh/ssh /root/.ssh
-dshd proxy setup
-# 或查看现有配置
-dshd proxy status
 dshd doctor
 ```
 
-切换 Research：
+安装器引导设置容器、端口、工作区、持久数据、API 和 Trusted Hosts。
+首次 Web 登录 Token 保存在持久卷，更新或重建后保持不变；重置 Token 不会注销已有浏览器 Cookie。
+Compose、自行构建、域名访问和反向代理见 [部署与访问](docs/deployment.md)。
 
-```bash
-dshd edition research
-dshd research-pack economics
+## 多实例与衍生版
 
-# 回到 Standard
-dshd edition standard
-```
-
-安装器与 `dshd` 菜单对每一步都做了错误隔离：某一步失败只会提示原因并**回到菜单**，
-不会中途退出脚本；已填写的配置在拉取镜像之前就会落盘，网络恢复后继续即可。
-菜单里 `Ctrl-C` 只取消当前操作，`0` / `Ctrl-D` 才退出。
-
-完整安装、访问、反向代理、持久化和 API 配置见 [部署与访问](docs/deployment.md)，
-交互行为细节见 [Runtime 与运维](docs/runtime.md#交互式菜单的错误边界)。
-
-## 内置 Web 实例管理
-
-DSH 快捷栏及「插件 → 实例管理」提供定时检查镜像更新、后台更新、重启、重建、
-回滚、旧镜像清理，以及 sing-box 启停、节点切换和订阅导入。公共插件随基础镜像
-发布，Research 和 Reverse 继承，无需额外管理容器。
-
-满足 root、Python 3、systemd 和 `flock` 条件的 Linux 新安装或新版 `dshd update`
-会自动配置后台；已有实例可运行 `sudo dshd web enable`。执行器在宿主机继续完成
-容器替换和健康检查，页面重连后读取结果，不要求给 Agent 挂载 Docker Socket。
-自动检查默认每 6 小时，安装更新需要在页面确认。CLI 保留独立恢复能力。
-
-启用、关闭、权限及任务记录说明见 [Web 实例管理](docs/web-management.md)。
-
-## dshd 0.11：六分类交互菜单
-
-输入 `dshd` 打开新的简洁主页：
-
-```text
-◆ DSH Manager  v0.11.1
-
-[01] 实例管理      查看、创建、切换实例
-[02] 运行管理      状态、启停、日志、Shell
-[03] 版本与更新    Edition、镜像更新、回滚
-[04] 配置与安全    API、Token、Trusted Hosts、权限
-[05] 网络与服务    sing-box、Web Search、Dashboard
-[06] 数据与维护    存储、挂载、备份、诊断、卸载
-[ 0] 退出
-```
-
-各分类输入 `0` 返回主菜单，`Ctrl-D` 退出当前菜单；宽窄终端统一为清爽的单列布局。所有原有 CLI 子命令（如 `dshd update`、`dshd -i study logs`）**保持可用**，仅改进交互入口。各实例仍可切换回默认实例，旧版 Reverse 保持兼容。
-
-## 同时运行多份 DSH（多实例管理）
-
-`dshd` 现支持独立的命名实例：同一台机器上可同时部署 Standard、Research Economics、Reverse 或多个指定版本镜像，分别配置容器名、端口、持久数据、工作区、备份、更新与回滚。**原有 `dshd` 命令继续管理默认实例，旧数据不需要迁移。**
+默认命令管理默认实例；命名实例分别保存容器、端口、数据、工作区和更新配置：
 
 ```bash
 dshd instance add study research
 dshd instance add econ research-economics
 dshd instances
 dshd -i study status
-dshd -i study update
 dshd -i econ logs
 ```
 
-交互菜单首页选 **[01] 实例管理**，可查看、创建、选择实例；选定实例后通过六分类菜单运行各项操作。历史 `dshd reverse ...` 仍兼容。完整隔离规则、安全边界及测试见 [多实例部署与运维](docs/multi-instance.md)。
+现有实例可用 `dshd edition research`、`dshd research-pack economics` 切换科研工具链，
+或用 `dshd edition standard` 返回 Standard。Research 提供 Dataset → Pipeline → Run → Result → Artifact → Paper 工作流；
+Agent 使用工具，底层 `research-*` CLI 保留为稳定接口。详见 [Research 指南](research/README.md)。
 
-## 固定 Web 登录 Token
+Reverse 使用独立容器和数据卷，可通过 `bash install.sh reverse` 或 `dshd reverse install` 安装。
+它继承 Standard 公共插件，增加逆向 Agent、报告解读、提示词预设与分析工具；不包含 dsh-purge。
+详见 [Reverse 指南](docs/reverse-edition.md) 和 [多实例管理](docs/multi-instance.md)。
 
-首次启动会自动生成高强度 Token 并保存在 DSH 的持久卷中，后续镜像更新、
-容器重建或 Docker 重启不再改变 `?token=...` 首次登录链接。
-支持 `dshd token status` 查询模式、`dshd token set` 自定义以及
-`dshd token reset` 重新生成；自定义值使用隐藏式终端输入，不写入 Docker 环境参数。
-旧版已登录浏览器的 Cookie 独立持久，重置 Token 并不会注销已有登录。
-详细说明见 [部署文档](docs/deployment.md#固定-web-登录-token)。
+## 内置 Web 能力
 
-## 提示词与执行设置
+| 功能 | 入口与行为 | 说明 |
+|---|---|---|
+| 实例管理 | 快捷栏 / 插件 → 实例管理；更新、重启、回滚、sing-box | [宿主机后台与恢复](docs/web-management.md) |
+| 运行日志 | 快捷栏 / 实例管理 → 运行日志；SSE、重连、搜索和筛选 | [日志与升级](docs/web-management.md#运行日志) |
+| 提示词与执行 | 设置 → 提示词与执行；附加指令、会话权限、工具禁用名单 | [配置与边界](docs/prompt-manager.md) |
+| 会话管理 | 会话勾选批量移入回收站；回收站搜索、恢复、永久删除 | [会话与删除语义](docs/runtime.md#web-会话管理删除--永久删除--回收站) |
+| 自定义模型推理等级 | 原生模型表单与 Composer；额外提供 Provider 内批量编辑 | [原生兼容与映射](docs/reasoning-editor.md) |
+| 网络搜索 | 显式启用后在 Web 切换 DeepSeek 官方搜索 / SearXNG | [搜索设置与应用](docs/web-search.md) |
+| 快捷入口管理 | 排序、更多、隐藏及原生导航图标化 | [Icon Dock](docs/icon-dock.md) |
 
-内置「设置 → 提示词与执行」支持逐轮追加全局指令、显式读取工作区 `DSH_PROMPT.md`、查看注入分块元数据、切换已加载会话的官方沙箱/审批预设，以及设置实例工具禁用名单。附加指令和禁用名单默认关闭；保存后按下一次组装或工具调用生效。完整使用、恢复与边界说明见 [提示词与执行设置](docs/prompt-manager.md)。
+这些公共插件通过镜像内的 DSH 原生 `--patch` 层加载，不依赖第三方插件安装器或 pnpm。
+启用条件、环境开关与旧 Profile 迁移见 [内置插件接入规范](docs/builtin-plugin-contract.md)。
 
-## Web 会话管理插件
+实例管理的宿主机后台在支持 root、Python 3、systemd 和 `flock` 的 Linux 上自动配置；
+旧部署可运行 `sudo dshd web enable`。执行器负责容器替换和健康检查，无需给 Agent 挂载 Docker Socket。
+更新日志采集器时，升级 `dshd` 后再次运行 `dshd web enable`。
 
-DSH 会话管理现由内置 `dsh-docker-session-manager` **Web 插件**提供，不再需要 `dshd sessions` CLI：
+自动检查默认每 6 小时运行，结果只显示在管理页，刷新浏览器不弹更新提醒。
+它比较配置镜像在当前平台上的远端 config digest 与运行镜像 ID，检测内容差异；不查询 npm 最新版，也不判断语义版本是否更高。
+安装更新需要主动确认，详见 [检查逻辑](docs/web-management.md#镜像更新检查)。
 
-会话列表每行提供复选框，勾选后可选择当前可见列表并批量移入回收站。回收站使用更宽的响应式管理面板：支持按标题或会话 ID 搜索、按删除时间筛选与排序、批量选择和恢复。单条及批量永久删除均点击后直接执行，不再弹出确认窗口或要求输入确认文字；每条操作仍通过原有认证 API 完成，部分失败会保留勾选供重试。
+推理等级使用同一份 DSH `reasoningEfforts` 配置，已保存设置无需迁移。
+原生目录已有能力信息的模型通常直接使用；自定义 API 或网关别名仍需按实际能力首次声明。
+关闭内置批量编辑器后，原生模型表单与会话选择继续可用。
 
-- DSH 左侧边栏底部「回收站」可查看删除记录并恢复。
-- 会话右侧 `···` 菜单仅提供「删除会话」；只有进入回收站后才能执行「永久删除」。
-- 「删除会话」先通过 DSH 原生安全归档机制隐藏会话，同时保存回收站记录；原始会话文件仍在原处，恢复时立即取消归档。它不会停止 DSH 或改变项目工作区。
-- 「永久删除」只接受回收站中的会话，点击后直接清理目标会话目录；即使仍存在活动 Agent / 写入所有者也不会因占用拒绝。相关任务可能被终止，删除后不可恢复；操作不重启 Docker。
-- 所有会话管理界面默认中文；任何删除操作均不会删除 `/workspace` 文件。
-- 浏览器需要刷新一次以加载新版插件；若需关闭，可设 `DSH_SESSION_MANAGER_WEB=false` 后重建容器。
+## 镜像发布与更新
 
-旧版本（V1）已通过 CLI/重启方式移入 `.dshd-session-trash` 的记录不属于新版 Web 逻辑回收站，仍需先在安全备份中手动处理；升级不会自动清除旧回收数据。
+- 普通镜像相关提交或合并到 `main`，以及每日上游 DSH 更新，只发布开发入口和构建快照。
+- 推送 `v<SemVer>` Git 标签才发布固定版本，并按版本顺序更新正式入口。历史 `alpha` / `next` 镜像别名不再自动更新。
+- Standard 发布后，以精确 digest 独立触发 Research 和 Reverse；标签发布的衍生版使用同一 Git 标签的代码。
+- 已发布版本重跑时校验并复用；旧版本不会回退正式入口。PR 只构建验证，不推送镜像。
 
-> 强制删除会结束目标会话的活动任务，并可能使该会话仍持有的旧写入句柄报错；DSH 上游没有公开的完整会话卸载 API，因此这不是无副作用的操作。插件不会重启 Docker，也不会清理项目工作区文件。建议重要记录先备份后操作。
+默认安装跟随正式入口。希望跟随 `main` 时，将实例 `config.env` 中的 `DSH_IMAGE` 改为完整开发版镜像地址，
+例如 `ghcr.io/paimoncai/dsh-docker-install:dev`；衍生版使用对应 edition 的 `-dev` 标签，再执行 `dshd update`。
+`dshd edition` 会重置到该 edition 默认正式入口。
+`dshd` 脚本本身仍有独立自更新机制，不受镜像发布标签控制。
 
-详见 [Runtime 与运维](docs/runtime.md)。
+操作步骤见 [镜像构建与自动更新](docs/ci.md)，实现合同与重试机制见 [发布流水线](docs/release-pipeline.md)。
 
-## Standard 提供什么
+## 文档与维护
 
-Standard 镜像主要解决 DSH 的运行和管理问题：
+- [完整文档索引](docs/README.md)：部署、日常运维、Web 功能、科研与逆向、开发维护。
+- [部署与访问](docs/deployment.md)：安装、API、Token、Trusted Hosts、反向代理及文件面板 HTTP 405 排查。
+- [Runtime 与运维](docs/runtime.md)：环境变量、沙箱、开发工具、浏览器与会话管理。
+- [安全升级与回滚](docs/safe-upgrade-rollback.md)：更新失败恢复、回滚点与数据边界。
+- [国际网络出口](docs/proxy.md)：sing-box 节点、订阅、代理变量与诊断。
+- [项目结构与维护](docs/project-layout.md)：目录职责、配置来源及检查入口。
+- [插件诊断](docs/plugin-diagnostics.md)：内置插件自检与真实浏览器验收。
 
-- 官方 DSH npm 包的 Docker 化；
-- Web / headless / sdk / acp 等 profile 入口；
-- 持久化 `DSH_HOME`、工作区，并支持自定义目录挂载（如 `/root/.ssh`）；
-- Trusted Hosts、Token URL 和反向代理适配；
-- Remote Settings；
-- Chromium / Playwright；
-- Node / Python / Go / Docker CLI 开发环境；
-- 可选宿主机 Docker Socket 管理；
-- 国内网络构建镜像源适配；
-- 可选 sing-box sidecar 国际网络出口，支持 HTTP / SOCKS、VLESS、Trojan、Hysteria2、Shadowsocks 分享链接、订阅刷新、节点测速与 URLTest 自动故障切换；
-- `dshd` 安装、更新、备份、恢复和诊断。
+## 安全边界与项目原则
 
-详细运行时说明见 [Runtime 与运维](docs/runtime.md)。
+DSH Web 应部署在受控网络或 HTTPS 反向代理之后。挂载宿主机 Docker Socket 会赋予容器很高的宿主机控制能力，
+仅在实际需要时启用。Research Dashboard 默认是只读工作流视图，同样不应直接暴露公网。
 
-## 自定义模型推理等级
+会话删除先做逻辑归档；永久删除可终止目标会话的活动任务且不可恢复，但不会删除 `/workspace`。
+审批、沙箱与工具控制沿用 DSH 原生所有者；附加指令和工具禁用名单默认关闭，权限变更的生效与恢复见专题文档。
 
-镜像内置一个轻量 DSH Web 扩展，用于补齐自定义模型的 `reasoningEfforts` 编辑能力。
-
-```text
-Models 页面
-   ↓
-声明模型支持哪些 reasoningEfforts
-   ↓
-DSH 原版 Composer 读取并提供推理等级选择
-```
-
-Models 页仍通过 DSH 官方 Settings API 保存；Composer 保持 DSH 原生的“模型 / 推理等级”交互，不做 DOM 替换。
-
-详细设计、兼容边界和 `max → xhigh` 等映射方式见 [自定义模型推理等级](docs/reasoning-editor.md)。
-
-## Research Edition
-
-Research Edition 不是第二套 DSH，也不是“自动写论文”的独立平台。它是在 Standard 镜像上增加可复现研究能力：
-
-```text
-Dataset
-  ↓
-Pipeline
-  ↓
-Run
-  ↓
-Result
-  ↓
-Artifact
-  ↓
-Paper
-```
-
-普通用户主要通过 DSH Agent 使用 Research 工具；底层 `research-*` CLI 继续作为稳定协议、CI 和调试入口。
-
-Economics Pack 额外提供 Python-first 的计量工具，包括固定效应、IV、DiD、Event Study、经济数据获取和结果注册。
-
-完整 Research Engine、Dashboard、Economics Pack、V2 架构与 RC Gate 见 [Research Edition](research/README.md)。
-
-## Web 运行日志
-
-开启宿主机实例管理（`dshd web enable`）后，可以通过 Web 左侧快捷栏的「运行日志」图标，或「实例管理 → 运行日志」打开日志控制台。日志采用 **SSE 实时流**：宿主机运行 `docker logs --follow`，将脱敏日志按序号写入受限缓冲区；Web 通过认证的 `EventSource` 连接接收初始快照与后续增量，而非持续轮询日志接口。支持自动断线重连和续传、错误/警告筛选、关键字搜索、50/100/200 行显示、暂停和自动滚动。日志由宿主机读取并脱敏，只保留最近 200 行、限制桥接文件大小，不向 Web 容器开放 Docker Socket。旧浏览器不支持 EventSource 时可回退到有限的管理快照。**从旧版升级时必须同步宿主机采集器**：更新 `dshd` 与镜像后，在宿主机再次运行 `dshd web enable` 以更新 Python 管理服务；仅升级容器镜像而不更新宿主机服务时，SSE 页面会提示等待日志采集。快捷栏入口可在「快捷入口管理」中重新排序或隐藏。
-
-## 镜像
-
-GHCR：
-
-```text
-ghcr.io/paimoncai/dsh-docker-install:latest
-ghcr.io/paimoncai/dsh-docker-install:1.2.3
-ghcr.io/paimoncai/dsh-docker-install:dev
-
-ghcr.io/paimoncai/dsh-docker-install:research
-ghcr.io/paimoncai/dsh-docker-install:research-1.2.3
-ghcr.io/paimoncai/dsh-docker-install:research-dev
-
-ghcr.io/paimoncai/dsh-docker-install:research-economics
-ghcr.io/paimoncai/dsh-docker-install:research-economics-dev
-
-ghcr.io/paimoncai/dsh-docker-install:reverse
-ghcr.io/paimoncai/dsh-docker-install:reverse-dev
-```
-
-普通推送或合并到 `main` 只发布开发镜像：`:dev`、`:research-dev`、
-`:research-economics-dev`、`:reverse-dev`。每日上游 DSH 自动更新也只更新开发版。
-每次开发构建另有带 commit、run 和 attempt 的快照 tag，方便定位具体构建。
-
-推送 `v1.2.3` 这样的 Git 版本标签，才发布 `:1.2.3`、`:research-1.2.3` 等版本镜像，
-并更新 `:latest`、`:research`、`:research-economics`、`:reverse` 正式浮动入口。
-项目发布版本与镜像内的 DSH 包版本分别记录；同一 DSH 版本也可通过新项目标签发布补丁。
-已发布版本不可用不同内容覆盖，旧标签重跑不会回退正式浮动入口。
-历史 `:alpha` / `:next` 等 npm 通道镜像别名不再自动更新，持续跟进开发请改用 `:dev`。
-
-Standard 构建并发布成功后，独立启动 Research 与 Reverse 构建，使用精确的 Standard
-镜像 digest。标签发布的衍生版使用同一个 Git 标签的代码；普通开发使用 `main`。
-Research / Reverse 失败不会撤销已成功发布的 Standard。
-
-构建、GHCR、开发版与标签发布的完整说明见 [镜像构建与自动更新](docs/ci.md)。
-
-## 自部署网页搜索（可选）
-
-默认保留 DSH 原生 DeepSeek 官方搜索。显式启用自建 Web Search 插件后可在 Web 设置页面选择 DeepSeek 官方搜索或免费 SearXNG（Brave 可选付费备用）；两个模式使用 DSH 原生 Provider，Web 页面可点击“保存并应用”直接通过实例管理后台重启 DSH 完成切换，无需到终端执行命令；离线或未启用实例管理时仍可选择仅保存配置。通过 `dshd search enable`、`dshd search test` 开启和测试。 开启后，Web 左侧边栏底部的「回收站」与「网络搜索」图标并排显示，均为纯图标、悬停显示中文提示。图标由独立的 **快捷入口管理插件** 统一渲染；进入 **插件 → 快捷入口管理** 可使用 5×2 可视化布局预览拖动排序、选择「快捷栏 / 更多 / 隐藏」和调整尺寸；快捷栏最多 9 个图标，第 10 格为「更多」，窄侧栏采用 2×2，未来插件也可接入。搜索未启用时只显示回收站；原搜索插件页入口仍保留。详见 [图标管理与接入规范](docs/icon-dock.md) 和 [内置插件接入规范](docs/builtin-plugin-contract.md)。内置的图标坞、会话回收站、网络搜索和推理等级编辑器通过镜像自身的 DSH 原生 `--patch` 层加载，**不依赖第三方插件安装器或 pnpm**。 另外，官方侧边栏的「插件」「自动化任务」等导航会由 Icon Dock **复用官方注册的原生图标组件**，并变成可自由排序的纯图标；可在设置里一键恢复原生文字导航。详见 [Web Search 使用与架构](docs/web-search.md)。
-
-## 文档
-
-详细说明已经从根 README 拆出：
-
-- [文档索引](docs/README.md)
-- [部署与访问](docs/deployment.md)
-- [Runtime 与运维](docs/runtime.md)
-- [Web 实例管理](docs/web-management.md)
-- [国际网络出口 / sing-box](docs/proxy.md)
-- [自定义模型推理等级](docs/reasoning-editor.md)
-- [镜像构建与自动更新](docs/ci.md)
-- [Research Edition](research/README.md)
-
-## 安全边界
-
-默认部署只应把 DSH Web 暴露给受控网络或 HTTPS 反向代理。启用宿主机 Docker Socket 后，容器基本拥有宿主机 root 级 Docker 控制能力，应只在明确需要时开启。
-
-Research Dashboard 默认是只读工作流视图，不应直接裸露到公网。
-
-更多安全和运行时说明见 [Runtime 与运维](docs/runtime.md)。
-
-## 项目原则
-
-这个仓库的边界保持简单：
-
-```text
-DSH Core             → 上游负责
-Docker / dshd        → 本仓库负责
-Research Engine      → 可选扩展
-UI compatibility     → 尽量走官方扩展点
-runtime state        → 始终由 DSH 自己拥有
-```
-
-不为了“方便”维护第二套 DSH 状态，不把 UI 适配描述成安全沙箱，也不让 Research 层反向接管 DSH Core。
-
-
-### Web 文件管理插件 405
-
-镜像已内置 DSH 第三方 RPC 通道路由修复。若文件管理等插件的私有 RPC
-接口返回 HTTP 405，可执行 `dshd update` 更新镜像。修复和排查边界见
-[Web 插件文件管理 HTTP 405 修复](docs/deployment.md#web-插件文件管理-http-405-修复)。
+DSH Core 和会话状态由上游维护；本仓库负责 Docker、`dshd`、可选工具链和扩展适配。
+UI 适配不构成安全沙箱，Research 与 Reverse 不接管 DSH Core。

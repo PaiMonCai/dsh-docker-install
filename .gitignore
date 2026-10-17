@@ -1,2 +1,9 @@
 .env
 workspace/
+
+# Local dependencies and generated Python caches.
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

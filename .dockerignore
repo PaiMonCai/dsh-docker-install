@@ -1,8 +1,17 @@
 .git
 .gitignore
 .github
+.env
+workspace/
 # CI logic is excluded except for the plugin parity verifier installed in Reverse.
 ci/*
 !ci/reverse-web-parity.cjs
 dsh-docker
 *.md
+
+# Keep local dependencies and generated caches out of COPY layers.
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
