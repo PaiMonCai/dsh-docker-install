@@ -23,13 +23,13 @@ DSH Docker container (one network namespace)
 
 ```bash
 dshd search status
-dshd search enable
-dshd search test
+dshd search enable          # 安装 Web 设置插件，首次默认仍走 DeepSeek 官方
+dshd search test            # 仅当当前提供方是 SearXNG 时执行
 ```
 
 `dshd` 主菜单 **28：Web Search / SearXNG** 可以查看状态、测试、诊断、日志、重启和更新 DSH 镜像。
 
-首次启用仍由 `dshd search enable` 完成；此操作保留既有行为，首次安装以 SearXNG 作为自建搜索模式。未启用插件时始终使用 DSH 官方搜索；已启用插件后可在 Web 面板选择官方或 SearXNG。启用后，**DSH Web 由独立「快捷入口管理」插件统一渲染的侧边栏纯图标栏**中，默认与「回收站」图标并排显示放大镜「网络搜索」；展开、收起侧边栏时均无可见中文文字，悬停可见中文提示，并可在「插件 → 快捷入口管理」随时隐藏、排序或调整图标大小。点击打开宽屏响应式搜索设置面板，可切换搜索提供方，修改 SearXNG 运行开关、缓存、Brave 回退、每日额度，并执行 SearXNG 测试/重启；也保留 **DSH Web → 插件 → DSH Web Search** 入口。搜索设置面板可通过关闭按钮、Escape 键或点击遮罩关闭，密钥仍保存在 DSH 官方凭据存储。切换提供方或关闭内置搜索后，请保存设置并在宿主机执行 `dshd search restart`；**当前生效的搜索 Provider 在重启前保持可用**，不会因设置变化立即失效。`dshd search disable` 则完全卸载自建插件补丁，恢复未经覆盖的官方配置。
+首次启用仍由 `dshd search enable` 完成；**新安装默认保留 DeepSeek 官方搜索**，在 Web 面板中选择并保存 SearXNG 后执行 `dshd search restart` 才启用自建搜索。旧版已保存 SearXNG 配置的安装不会被自动改成官方。未启用插件时始终使用 DSH 官方搜索。启用后，**DSH Web 由独立「快捷入口管理」插件统一渲染的侧边栏纯图标栏**中，默认与「回收站」图标并排显示放大镜「网络搜索」；展开、收起侧边栏时均无可见中文文字，悬停可见中文提示，并可在「插件 → 快捷入口管理」随时隐藏、排序或调整图标大小。点击打开宽屏响应式搜索设置面板，可切换搜索提供方，修改 SearXNG 运行开关、缓存、Brave 回退、每日额度，并执行 SearXNG 测试/重启；也保留 **DSH Web → 插件 → DSH Web Search** 入口。搜索设置面板可通过关闭按钮、Escape 键或点击遮罩关闭，密钥仍保存在 DSH 官方凭据存储。切换提供方或关闭内置搜索后，请保存设置并在宿主机执行 `dshd search restart`；**当前生效的搜索 Provider 在重启前保持可用**，不会因设置变化立即失效。`dshd search disable` 则完全卸载自建插件补丁，恢复未经覆盖的官方配置。
 
 Web 插件通过 DSH 受认证的 connection/request 接口保存设置，**不接触 Docker Socket**。Brave API Key 继续使用官方 `remote.credentials` 的只写存储。
 
@@ -58,7 +58,7 @@ SearXNG 首次运行生成独立强随机 `secret_key`，后续启动/升级不�
 
 Web 搜索提供方由 DSH 在启动时确定，无法通过其公开服务接口热切换。在面板保存新模式后，需执行 `dshd search restart`；面板会显示**当前生效提供方**与**重启待生效**提示。切换时不修改上游官方包，也不伪造原生 Provider 的搜索请求。
 
-旧版没有 `provider` 字段的四项偏好自动按原来的 SearXNG 模式读取；重建镜像不会改写用户的 `settings.json`。若旧偏好 `enabled=false`，下次重启会选择官方搜索。Brave **仅作为 SearXNG 的可选备用**，并不负责官方搜索回退。本版本不支持“官方失败自动改用自建”的跨 Provider 容错。
+旧版没有 `provider` 字段的四项偏好自动按原来的 SearXNG 模式读取；全新安装则默认 `provider=official`；重建镜像不会改写用户的 `settings.json`。若旧偏好 `enabled=false`，下次重启会选择官方搜索。Brave **仅作为 SearXNG 的可选备用**，并不负责官方搜索回退。本版本不支持“官方失败自动改用自建”的跨 Provider 容错。
 
 ## 默认搜索、备用、额度
 
