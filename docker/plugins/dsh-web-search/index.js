@@ -6,7 +6,7 @@ import { SearchRouter } from './router.js'
 import { SearchCache } from './cache.js'
 import { BraveBudget } from './budget.js'
 import { EmbeddedSearxng, SEARCH_ENDPOINT } from './embedded.js'
-import { SearchSettings, defaults, validate } from './settings.js'
+import { SearchSettings, defaults, validate, selectedProvider } from './settings.js'
 
 export const name = 'dsh-docker-web-search'
 export const inject = ['web']
@@ -35,6 +35,10 @@ async function parseBody(req) {
 export function apply(ctx) {
   const store = new SearchSettings()
   const preferences = defaults()
+  // Chosen by the launcher before the Web service is constructed. Changing
+  // this selection requires a DSH restart, not a runtime registry mutation.
+  const activeProvider = process.env.DSH_SEARCH_ACTIVE_PROVIDER === 'official' ? 'official' : 'searxng'
+  const pendingRestart = () => selectedProvider(preferences) !== activeProvider
   const warn = message => ctx.logger?.warn?.('dsh web search: ' + String(message))
   const embedded = new EmbeddedSearxng({ log: warn })
   const budget = new BraveBudget({
@@ -44,7 +48,7 @@ export function apply(ctx) {
   const router = new SearchRouter({
     searxngURL: SEARCH_ENDPOINT,
     enabled: true,
-    prepare: async () => { await loaded; if (!preferences.enabled) throw new Error('search-disabled'); await embedded.ensureStarted() },
+    prepare: async () => { await loaded; await embedded.ensureStarted() },
     braveEnabled: preferences.braveEnabled,
     resolveBraveKey: async () => {
       const credentials = ctx.get('credentials')
@@ -58,7 +62,7 @@ export function apply(ctx) {
     cacheEnabled: preferences.cacheEnabled,
   })
   const sync = () => {
-    router.options.enabled = preferences.enabled
+    router.options.enabled = activeProvider === 'searxng'
     router.options.braveEnabled = preferences.braveEnabled
     router.options.cacheEnabled = preferences.cacheEnabled
     budget.dailyLimit = preferences.braveDailyLimit
@@ -79,7 +83,7 @@ export function apply(ctx) {
   // Don't delay DSH Web startup, but prewarm the search child so the first
   // request usually avoids SearXNG cold-start latency.
   void loaded.then(async () => {
-    if (preferences.enabled) await embedded.ensureStarted()
+    if (activeProvider === 'searxng') await embedded.ensureStarted()
   }).catch(warn)
   process.once('exit', () => { embedded.child?.kill('SIGTERM') })
 
@@ -100,7 +104,7 @@ export function apply(ctx) {
       await loaded
       if (req.method === 'GET') return send(res, 200, {
         settings: preferences, running: await embedded.running(),
-        error: configurationError,
+        activeProvider, pendingRestart: pendingRestart(), error: configurationError,
       })
       const data = await parseBody(req)
       if (data?.action === 'save') {
@@ -109,18 +113,21 @@ export function apply(ctx) {
         await store.save(nextPreferences)
         Object.assign(preferences, nextPreferences)
         sync()
-        if (preferences.enabled) void embedded.ensureStarted().catch(warn)
+        // Keep the live router usable until the launcher can apply the new
+        // pinned searchProvider. Never stop SearXNG while it is still selected.
+        if (activeProvider === 'searxng') void embedded.ensureStarted().catch(warn)
         else await embedded.stop()
-        return send(res, 200, { settings: preferences, running: await embedded.running() })
+        return send(res, 200, { settings: preferences, running: await embedded.running(),
+          activeProvider, pendingRestart: pendingRestart() })
       }
       if (data?.action === 'restart') {
-        if (!preferences.enabled) return send(res, 409, { error: 'search-is-disabled' })
+        if (activeProvider !== 'searxng') return send(res, 409, { error: 'searxng-not-active-restart-dsh' })
         await embedded.stop()
         await embedded.ensureStarted()
         return send(res, 200, { running: true })
       }
       if (data?.action === 'test') {
-        if (!preferences.enabled) return send(res, 409, { error: 'search-is-disabled' })
+        if (activeProvider !== 'searxng') return send(res, 409, { error: 'searxng-not-active-restart-dsh' })
         await embedded.ensureStarted()
         const response = await fetch(SEARCH_ENDPOINT + '/search?q=deepseek&format=json',
           { signal: AbortSignal.timeout(10000), headers: { accept: 'application/json' } })
