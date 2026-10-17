@@ -45,7 +45,7 @@ RUN git init /opt/dsh/searxng-src \
 
 FROM ubuntu-base
 
-ARG DSH_VERSION=0.2.1-alpha.4
+ARG DSH_VERSION=0.2.1-rc.1
 ARG PNPM_VERSION=11.7.0
 ARG GO_VERSION=1.27.1
 ARG TARGETARCH
