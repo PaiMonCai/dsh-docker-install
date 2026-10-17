@@ -70,7 +70,7 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     unset: async () => ({ ok: true }),
   }
   const settings = {
-    enabled: true, cacheEnabled: true, braveEnabled: false, braveDailyLimit: 0,
+    provider: 'searxng', enabled: true, cacheEnabled: true, braveEnabled: false, braveDailyLimit: 0,
   }
   const sandbox = {
     window: { __ModuleLoader__: { load(definition) {
@@ -87,17 +87,21 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     console,
     fetch: async (_url, options) => {
       const method = options.method
-      requests.push({ method, action: method === 'POST' ? JSON.parse(options.body).action : null })
+      const payload = method === 'POST' ? JSON.parse(options.body) : null
+      requests.push({ method, action: payload?.action || null, settings: payload?.settings })
       if (method === 'GET' && failNextGet) {
         failNextGet = false
         return { ok: false, async json() { return { error: '搜索服务暂不可用' } } }
       }
+      if (payload?.action === 'save') Object.assign(settings, payload.settings)
+      const pendingRestart = settings.provider === 'official' || !settings.enabled
       return {
         ok: true,
         async json() {
           return method === 'POST'
-            ? { settings, running: true, healthy: true, results: 2 }
-            : { settings, running: true }
+            ? { settings: { ...settings }, running: true, healthy: true, results: 2,
+                activeProvider: 'searxng', pendingRestart }
+            : { settings: { ...settings }, running: true, activeProvider: 'searxng', pendingRestart }
         },
       }
     },
@@ -315,4 +319,29 @@ test('Escape closes the search overlay', () => {
   app.keydown({ key: 'Escape', preventDefault() { prevented = true } })
   assert.equal(prevented, true)
   assert.equal(app.overlay(), null)
+})
+
+test('provider selector saves official mode and clearly requires DSH restart', async () => {
+  const app = harness()
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  const select = app.nodes(tree, n => n.type === 'select'
+    && n.props?.['aria-label'] === '搜索提供方')[0]
+  assert.ok(select)
+  assert.equal(select.props.value, 'searxng')
+  select.props.onChange({ target: { value: 'official' } })
+  tree = app.render(() => view.type(view.props))
+  const updated = app.nodes(tree, n => n.type === 'select'
+    && n.props?.['aria-label'] === '搜索提供方')[0]
+  assert.equal(updated.props.value, 'official')
+  const save = app.nodes(tree, n => n.type === 'button' && app.text(n) === '保存设置')[0]
+  save.props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.equal(app.requests.at(-1).settings.provider, 'official')
+  assert.match(app.text(tree), /待生效的切换/)
+  assert.match(app.text(tree), /dshd search restart/)
+  const testSearch = app.nodes(tree, n => n.type === 'button' && app.text(n) === '测试搜索')[0]
+  assert.equal(testSearch.props.disabled, false, 'current SearXNG stays live until restart')
 })
