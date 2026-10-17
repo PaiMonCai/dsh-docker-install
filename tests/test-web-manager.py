@@ -114,10 +114,10 @@ class Tests(unittest.TestCase):
         self.assertIn("logsUpdatedAt", status)
         self.assertNotIn("token=secret", status["logs"])
 
-        secret = ('Authorization: Bearer private-bearer-token\\n'
-                  'api_key=provider-private-token\\n'
-                  'password: privatepassword\\n'
-                  'https://demo:password@example.org/?token=secret\\n')
+        secret = ('Authorization: Bearer private-bearer-token\n'
+                  'api_key=provider-private-token\n'
+                  'password: privatepassword\n'
+                  'https://demo:password@example.org/?token=secret\n')
         safe = MODULE.redact(secret)
         for value in ("private-bearer-token", "provider-private-token",
                       "privatepassword", "demo:password", "token=secret"):
