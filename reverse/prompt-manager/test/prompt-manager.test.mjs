@@ -88,6 +88,7 @@ test('plugin ignores other agents and supports next-assembly enable/disable, no 
   assert.equal((await run('reverse-engineering')).sections.length, 4)
   writeState({ schema: 1, enabled: true, active: 'evidence' }, home)
   assert.equal((await run('standard')).sections.length, 4)
+  assert.equal((await run('reverse-report-reader')).sections.length, 4)
   assert.equal((await run('reverse-engineering')).sections.length, 5)
   writeState({ schema: 1, enabled: false, active: 'evidence' }, home)
   assert.equal((await run('reverse-engineering')).sections.length, 4)

@@ -201,6 +201,7 @@ jobs:
           node --check reverse/prompt-manager/test/image-audit.mjs
           node --test reverse/prompt-manager/test/prompt-manager.test.mjs
           node --check reverse/preset-smoke.mjs
+          node --test reverse/preset-smoke.test.mjs
           node --check reverse/service-health.mjs
           node --check reverse/reverse-healthcheck.cjs
           python3 -m py_compile reverse/ghidra-scripts/ExportFunctions.py
@@ -341,10 +342,20 @@ jobs:
               test -s "/opt/dsh-reverse/skills/$skill/SKILL.md"
             done
             test -s /opt/dsh-reverse/skills/universal-reverse-core/references/routing.md
+            for skill in reverse-report-overview reverse-report-compare reverse-report-evidence-audit reverse-report-briefing; do
+              test -s "/opt/dsh-reverse/report-reader-skills/$skill/SKILL.md"
+            done
+            test -s /opt/dsh-reverse/report-reader-skills/reverse-report-overview/references/report-formats.md
+            test -s /opt/dsh-reverse/report-reader-skills/reverse-report-evidence-audit/references/claim-checks.md
+            for skill in reverse-report-triage reverse-report-finding-check reverse-report-sarif; do
+              test -s "/opt/dsh-reverse/report-reader-skills/$skill/SKILL.md"
+              test -s "/opt/dsh-reverse/report-reader-skills/$skill/references/attribution.md"
+            done
+            /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
-            for name in dsh-reverse-preset-declaration dsh-reverse-skill-bootstrap dsh-reverse-prompt-manager dsh-reverse-prompt-web dsh-reverse-session-health reverse-engineering rea-mcp session-controller; do
+            for name in dsh-reverse-preset-declaration dsh-reverse-report-reader-declaration dsh-reverse-skill-bootstrap dsh-reverse-prompt-manager dsh-reverse-prompt-web dsh-reverse-session-health reverse-engineering reverse-report-reader rea-mcp session-controller; do
               grep -Fq "$name" /tmp/reverse-config.yml
             done
             if grep -Eiq "dsh-purge|dsh-reverse-redteam" /tmp/reverse-config.yml; then
@@ -389,6 +400,15 @@ jobs:
                   test -s "/root/.dsh/reverse-engineering/skills/$id/SKILL.md"
                 done
                 test -s /root/.dsh/reverse-engineering/skills/universal-reverse-core/references/gates.md
+                for id in reverse-report-overview reverse-report-compare reverse-report-evidence-audit reverse-report-briefing; do
+                  test -s "/root/.dsh/reverse-report-reader/skills/$id/SKILL.md"
+                done
+                test -s /root/.dsh/reverse-report-reader/skills/reverse-report-overview/references/report-formats.md
+                test -s /root/.dsh/reverse-report-reader/skills/reverse-report-evidence-audit/references/claim-checks.md
+                for id in reverse-report-triage reverse-report-finding-check reverse-report-sarif; do
+                  test -s "/root/.dsh/reverse-report-reader/skills/$id/SKILL.md"
+                  test -s "/root/.dsh/reverse-report-reader/skills/$id/references/attribution.md"
+                done
                 test ! -e /root/.dsh/reverse-engineering/skills/android-apk-analysis/SKILL.md
               '
               # Reverse PR builds start from an already-published Standard image.
