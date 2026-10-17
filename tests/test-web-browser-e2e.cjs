@@ -193,21 +193,19 @@ async function run() {
   assert.equal(await selects.inputValue(), 'hidden')
 
   // Exercise the real settings module and its authenticated dedicated RPC.
-  await page.evaluate(() => {
-    const entry = window.__dshDockerIconDockV1.getAll().find(item => item.id === 'native-panel.settings')
-    if (!entry) throw Error('native Settings entry missing')
-    entry.onClick()
-  })
-  await page.getByText('提示词与执行', { exact: true }).first().click({ timeout })
-  const promptText = page.getByRole('textbox', { name: '全局附加指令', exact: true })
+  await page.getByRole('button', { name: '设置', exact: true }).click({ timeout })
+  const settingsDialog = page.getByRole('dialog', { name: '设置', exact: true })
+  await settingsDialog.waitFor({ state: 'visible', timeout })
+  await settingsDialog.getByRole('button', { name: '提示词与执行', exact: true }).click({ timeout })
+  const promptText = settingsDialog.getByRole('textbox', { name: '全局附加指令', exact: true })
   await promptText.waitFor({ state: 'visible', timeout })
-  await page.getByRole('checkbox', { name: '启用全局附加指令' }).check()
+  await settingsDialog.getByRole('checkbox', { name: '启用全局附加指令' }).check()
   await promptText.fill('CI literal {{unknown_variable}}')
-  await page.getByRole('button', { name: '保存注入与工具设置', exact: true }).click()
-  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor({ timeout })
-  await page.getByRole('button', { name: '停用附加设置', exact: true }).click()
-  await page.getByRole('status').filter({ hasText: '附加指令和工具禁用名单已停用' }).waitFor({ timeout })
-  assert.equal(await page.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
+  await settingsDialog.getByRole('button', { name: '保存注入与工具设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '已保存' }).waitFor({ timeout })
+  await settingsDialog.getByRole('button', { name: '停用附加设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '附加指令和工具禁用名单已停用' }).waitFor({ timeout })
+  assert.equal(await settingsDialog.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
   assert.equal(await promptText.inputValue(), 'CI literal {{unknown_variable}}')
 
   // A collapsed sidebar may show 2x2 with overflow. The exact UI control
