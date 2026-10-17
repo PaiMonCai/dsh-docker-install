@@ -176,6 +176,15 @@ jobs:
           node --test tests/test-reverse-edition.cjs
           node tests/test-semver-max.mjs
 
+      - name: Verify published billion-context domain UI adapter
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          archive="$(npm pack 'billion-context@0.1.197' --ignore-scripts --silent --pack-destination "$tmp")"
+          tar -xzf "$tmp/$archive" -C "$tmp"
+          DSH_BILI_PACKAGE_ROOT="$tmp/package" node --test tests/test-bili-published-client.cjs
+
       # Regression for upstream 0.2.1-alpha.3, where Host persistence is native.
       # Test the published bundle rather than assuming source and bundle match.
       - name: Verify published DSH alpha.3 Settings compatibility

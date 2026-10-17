@@ -24,8 +24,12 @@ function transform(code) {
     throw Error('not the billion-context native DSH client')
   let out = code
   const name = '[A-Za-z_$][\\w$]*'
-  out = replacement(out, new RegExp('fetch\\(\\s*'+TICK+'\\$\\{'+name+'\\}\\$\\{EMBED_PROBE_PATH\\}'+TICK+'\\s*\\)'),
-    'fetch("/__bili/?embed=1")','embed preflight')
+  // Some releases (including 0.1.197) have no embed preflight. If present,
+  // still require its known layout so we never leave a loopback probe behind.
+  if (out.includes('EMBED_PROBE_PATH')) {
+    out = replacement(out, new RegExp('fetch\\(\\s*'+TICK+'\\$\\{'+name+'\\}\\$\\{EMBED_PROBE_PATH\\}'+TICK+'\\s*\\)'),
+      'fetch("/__bili/?embed=1")','embed preflight')
+  }
   out = replacement(out, new RegExp('src:\\s*'+TICK+'\\$\\{'+name+'\\}/__bili/\\?embed=1'),
     'src: '+TICK+'/__bili/?embed=1','settings iframe')
   out = replacement(out, new RegExp('openExternal\\(\\s*'+TICK+'\\$\\{'+name+'\\}/__bili/'+TICK+'\\s*\\)'),
