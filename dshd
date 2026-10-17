@@ -3710,7 +3710,7 @@ cmd_search() {
       # is suppressed by its OR-list. Explicitly propagate a failed recreate.
       create_container || return $?
       save_config
-      ok "Web Search 插件已启用；SearXNG 可用时执行 dshd search test，官方搜索请在 DSH 会话验证"
+      ok "Web Search 插件已启用；全新安装默认使用官方搜索，可在 Web 设置切换到 SearXNG"
       ;;
     disable|uninstall)
       DSH_SEARCH_ENABLED=false; save_config
@@ -3811,7 +3811,7 @@ cmd_search_menu() {
     printf '  %sBrave API Key 请在 DSH Web → 插件 → DSH Web Search 中配置。%s\n' "$muted" "$reset"
     printf '  %sBrave 可能产生费用；仅在 SearXNG 失败且手动启用时回退。%s\n' "$muted" "$reset"
     printf '\n  %s── 搜索服务 ──%s\n' "$cyan" "$reset"
-    printf '  1) 启用 Web Search（部署 SearXNG 并重建 DSH）\n'
+    printf '  1) 启用 Web Search 插件（首次保留官方搜索）\n'
     printf '  %s2) 关闭 Web Search（恢复原生搜索配置）%s\n' "$red" "$reset"
     printf '  3) 测试 SearXNG 搜索    4) 检查连接/诊断\n'
     printf '  5) 查看 DSH 日志      6) 重启 DSH（应用提供方切换）\n'
