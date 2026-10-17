@@ -107,6 +107,32 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.remote_image_id(manifests, "linux", "amd64")
 
+    def test_runtime_log_snapshot_is_bounded_redacted_and_stamped(self):
+        self.manager.snapshot()
+        status = MODULE.read_json(self.manager.results / "status.json")
+        self.assertLessEqual(len(status["logs"]), 48000)
+        self.assertIn("logsUpdatedAt", status)
+        self.assertNotIn("token=secret", status["logs"])
+
+        secret = ('Authorization: Bearer private-bearer-token\\n'
+                  'api_key=provider-private-token\\n'
+                  'password: privatepassword\\n'
+                  'https://demo:password@example.org/?token=secret\\n')
+        safe = MODULE.redact(secret)
+        for value in ("private-bearer-token", "provider-private-token",
+                      "privatepassword", "demo:password", "token=secret"):
+            self.assertNotIn(value, safe)
+
+    def test_log_tail_reads_only_target_container_and_is_bounded(self):
+        commands = []
+        original = self.manager.run
+        def traced(args, **kwargs):
+            commands.append(args)
+            return original(args, **kwargs)
+        self.manager.run = traced
+        self.manager.snapshot()
+        self.assertIn(["docker", "logs", "--tail", "200", "dsh-test"], commands)
+
     def test_external_upgrade_discards_cached_notice_and_checks_the_running_image(self):
         self.manager.check()
         self.assertTrue(self.manager.release["available"])
