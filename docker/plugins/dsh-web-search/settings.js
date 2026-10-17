@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 export function defaults(env = process.env) {
   const limit = Number(env.DSH_SEARCH_BRAVE_DAILY_LIMIT)
   return {
-    provider: 'searxng', // Explicit plugin opt-in retains the historical SearXNG default.
+    provider: 'official', // Newly enabled plugins never replace upstream search by default.
     enabled: true,
     braveEnabled: env.DSH_SEARCH_BRAVE_ENABLED === 'true',
     braveDailyLimit: Number.isInteger(limit) && limit >= 0 && limit <= 10000 ? limit : 50,
