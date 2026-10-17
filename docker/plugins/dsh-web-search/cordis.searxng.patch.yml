@@ -1,0 +1,16 @@
+# Explicit SearXNG selection. Retain the upstream official provider as a
+# registered alternative, but use the local provider for model-facing searches.
+- insert:
+    - id: dsh-docker-web-search
+      name: ./index.js
+
+- id: web
+  config:
+    searchProvider: dsh-docker-search
+    fetchProvider: http
+
+- id: tool-web
+  config:
+    fetch: true
+    search: true
+    searchTimeoutMs: 12000
