@@ -15,9 +15,16 @@ const initial = () => ({
     settings: { checkInterval: 21600 }, proxy: { nodes: [], running: false },
   },
 })
-function harness() {
+function harness({ sse = false } = {}) {
   let definition, current, cursor
   const stores = new Map(), entries = new Map(), timers = new Map(), storage = new Map()
+  const sources = []
+  class FakeEventSource {
+    constructor(url, options) { this.url = url; this.options = options; this.handlers = {}; this.closed = false; sources.push(this) }
+    addEventListener(type, fn) { this.handlers[type] = fn }
+    emit(type, data) { this.handlers[type]?.({ data: JSON.stringify(data) }) }
+    close() { this.closed = true }
+  }
   let nextTimer = 0
   const f = { data: initial(), calls: 0, fail: false }
   const React = {
@@ -47,6 +54,7 @@ function harness() {
   const window = { __ModuleLoader__: { load: value => { definition = value } } }
   vm.runInNewContext(source, {
     window, console, localStorage: memory, sessionStorage: memory,
+    ...(sse ? { EventSource: FakeEventSource } : {}),
     AbortController, AbortSignal,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id },
     clearTimeout: id => timers.delete(id),
@@ -73,6 +81,7 @@ function harness() {
     return { ...tree, props: { ...tree.props, children: expand(tree.props.children) } }
   }
   f.shortcuts = window.__dshDockerIconDockPendingV1 || []
+  f.sources = sources
   f.entry = props => render(entries.get('dsh-docker-instance-manager'), props)
   f.notice = () => render(entries.get('dsh-docker.instance-manager-update-notice'))
   f.poll = async delay => {
@@ -194,7 +203,7 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
   assert.doesNotMatch(text(output), /WARN|INFO/)
   // The panel poll period shortens only while the log tab is selected.
   await f.poll(3000)
-  await f.poll(2000)
+  await f.poll(3000)
 })
 
 test('log search and pause freeze the display while status continues to refresh', async () => {
@@ -218,4 +227,39 @@ test('log search and pause freeze the display while status continues to refresh'
   nodes(tree, n => n.type === 'button' && text(n) === '继续显示')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
   assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
+})
+
+test('SSE subscription receives snapshots and appends, deduplicates and reconnects', async () => {
+  const f = harness({ sse: true })
+  f.entry({ view: 'detail' })
+  await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.equal(f.sources.length, 1)
+  const source = f.sources[0]
+  assert.equal(source.url, '/api/dsh-docker-instance-manager/logs')
+  source.onopen()
+  const generation = '123e4567-e89b-42d3-a456-426614174000'
+  source.emit('logs', { mode: 'snapshot', generation, seq: 2,
+    lines: ['INFO first', 'WARN second'], updatedAt: new Date().toISOString() })
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /SSE 实时连接/)
+  let output = nodes(tree, n => n.props.role === 'log')[0]
+  assert.match(text(output), /first/)
+  source.emit('logs', { mode: 'append', generation, seq: 3,
+    lines: ['ERROR third'], updatedAt: new Date().toISOString() })
+  source.emit('logs', { mode: 'append', generation, seq: 3,
+    lines: ['ERROR duplicate'], updatedAt: new Date().toISOString() })
+  tree = f.entry({ view: 'detail' })
+  output = nodes(tree, n => n.props.role === 'log')[0]
+  assert.match(text(output), /third/)
+  assert.doesNotMatch(text(output), /duplicate/)
+  source.onerror()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /自动重连中/)
+  nodes(tree, n => n.type === 'button' && text(n) === '重新连接')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.equal(f.sources.length, 2)
+  assert.equal(source.closed, true)
 })
