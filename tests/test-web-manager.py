@@ -154,6 +154,9 @@ class Tests(unittest.TestCase):
         updated = MODULE.read_json(path, 65536)
         self.assertEqual(updated["seq"], 277)
         self.assertNotIn("other-secret", json.dumps(updated))
+        safe_json = MODULE.redact('{"password": "topsecret", "api_key":"secretkey", "token":"private"}')
+        for secret in ("topsecret", "secretkey", "private"):
+            self.assertNotIn(secret, safe_json)
 
     def test_external_upgrade_discards_cached_notice_and_checks_the_running_image(self):
         self.manager.check()
