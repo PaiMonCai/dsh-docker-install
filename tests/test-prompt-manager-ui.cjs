@@ -47,6 +47,7 @@ function harness({ failSave = false } = {}) {
   }
   const disposers = []
   const plugin = definition.factory(name => { assert.equal(name, 'react'); return React })
+  assert.deepEqual(Array.from(plugin.inject), ['slots', 'connection'])
   plugin.apply({ connection: { rpc: { call } }, slots: {
     inject(name, fn) { assert.equal(name, 'settings.section'); disposers.push(fn()) },
     register(record, component) { metadata = record; Panel = component; return () => { Panel = null } },

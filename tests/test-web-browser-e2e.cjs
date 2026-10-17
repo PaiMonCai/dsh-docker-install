@@ -25,6 +25,7 @@ if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) throw Error('invalid CI login token'
 const timeout = 20000
 let browser
 let page
+const clientErrors = []
 
 async function run() {
   proxy = net.createServer(client => {
@@ -49,7 +50,6 @@ async function run() {
     locale: 'zh-CN',
   })
   page = await context.newPage()
-  const clientErrors = []
   page.on('pageerror', error => clientErrors.push(error.message))
   // Do not log authenticated URLs, request/response cookies or tokens.
   await page.goto(base + '/?token=' + encodeURIComponent(token), {
@@ -226,6 +226,9 @@ run().catch(async error => {
       await page.screenshot({ path: '/tmp/dsh-web-e2e-failed.png', fullPage: true })
       console.error('Saved failure screenshot to /tmp/dsh-web-e2e-failed.png')
     } catch { /* page may already be closed */ }
+    for (const message of clientErrors) {
+      console.error('Browser client error: ' + String(message).replaceAll(token, '[REDACTED]'))
+    }
   }
   console.error('Browser E2E FAIL: ' + String(error.message).replaceAll(token, '[REDACTED]'))
   process.exitCode = 1

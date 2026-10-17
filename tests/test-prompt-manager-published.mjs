@@ -2,12 +2,48 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
+import { runInNewContext } from 'node:vm'
 
 const runtimeRoot = process.env.DSH_PROMPT_RUNTIME_ROOT
+test('published Cordis activates the Web client with its declared service dependencies',
+  { skip: !runtimeRoot && 'set DSH_PROMPT_RUNTIME_ROOT to installed DSH package root' }, async t => {
+    const require = createRequire(join(runtimeRoot, 'package.json'))
+    const { Context } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')))
+    const source = process.env.DSH_PROMPT_PLUGIN_ROOT
+      ? pathToFileURL(join(process.env.DSH_PROMPT_PLUGIN_ROOT, 'client.js'))
+      : new URL('../docker/plugins/dsh-prompt-manager/client.js', import.meta.url)
+    let definition
+    runInNewContext(readFileSync(source, 'utf8'), {
+      window: { __ModuleLoader__: { load(value) { definition = value } } },
+    })
+    const plugin = definition.factory(name => {
+      assert.equal(name, 'react')
+      return { createElement() {} }
+    })
+    const ctx = new Context()
+    let section
+    ctx.provide('slots', {
+      inject(name, register) { assert.equal(name, 'settings.section'); return register() },
+      register(record) { section = record; return () => {} },
+    })
+    ctx.provide('connection', { rpc: { call: async (channel, method, payload) => {
+      assert.equal(channel, '/dsh-docker-prompt-manager')
+      assert.equal(method, 'state')
+      assert.deepEqual(payload, {})
+      return { ok: true }
+    } } })
+    // Native Cordis rejects undeclared service access even when owners exist.
+    const fiber = ctx.plugin(plugin)
+    t.after(() => fiber.dispose())
+    await fiber.await()
+    assert.equal(section.id, 'dsh-docker-prompt-manager')
+    assert.deepEqual(await section.inject().call('state', {}), { ok: true })
+  })
+
 test('published DSH renders literal guidance and enforces tools through its real guard lifecycle',
   { skip: !runtimeRoot && 'set DSH_PROMPT_RUNTIME_ROOT to installed DSH package root' }, async t => {
     const require = createRequire(join(runtimeRoot, 'package.json'))
