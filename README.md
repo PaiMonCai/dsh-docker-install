@@ -208,6 +208,10 @@ Economics Pack 额外提供 Python-first 的计量工具，包括固定效应、
 
 完整 Research Engine、Dashboard、Economics Pack、V2 架构与 RC Gate 见 [Research Edition](research/README.md)。
 
+## Web 运行日志
+
+开启宿主机实例管理（`dshd web enable`）后，可以通过 Web 左侧快捷栏的「运行日志」图标，或「实例管理 → 运行日志」打开日志控制台。日志自动刷新（页面每约 2 秒轮询，宿主机通常每约 3 秒更新快照），支持错误/警告筛选、关键字搜索、50/100/200 行选择、暂停显示和自动滚动。日志由宿主机读取并进行凭据脱敏，最多保留最近 200 行/48 KB，不向容器开放 Docker Socket。断线或实例重启后，页面会恢复轮询。快捷栏入口可在「快捷入口管理」中重新排序或隐藏。
+
 ## 镜像
 
 GHCR：
