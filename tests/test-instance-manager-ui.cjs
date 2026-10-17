@@ -175,7 +175,7 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
   const f = harness()
   assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'
     && entry.label === '运行日志' && entry.icon === 'terminal'))
-  f.data.status.logs = '[INFO] DSH booted\\n[WARN] retry network\\n[ERROR] failed request'
+  f.data.status.logs = '[INFO] DSH booted\n[WARN] retry network\n[ERROR] failed request'
   f.data.status.logsUpdatedAt = new Date().toISOString()
   f.entry({ view: 'detail' })
   await f.settle()
@@ -199,7 +199,7 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
 
 test('log search and pause freeze the display while status continues to refresh', async () => {
   const f = harness()
-  f.data.status.logs = 'startup completed\\nERROR first failure'
+  f.data.status.logs = 'startup completed\nERROR first failure'
   f.entry({ view: 'detail' })
   await f.settle()
   let tree = f.entry({ view: 'detail' })
@@ -210,7 +210,7 @@ test('log search and pause freeze the display while status continues to refresh'
   tree = f.entry({ view: 'detail' })
   assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /startup/)
   nodes(tree, n => n.type === 'button' && text(n) === '暂停显示')[0].props.onClick()
-  f.data.status.logs = 'ERROR new failure\\nINFO restarted'
+  f.data.status.logs = 'ERROR new failure\nINFO restarted'
   await f.poll(3000)
   tree = f.entry({ view: 'detail' })
   assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /first failure/)
