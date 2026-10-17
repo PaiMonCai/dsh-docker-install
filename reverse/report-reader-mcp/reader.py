@@ -15,6 +15,14 @@ MAX_TEXT = 256 * 1024
 MAX_RESULTS = 20000
 DOCUMENT_TYPES = {".pdf", ".docx", ".xlsx", ".pptx"}
 
+# The build-time ARM64 smoke runs under QEMU on an amd64 runner.
+# CPU accounting charges emulator work, not just guest parsing. Scale limits
+# only for synthetic build fixtures; production keeps the original 30s/35s.
+def conversion_limits():
+    if os.environ.get("DSH_REPORT_READER_CI_EMULATED") == "1":
+        return 150, 180
+    return 30, 35
+
 
 def local_bytes(root, value):
     if not value or "://" in value or value.lower().startswith(("data:", "file:")):
@@ -221,12 +229,21 @@ def read_document(root, path, start=0, max_chars=12000):
     elif not data.startswith(b"%PDF-"):
         raise ValueError("invalid PDF header")
     # Conversion gets bytes rather than a path. It cannot select another file or URL.
+    _, wall_limit = conversion_limits()
     try:
         completed = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve()), "--convert", suffix],
-                                   input=data, capture_output=True, timeout=35, check=False)
+                                   input=data, capture_output=True, timeout=wall_limit, check=False)
     except subprocess.TimeoutExpired as error:
+        if os.environ.get("DSH_REPORT_READER_CI_DIAGNOSTICS") == "1":
+            print(f"[report-reader-ci] format={suffix} timeout={wall_limit}s",
+                  file=sys.stderr, flush=True)
         raise ValueError("document conversion timed out") from error
     if completed.returncode:
+        # Only emit converter stderr for synthetic CI fixtures, never user documents.
+        if os.environ.get("DSH_REPORT_READER_CI_DIAGNOSTICS") == "1":
+            details = completed.stderr.decode("utf-8", errors="replace")[-3000:]
+            print(f"[report-reader-ci] format={suffix} exit={completed.returncode} stderr={details!r}",
+                  file=sys.stderr, flush=True)
         raise ValueError("document conversion failed; encrypted, malformed or unsupported document")
     converted = json.loads(completed.stdout)
     content = converted["text"]
@@ -250,7 +267,8 @@ def conversion_worker(suffix):
         os.environ[name] = "1"
     if sys.platform == "linux":
         import resource
-        resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+        cpu_limit, _ = conversion_limits()
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
         resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
     import socket
     def denied(*_args, **_kwargs):

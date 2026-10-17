@@ -59,7 +59,12 @@ async def smoke(root):
     for suffix in ("pdf", "docx", "xlsx", "pptx"):
         path = root / ("report." + suffix)
         before = path.read_bytes()
-        result = read_document(root, str(path), max_chars=12000)
+        print(f"Report reader smoke: converting {suffix}", flush=True)
+        try:
+            result = read_document(root, str(path), max_chars=12000)
+        except Exception as error:
+            raise AssertionError(f"report reader {suffix} conversion failed") from error
+        print(f"Report reader smoke: {suffix} passed", flush=True)
         assert "Reader evidence" in result["text"], (suffix, result)
         assert result["source"]["sha256"] == hashlib.sha256(before).hexdigest()
         assert path.read_bytes() == before
@@ -101,5 +106,8 @@ async def smoke(root):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="report-reader-smoke-") as temp:
-        asyncio.run(asyncio.wait_for(smoke(Path(temp)), timeout=150))
+        # Under QEMU each sandboxed converter includes emulation overhead.
+        # This applies to synthetic image-build smoke only, never MCP clients.
+        duration = 900 if os.environ.get("DSH_REPORT_READER_CI_EMULATED") == "1" else 150
+        asyncio.run(asyncio.wait_for(smoke(Path(temp)), timeout=duration))
     print("Report reader: four real document conversions and MCP stdio calls passed.")

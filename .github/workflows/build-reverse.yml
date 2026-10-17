@@ -272,6 +272,22 @@ jobs:
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse
 
+      # Catch architecture-specific failures in the actual release Dockerfile on PRs.
+      # Previous PR smoke only exercised amd64, while release arm64 failed in
+      # report-reader-mcp/smoke.py under QEMU. Keep this a non-publishing gate.
+      - name: Validate ARM64 Reverse Docker build on PR
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: reverse/Dockerfile
+          platforms: linux/arm64
+          pull: true
+          push: false
+          build-args: |
+            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
+          cache-from: type=gha,scope=dsh-reverse
+
       - name: Build Reverse release audit image before any GHCR push
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
@@ -351,7 +367,7 @@ jobs:
               test -s "/opt/dsh-reverse/report-reader-skills/$skill/SKILL.md"
               test -s "/opt/dsh-reverse/report-reader-skills/$skill/references/attribution.md"
             done
-            /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py
+            DSH_REPORT_READER_CI_DIAGNOSTICS=1 /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml

@@ -1,10 +1,13 @@
 import hashlib
+from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 import zipfile
 
@@ -136,6 +139,43 @@ class ReportReaderTest(unittest.TestCase):
         os.mkfifo(path)
         with self.assertRaisesRegex(ValueError, "regular file"):
             reader.local_bytes(self.root, str(path))
+
+    def test_emulated_ci_limits_are_opt_in_and_do_not_change_production_caps(self):
+        with patch.dict(os.environ, {"DSH_REPORT_READER_CI_EMULATED": "0"}):
+            self.assertEqual(reader.conversion_limits(), (30, 35))
+        with patch.dict(os.environ, {"DSH_REPORT_READER_CI_EMULATED": "1"}):
+            self.assertEqual(reader.conversion_limits(), (150, 180))
+        with patch.dict(os.environ, {"DSH_REPORT_READER_CI_EMULATED": "0"}):
+            path = self.root / "sample.pdf"
+            path.write_bytes(b"%PDF-1.4\\nfixture")
+            with patch.object(reader.subprocess, "run",
+                              return_value=SimpleNamespace(returncode=0, stdout=b'{"text":"ok","truncated":false}')):
+                reader.read_document(self.root, str(path))
+                self.assertEqual(reader.subprocess.run.call_args.kwargs["timeout"], 35)
+        with patch.dict(os.environ, {"DSH_REPORT_READER_CI_EMULATED": "1"}):
+            with patch.object(reader.subprocess, "run",
+                              return_value=SimpleNamespace(returncode=0, stdout=b'{"text":"ok","truncated":false}')):
+                reader.read_document(self.root, str(path))
+                self.assertEqual(reader.subprocess.run.call_args.kwargs["timeout"], 180)
+
+    def test_converter_failure_keeps_user_error_generic_and_reports_ci_fixture_diagnostics(self):
+        path = self.root / "sample.pdf"
+        path.write_bytes(b"%PDF-1.4\\nfixture")
+        failed = SimpleNamespace(returncode=137, stdout=b"", stderr=b"converter diagnostic")
+        with patch.object(reader.subprocess, "run", return_value=failed):
+            with patch.dict(os.environ, {"DSH_REPORT_READER_CI_DIAGNOSTICS": "0"}):
+                hidden = io.StringIO()
+                with redirect_stderr(hidden), self.assertRaisesRegex(ValueError, "conversion failed") as error:
+                    reader.read_document(self.root, str(path))
+                self.assertNotIn("converter diagnostic", str(error.exception))
+                self.assertEqual(hidden.getvalue(), "")
+            with patch.dict(os.environ, {"DSH_REPORT_READER_CI_DIAGNOSTICS": "1"}):
+                diagnostic = io.StringIO()
+                with redirect_stderr(diagnostic), self.assertRaisesRegex(ValueError, "conversion failed"):
+                    reader.read_document(self.root, str(path))
+                self.assertIn("format=.pdf", diagnostic.getvalue())
+                self.assertIn("exit=137", diagnostic.getvalue())
+                self.assertIn("converter diagnostic", diagnostic.getvalue())
 
     def test_archive_budget_and_page_arguments(self):
         data = io.BytesIO()
