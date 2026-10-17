@@ -113,6 +113,7 @@ class Manager:
         if self.settings_path.exists():
             self.settings = self.validate_settings(read_json(self.settings_path))
         self.release = None
+        self.refresh_pending = False
         self.next_check = 0
         self.next_snapshot = 0
 
@@ -155,6 +156,12 @@ class Manager:
                 "imageId": container["Image"],
                 "version": labels.get("org.opencontainers.image.version", ""),
             }
+            if self.release and (
+                self.release.get("current") and self.release["current"] != container["Image"]
+                or self.release.get("target") and self.release["target"] != description["image"]
+            ):
+                self.clear_release(recheck=bool(self.settings["checkInterval"]))
+                snapshot["release"] = None
             output = self.run(["docker", "logs", "--tail", "80", description["name"]], merge=True)
             snapshot["logs"] = redact(output)[-24000:]
         except Exception as error:
@@ -171,19 +178,30 @@ class Manager:
         write_json(self.results / "status.json", snapshot)
         self.next_snapshot = time.monotonic() + 10
 
+    def clear_release(self, recheck=False):
+        self.release = None
+        self.refresh_pending = recheck
+        write_json(self.private / "release.json", None)
+
     def check(self):
+        self.refresh_pending = False
         self.next_check = time.monotonic() + (self.settings["checkInterval"] or 21600)
+        context = {}
         try:
             description = self.describe()
             container = self.inspect(description["name"])
+            context = {"current": container["Image"], "target": description["image"]}
             image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
             manifests = json.loads(self.run(["docker", "manifest", "inspect", "--verbose",
                                              description["image"]], timeout=120))
             remote = remote_image_id(manifests, image["Os"], image["Architecture"], image.get("Variant", ""))
+            if (self.inspect(description["name"])["Image"] != container["Image"]
+                    or self.describe()["image"] != description["image"]):
+                raise RuntimeError("instance changed during update check; retry")
             self.release = {"checkedAt": now(), "available": remote != container["Image"],
-                            "current": container["Image"], "latest": remote}
+                            **context, "latest": remote}
         except Exception as error:
-            self.release = {"checkedAt": now(), "available": None, "error": redact(error)}
+            self.release = {"checkedAt": now(), "available": None, **context, "error": redact(error)}
         write_json(self.private / "release.json", self.release)
         if self.release.get("error"):
             raise RuntimeError(self.release["error"])
@@ -244,8 +262,7 @@ class Manager:
             process.stdout.close()
         if action in ("update", "rollback"):
             # Refresh comparison after replacement; a registry outage is not an upgrade failure.
-            self.release = None
-            self.next_check = 0
+            self.clear_release(recheck=True)
 
     def save_job(self, job):
         job["updatedAt"] = now()
@@ -307,7 +324,7 @@ class Manager:
         pending = sorted(self.requests.glob("*.json"), key=lambda p: p.name)
         for path in pending[:32]:
             self.process(path)
-        if self.settings["checkInterval"] and time.monotonic() >= self.next_check:
+        if self.refresh_pending or self.settings["checkInterval"] and time.monotonic() >= self.next_check:
             with contextlib.suppress(Exception):
                 self.check()
             self.snapshot()

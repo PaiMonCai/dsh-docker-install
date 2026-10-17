@@ -104,7 +104,7 @@ jobs:
           bash -n install.sh
           bash tests/test-dshd-web-management.sh
           python3 tests/test-web-manager.py
-          node --test tests/test-instance-manager.mjs
+          node --test tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
           node --check docker/plugins/dsh-instance-manager/client.js
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh

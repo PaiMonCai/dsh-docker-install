@@ -3,8 +3,8 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.12.0"
-WEB_WORKER_SHA256="f5bde1b58daba0dbb905c7e67fa8ac7f90b53e0651cc14931d4066621ba78183"
+DSHD_VERSION="0.12.1"
+WEB_WORKER_SHA256="6ff62ea9ea6fe87b1d8b1ee50249caa1a49bf41890cbc983f952b2a13378f2fc"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
