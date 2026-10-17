@@ -16,6 +16,20 @@ const clientSource=[
   'onClick:()=>openExternal('+tick+dollar+'{origin}/__bili/'+tick+')};',
   '}});'
 ].join('\n')
+test('registers a segment prefix without a trailing slash for DSH child routes',async()=>{
+ const {apply:register,PREFIX}=await import(modulePath)
+ let route,dispose
+ register({
+   effect:fn=>{dispose=fn()},
+   webServer:{register:value=>{route=value;return ()=>{route=undefined}}},
+   connection:{}
+ })
+ assert.equal(PREFIX,'/__bili')
+ assert.equal(route.kind,'prefix')
+ assert.equal(route.path,PREFIX)
+ dispose()
+ assert.equal(route,undefined)
+})
 test('client patch touches only browser UI, preserves model address and is reversible',()=>{
  const patched=transform(clientSource)
  assert.equal(patched.status,'patched')
