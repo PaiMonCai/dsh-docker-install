@@ -22,6 +22,8 @@ for (const name of ['dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-instance-manag
   assert.ok(source.includes('append_native_web_patch "/opt/dsh/plugins/' +
     name + '/cordis.patch.yml"'), name)
 }
+assert.ok(source.includes('cordis.searxng.patch.yml'), 'missing custom search overlay')
+assert.ok(source.includes('selectedProvider(saved)'), 'missing persisted provider selector')
 const startup = source.slice(source.indexOf('run_web() {'))
 const firstPatch = startup.indexOf('append_native_web_patch')
 const migration = startup.indexOf('    prepare_native_web_plugins')

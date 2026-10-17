@@ -1,13 +1,13 @@
-# Bundle overlay: search stays custom, fetch stays on official HTTP.
-# DSH non-insert patches are direct rows: "- id: ...".
-# The overlay replaces each row's WHOLE config, so restate required defaults.
+# Web Search plugin stays installed in both modes so its Settings UI is reachable.
+# The provider is pinned at Web startup; the official provider is never replaced
+# when SearXNG is disabled. Config updates replace the whole row.
 - insert:
     - id: dsh-docker-web-search
       name: ./index.js
 
 - id: web
   config:
-    searchProvider: dsh-docker-search
+    searchProvider: deepseek-official
     fetchProvider: http
 
 - id: tool-web

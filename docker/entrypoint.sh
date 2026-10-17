@@ -123,7 +123,28 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-bili-ui-bridge/cordis.patch.yml" "${DSH_BILI_UI_BRIDGE:-true}" "billion-context 域名管理页"
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
     append_native_web_patch "/opt/dsh/plugins/dsh-instance-manager/cordis.patch.yml" "${DSH_INSTANCE_MANAGER:-true}" "实例管理"
-    append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "${DSH_SEARCH_ENABLED:-false}" "Web Search"
+    # The web seam selects a provider at service construction, not when a new
+    # provider registers. Read the persisted choice before the DSH launcher runs.
+    # Invalid settings fail closed to official search and remain repairable in UI.
+    if [[ "${DSH_SEARCH_ENABLED:-false}" == "true" ]]; then
+        local search_provider
+        search_provider="$(node --input-type=module -e '
+            import { SearchSettings, defaults, selectedProvider } from "/opt/dsh/plugins/dsh-web-search/settings.js"
+            try {
+                const saved = await new SearchSettings().load(defaults())
+                process.stdout.write(selectedProvider(saved))
+            } catch (error) {
+                console.error("dsh-entrypoint: search preferences invalid; using official provider:", error.message)
+                process.stdout.write("official")
+            }
+        ')" || return 1
+        export DSH_SEARCH_ACTIVE_PROVIDER="$search_provider"
+        if [[ "$search_provider" == "searxng" ]]; then
+            append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.searxng.patch.yml" "true" "Web Search (SearXNG)"
+        else
+            append_native_web_patch "/opt/dsh/plugins/dsh-web-search/cordis.patch.yml" "true" "Web Search (official)"
+        fi
+    fi
     # Reverse's image-owned, native Agent preset overlay. Not used by Standard.
     if [[ -n "${DSH_REVERSE_AGENT_PATCH:-}" ]]; then
         append_native_web_patch "${DSH_REVERSE_AGENT_PATCH}" "true" "Reverse Edition Agent"

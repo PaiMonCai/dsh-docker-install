@@ -7,7 +7,8 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { runInNewContext } = require('node:vm')
 
-function harness({ searchEnabled = true, managerFirst = false } = {}) {
+function harness({ searchEnabled = true, managerFirst = false, managerOnline = true,
+  managerConfigured = true, managerBusy = false, restartFailure = false, confirmRestart = true } = {}) {
   const source = readFileSync(join(__dirname,
     '../docker/plugins/dsh-web-search/client.js'), 'utf8')
   const managerSource = readFileSync(join(__dirname,
@@ -70,10 +71,14 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     unset: async () => ({ ok: true }),
   }
   const settings = {
-    enabled: true, cacheEnabled: true, braveEnabled: false, braveDailyLimit: 0,
+    provider: 'searxng', enabled: true, cacheEnabled: true, braveEnabled: false, braveDailyLimit: 0,
   }
+  const restartJobs = []
+  let restartConfirmations = 0
   const sandbox = {
-    window: { __ModuleLoader__: { load(definition) {
+    crypto: { randomUUID: () => '123e4567-e89b-42d3-a456-426614174000' },
+    window: { confirm() { restartConfirmations++; return confirmRestart },
+      __ModuleLoader__: { load(definition) {
       if (definition.id === 'dsh-docker-session-manager') managerDefinition = definition
       else if (definition.id === 'dsh-docker-icon-dock') dockDefinition = definition
       else moduleDefinition = definition
@@ -85,19 +90,36 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
       removeEventListener(type) { keyHandlers.delete(type) },
     },
     console,
-    fetch: async (_url, options) => {
-      const method = options.method
-      requests.push({ method, action: method === 'POST' ? JSON.parse(options.body).action : null })
+    fetch: async (url, options) => {
+      const method = options.method || 'GET'
+      const payload = method === 'POST' ? JSON.parse(options.body) : null
+      const isManagement = url === '/api/dsh-docker-instance-manager'
+      requests.push({ url, method, action: payload?.action || null, settings: payload?.settings,
+        payload, headers: options.headers })
+      if (isManagement) {
+        if (method === 'GET') return {
+          ok: true, async json() { return { configured: managerConfigured, online: managerOnline,
+            jobs: managerBusy ? [{ state: 'running' }] : restartJobs } },
+        }
+        if (restartFailure) return {
+          ok: false, async json() { return { error: 'host-executor-offline' } },
+        }
+        restartJobs.push({ id: payload.id, action: payload.action, state: 'queued' })
+        return { ok: true, async json() { return { id: payload.id, state: 'queued' } } }
+      }
       if (method === 'GET' && failNextGet) {
         failNextGet = false
         return { ok: false, async json() { return { error: '搜索服务暂不可用' } } }
       }
+      if (payload?.action === 'save') Object.assign(settings, payload.settings)
+      const pendingRestart = settings.provider === 'official' || !settings.enabled
       return {
         ok: true,
         async json() {
           return method === 'POST'
-            ? { settings, running: true, healthy: true, results: 2 }
-            : { settings, running: true }
+            ? { settings: { ...settings }, running: true, healthy: true, results: 2,
+                activeProvider: 'searxng', pendingRestart }
+            : { settings: { ...settings }, running: true, activeProvider: 'searxng', pendingRestart }
         },
       }
     },
@@ -185,12 +207,13 @@ function harness({ searchEnabled = true, managerFirst = false } = {}) {
     return found[0]
   }
   async function settle(fn) {
-    for (let i = 0; i < 20; i++) await Promise.resolve()
+    for (let i = 0; i < 100; i++) await Promise.resolve()
     return render(fn)
   }
   return {
     registered, managerSlots, dockSlots, injections, requests, render, footer, shortcut, overlay, card, nodes, text, settle,
-    failNextRefresh() { failNextGet = true },
+    failNextRefresh() { failNextGet = true }, restartJobs,
+    restartConfirmations() { return restartConfirmations },
     keydown(event) { keyHandlers.get('keydown')?.(event) },
   }
 }
@@ -315,4 +338,103 @@ test('Escape closes the search overlay', () => {
   app.keydown({ key: 'Escape', preventDefault() { prevented = true } })
   assert.equal(prevented, true)
   assert.equal(app.overlay(), null)
+})
+
+test('provider selector saves official mode and clearly requires DSH restart', async () => {
+  const app = harness()
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  const select = app.nodes(tree, n => n.type === 'select'
+    && n.props?.['aria-label'] === '搜索提供方')[0]
+  assert.ok(select)
+  assert.equal(select.props.value, 'searxng')
+  select.props.onChange({ target: { value: 'official' } })
+  tree = app.render(() => view.type(view.props))
+  const updated = app.nodes(tree, n => n.type === 'select'
+    && n.props?.['aria-label'] === '搜索提供方')[0]
+  assert.equal(updated.props.value, 'official')
+  const save = app.nodes(tree, n => n.type === 'button' && app.text(n) === '仅保存设置')[0]
+  save.props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.equal(app.requests.at(-1).settings.provider, 'official')
+  assert.match(app.text(tree), /待生效的切换/)
+  assert.match(app.text(tree), /保存并应用/)
+  const testSearch = app.nodes(tree, n => n.type === 'button' && app.text(n) === '测试搜索')[0]
+  assert.equal(testSearch.props.disabled, false, 'current SearXNG stays live until restart')
+})
+
+test('save and apply switches provider from Web via authenticated host bridge', async () => {
+  const app = harness()
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  const select = app.nodes(tree, n => n.type === 'select'
+    && n.props?.['aria-label'] === '搜索提供方')[0]
+  select.props.onChange({ target: { value: 'official' } })
+  tree = app.render(() => view.type(view.props))
+  const apply = app.nodes(tree, n => n.type === 'button' && app.text(n) === '保存并应用')[0]
+  assert.ok(apply)
+  apply.props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.equal(app.restartConfirmations(), 1)
+  assert.deepEqual(app.requests.map(r => r.url), [
+    '/api/dsh-docker-web-search',
+    '/api/dsh-docker-instance-manager',
+    '/api/dsh-docker-web-search',
+    '/api/dsh-docker-instance-manager',
+  ])
+  const restart = app.requests.at(-1)
+  assert.equal(restart.payload.action, 'restart')
+  assert.equal(restart.headers['x-dsh-management'], '1')
+  assert.equal(restart.payload.id, '123e4567-e89b-42d3-a456-426614174000')
+  assert.equal(restart.payload.arguments && Object.keys(restart.payload.arguments).length, 0)
+  assert.equal(app.requests.at(-2).settings.provider, 'official')
+  assert.match(app.text(tree), /已提交 DSH 重启任务/)
+})
+
+test('Web apply refuses if host manager is offline without changing provider preferences', async () => {
+  const app = harness({ managerOnline: false })
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  app.nodes(tree, n => n.type === 'select' && n.props?.['aria-label'] === '搜索提供方')[0]
+    .props.onChange({ target: { value: 'official' } })
+  tree = app.render(() => view.type(view.props))
+  app.nodes(tree, n => n.type === 'button' && app.text(n) === '保存并应用')[0].props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.match(app.text(tree), /宿主机实例管理服务离线/)
+  assert.equal(app.requests.filter(r => r.action === 'save').length, 0)
+  assert.equal(app.restartJobs.length, 0)
+})
+
+test('user can decline restart without saving any settings', async () => {
+  const app = harness({ confirmRestart: false })
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  app.nodes(tree, n => n.type === 'button' && app.text(n) === '保存并应用')[0].props.onClick()
+  await app.settle(() => view.type(view.props))
+  assert.equal(app.restartConfirmations(), 1)
+  assert.equal(app.requests.length, 1)
+})
+
+test('manager restart refusal never falsely claims the provider was applied', async () => {
+  const app = harness({ restartFailure: true })
+  app.shortcut('网络搜索').props.onClick()
+  const view = app.card(app.overlay())
+  let tree = app.render(() => view.type(view.props))
+  tree = await app.settle(() => view.type(view.props))
+  app.nodes(tree, n => n.type === 'select' && n.props?.['aria-label'] === '搜索提供方')[0]
+    .props.onChange({ target: { value: 'official' } })
+  tree = app.render(() => view.type(view.props))
+  app.nodes(tree, n => n.type === 'button' && app.text(n) === '保存并应用')[0].props.onClick()
+  tree = await app.settle(() => view.type(view.props))
+  assert.match(app.text(tree), /重启任务结果尚未确认/)
+  assert.match(app.text(tree), /待生效的切换/)
+  assert.equal(app.restartJobs.length, 0)
 })

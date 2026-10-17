@@ -6,24 +6,35 @@ import { randomUUID } from 'node:crypto'
 export function defaults(env = process.env) {
   const limit = Number(env.DSH_SEARCH_BRAVE_DAILY_LIMIT)
   return {
+    provider: 'official', // Newly enabled plugins never replace upstream search by default.
     enabled: true,
     braveEnabled: env.DSH_SEARCH_BRAVE_ENABLED === 'true',
     braveDailyLimit: Number.isInteger(limit) && limit >= 0 && limit <= 10000 ? limit : 50,
     cacheEnabled: env.DSH_SEARCH_CACHE_ENABLED !== 'false',
   }
 }
+// Preserve existing four-field settings.json files when upgrading. New saves use
+// the five-field schema; official mode deliberately does not disable the plugin.
 export function validate(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some(key => !['enabled', 'braveEnabled', 'braveDailyLimit', 'cacheEnabled'].includes(key))
-    || Object.keys(input).length !== 4
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('invalid-search-settings')
+  const keys = Object.keys(input)
+  if (keys.some(key => !['provider', 'enabled', 'braveEnabled', 'braveDailyLimit', 'cacheEnabled'].includes(key))
+    || (keys.length !== 4 && keys.length !== 5)
+    || (input.provider !== undefined && !['official', 'searxng'].includes(input.provider))
     || typeof input.enabled !== 'boolean'
     || typeof input.braveEnabled !== 'boolean'
     || typeof input.cacheEnabled !== 'boolean'
     || !Number.isInteger(input.braveDailyLimit) || input.braveDailyLimit < 0
     || input.braveDailyLimit > 10000) throw new Error('invalid-search-settings')
-  return { enabled: input.enabled, braveEnabled: input.braveEnabled,
-    braveDailyLimit: input.braveDailyLimit, cacheEnabled: input.cacheEnabled }
+  return { provider: input.provider ?? 'searxng', enabled: input.enabled,
+    braveEnabled: input.braveEnabled, braveDailyLimit: input.braveDailyLimit,
+    cacheEnabled: input.cacheEnabled }
 }
+
+export function selectedProvider(settings) {
+  return settings.enabled && settings.provider === 'searxng' ? 'searxng' : 'official'
+}
+
 export class SearchSettings {
   constructor(home = process.env.DSH_HOME || '/root/.dsh') {
     this.dir = join(home, 'web-search')

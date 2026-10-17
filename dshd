@@ -701,6 +701,23 @@ search_container_running() {
       .then(r=>process.exit(r.status>=200&&r.status<500?0:1))
       .catch(()=>process.exit(1))' >/dev/null 2>&1
 }
+# Determine the provider currently selected by the running DSH process,
+# NOT the saved preference which may still be waiting for restart.
+search_active_provider() {
+  [[ "${DSH_SEARCH_ENABLED:-false}" == "true" ]] || { printf 'official'; return; }
+  container_running || { printf 'unknown'; return; }
+  local provider
+  provider="$(docker_cmd exec "$DSH_NAME" node -e '
+    try {
+      const command = require("node:fs").readFileSync("/proc/1/cmdline", "utf8");
+      if (command.includes("/dsh-web-search/cordis.searxng.patch.yml")) console.log("searxng");
+      else if (command.includes("/dsh-web-search/cordis.patch.yml")) console.log("official");
+      else console.log("unknown");
+    } catch { console.log("unknown"); }
+  ' 2>/dev/null)" || provider="unknown"
+  case "$provider" in official|searxng) printf '%s' "$provider" ;; *) printf 'unknown' ;; esac
+}
+
 search_ensure_image() {
   # Validate before replacing the existing container: legacy images have no
   # embedded SearXNG and must not silently enable a broken search provider.
@@ -3678,6 +3695,7 @@ cmd_search() {
   case "$action" in
     status)
       printf 'Web Search:     %s\n' "$DSH_SEARCH_ENABLED"
+      printf 'Active provider: %s\n' "$(search_active_provider)"
       printf 'SearXNG:        %s\n' "$(search_container_running && echo running || echo stopped)"
       printf 'SearXNG runtime: %s\n' "bundled in DSH image"
       printf 'Brave fallback: %s (max %s/day UTC)\n' "$DSH_SEARCH_BRAVE_ENABLED" "$DSH_SEARCH_BRAVE_DAILY_LIMIT"
@@ -3692,7 +3710,7 @@ cmd_search() {
       # is suppressed by its OR-list. Explicitly propagate a failed recreate.
       create_container || return $?
       save_config
-      ok "Web Search 已启用；请执行 dshd search test 验证"
+      ok "Web Search 插件已启用；全新安装默认使用官方搜索，可在 Web 设置切换到 SearXNG"
       ;;
     disable|uninstall)
       DSH_SEARCH_ENABLED=false; save_config
@@ -3723,7 +3741,11 @@ cmd_search() {
       esac
       ;;
     test|doctor)
-      if ! search_container_running; then err "SearXNG 容器未运行"; return 1; fi
+      if [[ "$(search_active_provider)" == "official" ]]; then
+        info "当前使用 DeepSeek 官方搜索；此命令仅诊断 SearXNG。请在 DSH 会话中测试 web_search。"
+        return 0
+      fi
+      if ! search_container_running; then err "SearXNG 未运行"; return 1; fi
       if ! container_running; then err "DSH 容器未运行"; return 1; fi
       docker_cmd exec "$DSH_NAME" node -e '
         const u = "http://127.0.0.1:18788/search?q=deepseek&format=json";
@@ -3737,7 +3759,7 @@ cmd_search() {
     logs) docker_cmd logs --tail 200 -f "$DSH_NAME" ;;
     restart)
       docker_cmd restart "$DSH_NAME" >/dev/null
-      ok "已重启 DSH（内置 SearXNG 随 Web Search 插件启动）"
+      ok "已重启 DSH（已保存的搜索提供方选择现已生效）"
       ;;
     update)
       docker_cmd pull "$DSH_IMAGE"
@@ -3762,6 +3784,8 @@ cmd_search_menu() {
     load_config_guarded || return 1
     local choice="" menu_rc=0 cyan="" red="" muted="" reset=""
     local sidecar="未运行" search_state="已关闭" brave_state="已关闭" cache_state="已关闭"
+    local active_provider
+    active_provider="$(search_active_provider)"
     if menu_colors_enabled; then
       cyan="$C_CYAN"
       red="$C_RED"
@@ -3771,7 +3795,10 @@ cmd_search_menu() {
     [[ "$DSH_SEARCH_ENABLED" == true ]] && search_state="已启用"
     [[ "$DSH_SEARCH_BRAVE_ENABLED" == true ]] && brave_state="已启用"
     [[ "$DSH_SEARCH_CACHE_ENABLED" == true ]] && cache_state="已启用"
-    if search_container_running 2>/dev/null; then
+    if [[ "$DSH_SEARCH_ENABLED" == true && "$active_provider" == "official" ]]; then
+      search_state="官方搜索"
+      sidecar="无需启动"
+    elif search_container_running 2>/dev/null; then
       sidecar="运行中"
     elif [[ "$DSH_SEARCH_ENABLED" == true ]]; then
       search_state="待修复"
@@ -3784,10 +3811,10 @@ cmd_search_menu() {
     printf '  %sBrave API Key 请在 DSH Web → 插件 → DSH Web Search 中配置。%s\n' "$muted" "$reset"
     printf '  %sBrave 可能产生费用；仅在 SearXNG 失败且手动启用时回退。%s\n' "$muted" "$reset"
     printf '\n  %s── 搜索服务 ──%s\n' "$cyan" "$reset"
-    printf '  1) 启用 Web Search（部署 SearXNG 并重建 DSH）\n'
+    printf '  1) 启用 Web Search 插件（首次保留官方搜索）\n'
     printf '  %s2) 关闭 Web Search（恢复原生搜索配置）%s\n' "$red" "$reset"
     printf '  3) 测试 SearXNG 搜索    4) 检查连接/诊断\n'
-    printf '  5) 查看 SearXNG 日志   6) 重启搜索 Sidecar\n'
+    printf '  5) 查看 DSH 日志      6) 重启 DSH（应用提供方切换）\n'
     printf '  7) 更新 DSH 镜像（包含 SearXNG）\n'
     printf '\n  %s── Brave 备用（可选）──%s\n' "$cyan" "$reset"
     printf '  8) 启用 Brave 回退      9) 关闭 Brave 回退\n'
@@ -3803,7 +3830,9 @@ cmd_search_menu() {
 
     case "$choice" in
       1)
-        if [[ "$DSH_SEARCH_ENABLED" == true ]] && search_container_running 2>/dev/null; then
+        if [[ "$DSH_SEARCH_ENABLED" == true && "$active_provider" == "official" ]]; then
+          info "Web Search 插件已启用，当前选择官方搜索。可在 Web 设置中切换到 SearXNG。"
+        elif [[ "$DSH_SEARCH_ENABLED" == true ]] && search_container_running 2>/dev/null; then
           info "Web Search 已启用，SearXNG 正在运行。"
         else
           if [[ "$DSH_SEARCH_ENABLED" == true ]]; then
