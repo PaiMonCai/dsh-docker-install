@@ -42,10 +42,11 @@ function harness({ sse = false } = {}) {
       return current.values[index]
     },
     useEffect(effect, deps) {
-      const index = cursor++, previous = current.deps[index]
+      const index = cursor++, store = current, previous = store.deps[index]
       if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) {
-        current.deps[index] = [...deps]
-        current.effects.push(effect)
+        store.cleanups[index]?.()
+        store.deps[index] = [...deps]
+        store.effects.push(() => { store.cleanups[index] = effect() })
       }
     },
     useSyncExternalStore: (_subscribe, read) => read(),
@@ -68,7 +69,7 @@ function harness({ sse = false } = {}) {
     slots: { inject: (_name, fn) => fn(), register: (meta, component) => entries.set(meta.id, component) },
   })
   function render(component, props = {}) {
-    if (!stores.has(component)) stores.set(component, { values: [], deps: [], effects: [] })
+    if (!stores.has(component)) stores.set(component, { values: [], deps: [], effects: [], cleanups: {} })
     current = stores.get(component); cursor = 0
     const tree = component(props)
     for (const effect of current.effects.splice(0)) effect()
@@ -193,7 +194,8 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
   assert.ok(tab)
   tab.props.onClick()
   tree = f.entry({ view: 'detail' })
-  assert.match(text(tree), /自动刷新/)
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /兼容快照自动刷新/)
   assert.match(text(tree), /DSH booted/)
   const level = nodes(tree, node => node.props['aria-label'] === '日志级别')[0]
   level.props.onChange({ target: { value: 'error' } })
@@ -201,7 +203,7 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
   const output = nodes(tree, node => node.props['aria-label'] === 'DSH 运行日志')[0]
   assert.match(text(output), /ERROR/)
   assert.doesNotMatch(text(output), /WARN|INFO/)
-  // The panel poll period shortens only while the log tab is selected.
+  // Management status keeps its existing cadence; logs arrive by SSE where available.
   await f.poll(3000)
   await f.poll(3000)
 })
