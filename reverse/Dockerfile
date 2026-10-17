@@ -124,7 +124,7 @@ RUN node --check /opt/dsh-reverse/skills-bootstrap.mjs \
  && node --check /opt/dsh-reverse/preset-smoke.mjs \
  && node --check /opt/dsh-reverse/service-health.mjs \
  && node --check /opt/dsh-reverse/reverse-healthcheck.cjs \
- && /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py \
+ && DSH_REPORT_READER_CI_DIAGNOSTICS=1 /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py \
  && python3 -m py_compile /usr/local/bin/reverse-triage /usr/local/bin/reverse-ghidra /usr/local/bin/reverse-doctor /usr/local/bin/reverse-case \
  && reverse-triage --help >/dev/null \
  && reverse-ghidra --help >/dev/null \
