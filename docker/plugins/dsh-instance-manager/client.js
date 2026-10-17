@@ -68,15 +68,6 @@ window.__ModuleLoader__.load({
       return result
     }
     function currentRelease(data) {
-      const refreshStatus = async () => {
-        try {
-          const next = await request(null, AbortSignal.timeout(12000))
-          setData(next); setDisconnected(false); setError('')
-        } catch (failure) {
-          setDisconnected(true)
-          setError('读取最新运行日志失败：' + failure.message)
-        }
-      }
       const status = data?.status
       const release = status?.release
       if (!release || release.current && release.current !== status.container?.imageId
@@ -194,6 +185,15 @@ window.__ModuleLoader__.load({
         void poll()
         return () => { alive = false; controller.abort(); clearTimeout(timer) }
       }, [])
+      const refreshStatus = async () => {
+        try {
+          const next = await request(null, AbortSignal.timeout(12000))
+          setData(next); setDisconnected(false); setError('')
+        } catch (failure) {
+          setDisconnected(true)
+          setError('读取最新运行日志失败：' + failure.message)
+        }
+      }
       const status = data?.status
       const jobs = data?.jobs || []
       const busy = sending || jobs.some(job => ['queued', 'running'].includes(job.state))
