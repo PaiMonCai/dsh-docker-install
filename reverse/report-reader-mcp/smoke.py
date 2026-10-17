@@ -59,7 +59,12 @@ async def smoke(root):
     for suffix in ("pdf", "docx", "xlsx", "pptx"):
         path = root / ("report." + suffix)
         before = path.read_bytes()
-        result = read_document(root, str(path), max_chars=12000)
+        print(f"Report reader smoke: converting {suffix}", flush=True)
+        try:
+            result = read_document(root, str(path), max_chars=12000)
+        except Exception as error:
+            raise AssertionError(f"report reader {suffix} conversion failed") from error
+        print(f"Report reader smoke: {suffix} passed", flush=True)
         assert "Reader evidence" in result["text"], (suffix, result)
         assert result["source"]["sha256"] == hashlib.sha256(before).hexdigest()
         assert path.read_bytes() == before
