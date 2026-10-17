@@ -213,6 +213,7 @@ COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
 COPY docker/plugins/dsh-bili-ui-bridge/ /opt/dsh/plugins/dsh-bili-ui-bridge/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
+COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -247,6 +248,10 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-session-manager-web/client.js \
  && node --check /opt/dsh/plugins/dsh-instance-manager/index.js \
  && node --check /opt/dsh/plugins/dsh-instance-manager/client.js \
+ && node --check /opt/dsh/plugins/dsh-prompt-manager/index.js \
+ && node --check /opt/dsh/plugins/dsh-prompt-manager/core.mjs \
+ && node --check /opt/dsh/plugins/dsh-prompt-manager/permissions.mjs \
+ && node --check /opt/dsh/plugins/dsh-prompt-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \
  && node --check /usr/local/bin/patch-bili-client-ui.js \

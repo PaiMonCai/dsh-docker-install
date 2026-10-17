@@ -192,13 +192,31 @@ async function run() {
   await selects.waitFor({ state: 'visible' })
   assert.equal(await selects.inputValue(), 'hidden')
 
+  // Exercise the real settings module and its authenticated dedicated RPC.
+  await page.evaluate(() => {
+    const entry = window.__dshDockerIconDockV1.getAll().find(item => item.id === 'native-panel.settings')
+    if (!entry) throw Error('native Settings entry missing')
+    entry.onClick()
+  })
+  await page.getByText('提示词与执行', { exact: true }).first().click({ timeout })
+  const promptText = page.getByRole('textbox', { name: '全局附加指令', exact: true })
+  await promptText.waitFor({ state: 'visible', timeout })
+  await page.getByRole('checkbox', { name: '启用全局附加指令' }).check()
+  await promptText.fill('CI literal {{unknown_variable}}')
+  await page.getByRole('button', { name: '保存注入与工具设置', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor({ timeout })
+  await page.getByRole('button', { name: '停用附加设置', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: '附加指令和工具禁用名单已停用' }).waitFor({ timeout })
+  assert.equal(await page.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
+  assert.equal(await promptText.inputValue(), 'CI literal {{unknown_variable}}')
+
   // A collapsed sidebar may show 2x2 with overflow. The exact UI control
   // varies upstream, but our own responsive dock can be checked after a
   // viewport resize without relying on internal DOM classes.
   assert.ok(clientErrors.filter(s => /dsh-docker-icon-dock|renderIcon|sidebar/i.test(s)).length === 0,
     'browser reported sidebar/plugin errors: ' + clientErrors.join('; '))
 
-  console.log('Browser E2E PASS: native dock, 5x2 More, actions, persistence, editor')
+  console.log('Browser E2E PASS: native dock, 5x2 More, actions, persistence, editor, prompt settings RPC')
 }
 
 run().catch(async error => {

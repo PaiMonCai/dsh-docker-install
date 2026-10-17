@@ -84,7 +84,7 @@ function harness({ sse = false } = {}) {
   f.shortcuts = window.__dshDockerIconDockPendingV1 || []
   f.sources = sources
   f.entry = props => render(entries.get('dsh-docker-instance-manager'), props)
-  f.notice = () => render(entries.get('dsh-docker.instance-manager-update-notice'))
+  f.overlays = () => [...entries].filter(([id]) => id.startsWith('dsh-docker.instance-manager-')).map(([, component]) => render(component))
   f.poll = async delay => {
     const pending = [...timers].filter(([, timer]) => timer.delay === delay)
     assert.ok(pending.length, 'missing poll timer ' + delay)
@@ -118,66 +118,58 @@ test('plugin summary is a compact description without controls or polling; detai
   assert.equal(f.calls, 1)
 })
 
-test('notice accepts a real image update even when DSH version is unchanged', async () => {
-  const f = harness()
-  f.notice(); await f.settle()
-  assert.match(text(f.notice()), /DSH 有可用镜像更新/)
+test('fresh page loads stay quiet even when an image update is available', async () => {
+  // Recreate the whole client to simulate refreshing, including empty browser storage.
+  for (let load = 0; load < 2; load++) {
+    const f = harness()
+    assert.deepEqual(f.overlays(), [null])
+    await f.settle()
+    assert.equal(f.calls, 0)
+    assert.deepEqual(f.overlays(), [null])
+    f.entry({ view: 'detail' }); await f.settle()
+    const detail = f.entry({ view: 'detail' })
+    assert.match(text(detail), /检测到可用更新/)
+    assert.match(text(detail), /关闭页面后继续/)
+    assert.match(text(detail), /不弹窗/)
+    assert.equal(nodes(detail, node => node.type === 'select' && node.props.value === 21600).length, 1)
+    assert.deepEqual(f.overlays(), [null])
+  }
 })
 
-test('external upgrade clears stale detail and notice immediately through panel polling', async () => {
+test('external upgrade clears stale update results through panel polling', async () => {
   const f = harness()
-  f.notice(); f.entry({ view: 'detail' }); await f.settle()
-  assert.match(text(f.notice()), /DSH 有可用镜像更新/)
+  f.entry({ view: 'detail' }); await f.settle()
+  assert.match(text(f.entry({ view: 'detail' })), /检测到可用更新/)
   f.data.status.container.imageId = digest('b')
   await f.poll(3000)
-  assert.equal(f.notice(), null)
   const detail = f.entry({ view: 'detail' })
   assert.doesNotMatch(text(detail), /检测到可用更新/)
   assert.match(text(detail), /运行镜像或更新源已变化/)
 })
 
-test('notice rejects results for a different image source and hides while replacing or disconnected', async () => {
-  for (const change of [
-    f => { f.data.status.release.target = 'example/dsh:latest' },
-    f => { f.data.jobs = [{ action: 'update', state: 'running' }] },
-    f => { f.data.online = false },
-    f => { f.fail = true },
-  ]) {
-    const f = harness()
-    f.notice(); await f.settle()
-    assert.ok(f.notice())
-    change(f)
-    await f.poll(60000)
-    assert.equal(f.notice(), null)
-  }
+test('panel rejects update results for a different image source', async () => {
+  const f = harness()
+  f.data.status.release.target = 'example/dsh:latest'
+  f.entry({ view: 'detail' }); await f.settle()
+  const detail = f.entry({ view: 'detail' })
+  assert.doesNotMatch(text(detail), /检测到可用更新/)
+  assert.match(text(detail), /运行镜像或更新源已变化/)
 })
 
-test('panel connection loss also clears the notice before the background notice poll', async () => {
+test('panel connection loss disables management until status recovers', async () => {
   const f = harness()
-  f.notice(); f.entry({ view: 'detail' }); await f.settle()
-  assert.ok(f.notice())
+  f.entry({ view: 'detail' }); await f.settle()
   f.fail = true
   await f.poll(3000)
-  assert.equal(f.notice(), null)
-  assert.match(text(f.entry({ view: 'detail' })), /连接暂时断开/)
+  const detail = f.entry({ view: 'detail' })
+  assert.match(text(detail), /连接暂时断开/)
+  assert.ok(nodes(detail, node => node.type === 'button' && text(node) === '更新镜像')[0].props.disabled)
 })
 
-test('dismissal lasts for the same target but a newer image can notify again', async () => {
-  const f = harness()
-  f.notice(); await f.settle()
-  nodes(f.notice(), node => node.props['aria-label'] === '稍后提醒')[0].props.onClick()
-  await f.poll(60000)
-  assert.equal(f.notice(), null)
-  f.data.status.release.latest = digest('c')
-  await f.poll(60000)
-  assert.ok(f.notice())
-})
-
-test('failed registry checks remain visible in details and never create update notices', async () => {
+test('failed registry checks remain visible in details', async () => {
   const f = harness()
   f.data.status.release = { available: null, error: 'registry unavailable' }
-  f.notice(); f.entry({ view: 'detail' }); await f.settle()
-  assert.equal(f.notice(), null)
+  f.entry({ view: 'detail' }); await f.settle()
   assert.match(text(f.entry({ view: 'detail' })), /更新检查失败：registry unavailable/)
 })
 

@@ -1,0 +1,4 @@
+# Additive prompt controls for the Standard Web profile.
+- insert:
+    - id: dsh-docker-prompt-manager
+      name: ./index.js

@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       base_image:
-        description: Standard 镜像；留空解析成功发布的 latest 并固定 digest
+        description: Standard 镜像；留空按当前 Git ref 解析 dev 或标签版本，并固定 digest
         required: false
         type: string
       dsh_version:
@@ -88,6 +88,8 @@ jobs:
       version: ${{ steps.base.outputs.version }}
       channels: ${{ steps.base.outputs.channels }}
       tree: ${{ steps.base.outputs.tree }}
+      track: ${{ steps.base.outputs.track }}
+      release_tag: ${{ steps.base.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,6 +140,7 @@ jobs:
           set -euo pipefail
           echo "image=${RELEASE_IMAGE,,}" >> "$GITHUB_OUTPUT"
           echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          node ci/release.mjs publication
           node ci/release.mjs tree research
           if [[ "$CANDIDATE" == true ]]; then
             echo "base_image=dsh-standard-ci:research" >> "$GITHUB_OUTPUT"
@@ -272,6 +275,8 @@ jobs:
             io.caicailo.dsh.source.tree=${{ needs.prepare.outputs.tree }}
             io.caicailo.dsh.base.digest=${{ needs.prepare.outputs.digest }}
             io.caicailo.dsh.channels=${{ needs.prepare.outputs.channels }}
+            io.caicailo.dsh.release.track=${{ needs.prepare.outputs.track }}
+            io.caicailo.dsh.release.tag=${{ needs.prepare.outputs.release_tag }}
           tags: ${{ needs.prepare.outputs.image }}:${{ github.event_name == 'pull_request' && matrix.tag || format('candidate-{0}-{1}', matrix.tag, needs.prepare.outputs.candidate_suffix) }}
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}

@@ -6,7 +6,6 @@ window.__ModuleLoader__.load({
     const ENDPOINT = '/api/dsh-docker-instance-manager'
     const LOGS_ENDPOINT = ENDPOINT + '/logs'
     const listeners = new Set()
-    const statusListeners = new Set()
     let opened = false
     let requestedTab = 'overview'
     const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn) }
@@ -65,7 +64,6 @@ window.__ModuleLoader__.load({
       })
       const result = await response.json()
       if (!response.ok) throw Error(errors[result.error] || result.error || '请求失败')
-      if (!data) for (const listener of statusListeners) listener(result)
       return result
     }
     function currentRelease(data) {
@@ -232,7 +230,6 @@ window.__ModuleLoader__.load({
           } catch {
             if (alive) {
               setDisconnected(true)
-              for (const listener of statusListeners) listener({ online: false })
             }
           }
           if (alive) timer = setTimeout(poll, 3000)
@@ -319,7 +316,7 @@ window.__ModuleLoader__.load({
                 ['健康检查', status.container?.health], ['最近检查', formatTime(release?.checkedAt)]]),
               h('div', { className: 'dm-banner', 'data-error': Boolean(release?.error) },
                 release?.error ? '更新检查失败：' + release.error
-                  : release?.available === true ? '检测到可用更新。更新将在后台执行，重启后可在任务记录查看结果。'
+                  : release?.available === true ? '检测到可用更新。点击「更新镜像」并确认后，后台才会拉取镜像并重启；结果可在任务记录查看。'
                     : release?.available === false ? '当前运行镜像与远端一致。'
                       : status.release ? '运行镜像或更新源已变化，请重新检查更新。' : '尚未完成更新检查。'),
               h('p', { className: 'dm-muted' }, '按当前平台的镜像内容检查更新。DSH 版本号相同，镜像内的插件与修复仍可能有更新。'),
@@ -330,7 +327,8 @@ window.__ModuleLoader__.load({
                   value: status.settings.checkInterval,
                   onChange: event => void submit('settings', { checkInterval: Number(event.target.value) }) },
                 ...[[0, '关闭'], [3600, '每小时'], [21600, '每 6 小时'], [86400, '每天']].map(([value, title]) =>
-                  h('option', { value, key: value }, title))))),
+                  h('option', { value, key: value }, title)))),
+              h('p', { className: 'dm-muted' }, '宿主机后台定时检测，关闭页面后继续；结果仅在此处显示，不弹窗。安装更新需点击「更新镜像」并确认。')),
             section('维护',
               h('p', { className: 'dm-muted' }, '升级成功后默认清理旧容器。回滚仅在仍有保留的回滚容器时可用，且不会恢复历史数据。'),
               h('div', { className: 'dm-actions' }, actionButton('recreate'), actionButton('rollback'), actionButton('cleanup')))),
@@ -413,47 +411,6 @@ window.__ModuleLoader__.load({
         h('section', { ref, className: 'dm-dialog', role: 'dialog', 'aria-modal': 'true',
           'aria-labelledby': 'dsh-management-title', tabIndex: -1 }, h(Panel)))
     }
-    function UpdateNotice() {
-      const [update, setUpdate] = React.useState(null)
-      const active = React.useSyncExternalStore(subscribe, () => opened, () => false)
-      React.useEffect(() => {
-        let alive = true
-        let timer
-        const controller = new AbortController()
-        const receive = data => {
-          const release = currentRelease(data)
-          const key = 'dsh-management-notice-' + data.status?.instance?.id + '-' + data.status?.instance?.image
-          let dismissed
-          try { dismissed = sessionStorage.getItem(key) } catch {}
-          const replacing = data.jobs?.some(job => ['queued', 'running'].includes(job.state)
-            && ['update', 'recreate', 'rollback'].includes(job.action))
-          if (alive) setUpdate(data.online && release?.available === true && !replacing && dismissed !== release.latest
-            ? { latest: release.latest, key } : null)
-        }
-        statusListeners.add(receive)
-        const poll = async () => {
-          try {
-            await request(null, AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]))
-          } catch { if (alive) setUpdate(null) }
-          if (alive) timer = setTimeout(poll, 60000)
-        }
-        void poll()
-        return () => { alive = false; controller.abort(); clearTimeout(timer); statusListeners.delete(receive) }
-      }, [])
-      if (!update || active) return null
-      const dismiss = () => {
-        try { sessionStorage.setItem(update.key, update.latest) } catch {}
-        setUpdate(null)
-      }
-      return h('aside', { className: 'dsh-manage', 'aria-label': 'DSH 更新提醒',
-        style: { position: 'fixed', right: 18, bottom: 18, zIndex: 9000, padding: 12, borderRadius: 10,
-          border: '1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25))',
-          background: 'var(--dsw-alias-bg-primary,var(--surface-primary,#fff))' } },
-      h('style', null, css),
-      h('span', { style: { fontSize: 13, marginRight: 12 } }, 'DSH 有可用镜像更新'),
-      h('button', { type: 'button', onClick: () => { dismiss(); open(true) } }, '查看更新'),
-      h('button', { type: 'button', 'aria-label': '稍后提醒', style: { marginLeft: 8 }, onClick: dismiss }, '稍后'))
-    }
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -470,9 +427,6 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'dsh-docker.instance-manager-panel',
         }, Overlay))
-        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-          name: 'shell.overlay', id: 'dsh-docker.instance-manager-update-notice',
-        }, UpdateNotice))
       },
     }
   },

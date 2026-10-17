@@ -6,7 +6,7 @@ bash -n docker/entrypoint.sh
 ! grep -Eq 'ensure_(icon_dock|web_search|session_manager_web|reasoning_editor)' docker/entrypoint.sh
 ! grep -Eq 'dsh plugin --profile web add' docker/entrypoint.sh
 
-for bundle in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor; do
+for bundle in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor dsh-prompt-manager; do
   grep -Eq '^[[:space:]]+name: \./index\.js$' "docker/plugins/$bundle/cordis.patch.yml"
 done
 
@@ -18,7 +18,7 @@ const fs = require('node:fs')
 const source = fs.readFileSync('docker/entrypoint.sh', 'utf8')
 assert.match(source, /local args=\(web --patch "\$BIND_PATCH"\)/)
 for (const name of ['dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-instance-manager',
-  'dsh-session-manager-web', 'dsh-web-search']) {
+  'dsh-session-manager-web', 'dsh-web-search', 'dsh-prompt-manager']) {
   assert.ok(source.includes('append_native_web_patch "/opt/dsh/plugins/' +
     name + '/cordis.patch.yml"'), name)
 }
@@ -34,6 +34,21 @@ assert.match(source, /args\+=\(--patch "\$file"\)/)
 assert.doesNotMatch(source, /dsh plugin --profile web add/)
 console.log('DSH launcher flag ordering checks passed')
 NODE
+
+# Exercise the real overlay switch without starting DSH or editing a profile.
+source <(sed -n '/^append_native_web_patch() {$/,/^}$/p' docker/entrypoint.sh)
+log() { printf '%s\n' "$*" >&2; }
+prompt_patch="$(pwd)/docker/plugins/dsh-prompt-manager/cordis.patch.yml"
+args=()
+append_native_web_patch "$prompt_patch" true "Prompt Manager"
+[[ "${args[*]}" == "--patch $prompt_patch" ]]
+args=()
+append_native_web_patch "$prompt_patch" false "Prompt Manager"
+[[ "${#args[@]}" == 0 ]]
+if append_native_web_patch "$prompt_patch" invalid "Prompt Manager" 2>/dev/null; then
+  echo 'invalid Prompt Manager toggle accepted' >&2
+  exit 1
+fi
 
 node - <<'NODE'
 const assert = require('node:assert/strict')

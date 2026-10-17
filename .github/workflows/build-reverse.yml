@@ -91,6 +91,8 @@ jobs:
       version: ${{ steps.base.outputs.version }}
       channels: ${{ steps.base.outputs.channels }}
       tree: ${{ steps.base.outputs.tree }}
+      track: ${{ steps.base.outputs.track }}
+      release_tag: ${{ steps.base.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,6 +143,7 @@ jobs:
           set -euo pipefail
           echo "image=${RELEASE_IMAGE,,}" >> "$GITHUB_OUTPUT"
           echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          node ci/release.mjs publication
           node ci/release.mjs tree reverse
           if [[ "$CANDIDATE" == true ]]; then
             echo "base_image=dsh-standard-ci:reverse" >> "$GITHUB_OUTPUT"
@@ -394,8 +397,11 @@ jobs:
           mapfile -t plugin_env < <(node ci/reverse-web-parity.cjs env "$RUNNER_TEMP/standard-web-plugins.json")
           plugin_args=()
           for assignment in "${plugin_env[@]}"; do plugin_args+=(-e "$assignment"); done
+          # Search is mounted conditionally by DSH_SEARCH_ENABLED rather than
+          # an append_native_web_patch env switch, so parity env cannot infer it.
           docker run -d --name "$name" \
-            -e DSH_REVERSE_CI_VERIFY_PRESET=1 "${plugin_args[@]}" "$IMAGE" >/dev/null
+            -e DSH_REVERSE_CI_VERIFY_PRESET=1 \
+            -e DSH_SEARCH_ENABLED=true "${plugin_args[@]}" "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
               docker logs "$name"; exit 1
@@ -500,6 +506,8 @@ jobs:
             io.caicailo.dsh.source.tree=${{ needs.prepare.outputs.tree }}
             io.caicailo.dsh.base.digest=${{ needs.prepare.outputs.digest }}
             io.caicailo.dsh.channels=${{ needs.prepare.outputs.channels }}
+            io.caicailo.dsh.release.track=${{ needs.prepare.outputs.track }}
+            io.caicailo.dsh.release.tag=${{ needs.prepare.outputs.release_tag }}
           tags: ${{ needs.prepare.outputs.image }}:candidate-reverse-${{ needs.prepare.outputs.candidate_suffix }}
           cache-from: type=gha,scope=dsh-reverse
           cache-to: type=gha,mode=max,scope=dsh-reverse

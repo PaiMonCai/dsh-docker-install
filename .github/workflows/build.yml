@@ -1,12 +1,13 @@
 name: Build & Publish Standard Image
 
 # PR：校验脚本并实际构建 amd64/arm64，但不推送镜像。
-# main / workflow_dispatch / workflow_call：基础版测试、推送 GHCR 后独立触发 Research 和 Reverse。
+# main 发布 dev；v<SemVer> 标签发布版本与正式浮动 tag；随后独立触发衍生版。
 # 基础版发布成功即可结束本次工作流；科研版在另一条工作流里构建。
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - Dockerfile
       - .dockerignore
@@ -44,7 +45,7 @@ on:
         required: false
         type: string
       channel_tags:
-        description: 额外镜像 tag，逗号分隔（如 alpha,next）；留空则按上游 npm dist-tag 自动推导
+        description: 上游 npm 通道元数据，逗号分隔；不决定镜像发布通道
         required: false
         type: string
   workflow_call:
@@ -75,7 +76,7 @@ on:
         required: false
         type: string
       channel_tags:
-        description: 额外镜像 tag，逗号分隔（如 alpha,next）；留空则按上游 npm dist-tag 自动推导
+        description: 上游 npm 通道元数据，逗号分隔；不决定镜像发布通道
         required: false
         type: string
 
@@ -106,6 +107,7 @@ jobs:
           python3 tests/test-web-manager.py
           node --test tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
           node --check docker/plugins/dsh-instance-manager/client.js
+          node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
           bash tests/test-dshd-rollback.sh
@@ -264,6 +266,7 @@ jobs:
           REQUESTED_CHANNELS: ${{ inputs.channel_tags }}
         run: |
           set -euo pipefail
+          node ci/release.mjs publication
           node ci/release.mjs tree standard
           echo "candidate_suffix=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           channels="$(bash ci/image-tags.sh --channels-only "$RESOLVED_VERSION" "$REQUESTED_CHANNELS")"
@@ -359,7 +362,7 @@ jobs:
             dsh --version
             # Built-in Web plugins load from native launcher patch paths
             # and never run dsh plugin add, pnpm or web Profile installers.
-            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor dsh-instance-manager; do
+            for plugin in dsh-icon-dock dsh-session-manager-web dsh-web-search dsh-reasoning-editor dsh-instance-manager dsh-prompt-manager; do
               test -f "/opt/dsh/plugins/$plugin/package.json"
               test -f "/opt/dsh/plugins/$plugin/index.js"
               test -f "/opt/dsh/plugins/$plugin/client.js"
@@ -377,6 +380,9 @@ jobs:
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml \
               --dump-config | grep -Fq "dsh-docker-reasoning-editor"
+            DSH_HOME="$native_home" dsh --profile web \
+              --patch /opt/dsh/plugins/dsh-prompt-manager/cordis.patch.yml \
+              --dump-config | grep -Fq "dsh-docker-prompt-manager"
             # Search defaults to official; an explicit SearXNG overlay opts into local search.
             DSH_HOME="$native_home" dsh --profile web \
               --patch /opt/dsh/plugins/dsh-web-search/cordis.patch.yml \
@@ -399,6 +405,14 @@ jobs:
             test ! -e /usr/local/bin/patch-remote-settings.js
             test ! -e /usr/local/bin/patch-workspace-picker-home.js
           '
+
+      - name: Verify native prompt assembly and tool policy against image packages
+        run: |
+          docker run --rm --entrypoint node \
+            -e DSH_PROMPT_RUNTIME_ROOT=/usr/local/lib/node_modules/@deepseek-ai/dsh \
+            -e DSH_PROMPT_PLUGIN_ROOT=/opt/dsh/plugins/dsh-prompt-manager \
+            -v "$PWD/tests/test-prompt-manager-published.mjs:/tmp/test-prompt-manager-published.mjs:ro" \
+            dsh-ci:pr --test /tmp/test-prompt-manager-published.mjs
 
       - name: Verify Web bind through published Docker port
         shell: bash
@@ -460,7 +474,7 @@ jobs:
           const fs = require('node:fs')
           const path = require('node:path')
           const names = [
-            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web', 'dsh-instance-manager'
+            'dsh-reasoning-editor', 'dsh-icon-dock', 'dsh-session-manager-web', 'dsh-instance-manager', 'dsh-prompt-manager'
           ]
           for (const name of names) {
             const base = '/opt/dsh/plugins/' + name
@@ -669,6 +683,8 @@ jobs:
             io.caicailo.dsh.standard.revision=${{ github.sha }}
             io.caicailo.dsh.source.tree=${{ steps.metadata.outputs.tree }}
             io.caicailo.dsh.channels=${{ steps.metadata.outputs.channels }}
+            io.caicailo.dsh.release.track=${{ steps.metadata.outputs.track }}
+            io.caicailo.dsh.release.tag=${{ steps.metadata.outputs.release_tag }}
           tags: ${{ steps.img.outputs.name }}:candidate-standard-${{ steps.metadata.outputs.candidate_suffix }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

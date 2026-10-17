@@ -299,6 +299,8 @@ test('Reverse keeps Standard image-owned Web plugins and compose toggles in pari
    assert.ok(entry.includes('/opt/dsh/plugins/' + name + '/cordis.patch.yml'),name)
    assert.match(docker,/COPY ci\/reverse-web-parity\.cjs \/usr\/local\/bin\/reverse-web-parity\.cjs/)
  }
+ assert.match(workflow,/DSH_SEARCH_ENABLED=true/,
+   'Reverse live parity smoke must enable the conditionally mounted search plugin')
  assert.match(workflow,/dsh-plugin-doctor\.js --json/)
  assert.match(workflow,/test-dsh-web-browser-e2e\.cjs/)
  assert.match(workflow,/reverse-web-parity\.cjs env/)

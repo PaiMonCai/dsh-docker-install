@@ -7,5 +7,6 @@ DSH Docker 的根 README 只负责项目定位、快速开始和主要入口。�
 - [Web 实例管理](web-management.md)：内置更新、重启、sing-box 管理、宿主机执行器和故障恢复。
 - [国际网络出口 / sing-box](proxy.md)：可选 sidecar 出口、代理节点管理、运行时环境变量、诊断与安全边界。
 - [自定义模型推理等级](reasoning-editor.md)：Models 页 `reasoningEfforts` 编辑器；Composer 保持 DSH 原版交互。
+- [提示词与执行设置](prompt-manager.md)：逐轮附加指令、工作区补充、会话审批/沙箱和实例工具禁用名单。
 - [镜像构建与自动更新](ci.md)：Standard / Research CI、GHCR 发布和 DSH 版本自动更新。
 - [Research Edition](../research/README.md)：Research Engine、Economics Pack、Dashboard、V2 架构与 RC Gate。

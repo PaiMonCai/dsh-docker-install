@@ -227,6 +227,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_TRUSTED_HOSTS` | — | 逗号分隔的受信任 authority，域名/反代访问必填 |
 | `DSH_REASONING_EDITOR` | `true` | 是否启用内置自定义模型 `reasoningEfforts` 编辑器；`false` 时通过 DSH Plugin Manager 移除 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
+| `DSH_PROMPT_MANAGER` | `true` | 原生「提示词与执行」设置页；附加指令与工具禁用名单默认关闭，支持显式切换会话权限预设 |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
 | `DSH_DOCKER_RESTART` | 由 dshd/Compose 注入 `container` | 内部 supervisor 标记；让 dsh-market 把“立即重启”委托给 Docker restart policy |
 | `DSH_SHM_SIZE` | `1g` | 容器 `/dev/shm` 大小；为 Chromium/Playwright 预留足够共享内存 |

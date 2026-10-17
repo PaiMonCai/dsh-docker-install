@@ -14,6 +14,8 @@ export const label = {
   tree: 'io.caicailo.dsh.source.tree',
   base: 'io.caicailo.dsh.base.digest',
   channels: 'io.caicailo.dsh.channels',
+  track: 'io.caicailo.dsh.release.track',
+  releaseTag: 'io.caicailo.dsh.release.tag',
 }
 
 export class ContractError extends Error {}
@@ -50,6 +52,7 @@ export function validateStandard(artifact, { version = '', source = '' } = {}) {
     image: artifact.image, digest: artifact.digest, version: labels[label.version],
     source: labels[label.standardSource], channels: labels[label.channels] || '',
     tree: labels[label.tree],
+    track: labels[label.track] || '', releaseTag: labels[label.releaseTag] || '',
   }
 }
 

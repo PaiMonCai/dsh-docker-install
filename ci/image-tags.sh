@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 组装一次镜像发布要用的完整 tag 列表。
+# 解析上游 npm 通道元数据；保留旧式 tag 列表模式供外部脚本兼容。
+# 正式工作流的开发/标签发布 tag 由 ci/release.mjs 决定，只调用本脚本的 --channels-only。
 #
 # 与上游 npm dist-tag 通道对齐：哪个通道（alpha / next / latest …）当前指向本次
 # 构建的 dsh 版本，就给镜像补上同名 tag，使

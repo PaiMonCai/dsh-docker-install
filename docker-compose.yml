@@ -41,6 +41,8 @@ services:
       DSH_ICON_DOCK_ENABLED: "${DSH_ICON_DOCK_ENABLED:-true}"
       # 内置 Web 会话管理菜单，删除时重启并进入回收区；false 时移除该插件。
       DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
+      # 原生提示词与执行设置页；附加指令和工具禁用名单初始均关闭。
+      DSH_PROMPT_MANAGER: "${DSH_PROMPT_MANAGER:-true}"
       # Search is opt-in; bundled SearXNG runs only when the plugin is enabled.
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
       DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import uuid
 import subprocess
 sys.dont_write_bytecode = True
@@ -193,6 +194,29 @@ class Tests(unittest.TestCase):
         previous = self.manager.release["checkedAt"]
         self.manager.tick()
         self.assertEqual(self.manager.release["checkedAt"], previous)
+
+    def test_periodic_checks_continue_without_browser_requests(self):
+        commands = []
+        run = self.manager.run
+
+        def traced(args, **kwargs):
+            commands.append(args)
+            return run(args, **kwargs)
+
+        self.manager.run = traced
+        with patch.object(MODULE.time, "monotonic", return_value=100):
+            self.manager.tick()
+        self.assertTrue(self.manager.release["available"])
+        self.assertEqual(self.manager.next_check, 100 + 21600)
+        with patch.object(MODULE.time, "monotonic", return_value=101):
+            self.manager.tick()
+        self.assertEqual(sum(args[:3] == ["docker", "manifest", "inspect"] for args in commands), 1)
+        commands.clear()
+        with patch.object(MODULE.time, "monotonic", return_value=self.manager.next_check):
+            self.manager.tick()
+        self.assertEqual(sum(args[:3] == ["docker", "manifest", "inspect"] for args in commands), 1)
+        self.assertTrue(self.manager.release["available"])
+        self.assertFalse(list(self.manager.requests.glob("*.json")))
 
     def test_registry_failure_is_unknown_and_not_reported_as_latest(self):
         run = self.manager.run

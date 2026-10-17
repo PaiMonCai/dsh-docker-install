@@ -28,7 +28,8 @@ jobs:
       - name: Queue edition with the published Standard contract
         id: queue
         # The Standard artifact is already published. A dispatch outage is
-        # reported here and retried by scheduled artifact reconciliation.
+        # reported here. Development dispatches are retried by reconciliation;
+        # tagged releases can rerun this job on their original tag.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,13 +42,17 @@ jobs:
           set -euo pipefail
           [[ "$EDITION" == research || "$EDITION" == reverse ]]
           [[ "$RELEASE_IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]
+          dispatch_ref=main
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            dispatch_ref="${GITHUB_REF#refs/tags/}"
+          fi
           for attempt in 1 2 3; do
-            if gh workflow run "build-${EDITION}.yml" --repo "$GITHUB_REPOSITORY" --ref main \
+            if gh workflow run "build-${EDITION}.yml" --repo "$GITHUB_REPOSITORY" --ref "$dispatch_ref" \
               --field "base_image=$RELEASE_IMAGE" \
               --field "dsh_version=$RELEASE_VERSION" \
               --field "source_sha=$RELEASE_SOURCE" \
               --field "channel_tags=$RELEASE_CHANNELS"; then
-              echo "Queued $EDITION for $RELEASE_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+              echo "Queued $EDITION at $dispatch_ref for $RELEASE_IMAGE" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep "$((attempt * 5))"
@@ -56,5 +61,5 @@ jobs:
       - name: Record dispatch failure for reconciliation
         if: steps.queue.outcome == 'failure'
         run: |
-          echo "::warning::Edition dispatch failed after retries; scheduled reconciliation will retry."
-          echo "Dispatch failed; the next Check dsh Updates run will retry the missing edition." >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Edition dispatch failed after retries; rerun dispatch on the same ref; daily reconciliation also retries dev."
+          echo "Dispatch failed; rerun this dispatch job. Daily checks also retry missing development editions." >> "$GITHUB_STEP_SUMMARY"

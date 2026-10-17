@@ -17,6 +17,7 @@ const PLUGINS = [
   { dir: 'dsh-reasoning-editor', id: 'dsh-docker-reasoning-editor',
     label: 'Reasoning Editor', required: true },
   { dir: 'dsh-web-search', id: 'dsh-docker-web-search', label: 'Web Search', required: false },
+  { dir: 'dsh-prompt-manager', id: 'dsh-docker-prompt-manager', label: 'Prompt Manager', required: false },
 ]
 
 function row(code, state, detail) { return { code, state, detail } }

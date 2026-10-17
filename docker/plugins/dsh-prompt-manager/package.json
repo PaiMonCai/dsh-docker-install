@@ -1,0 +1,22 @@
+{
+  "name": "dsh-docker-prompt-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Docker native prompt, permission preset and tool execution controls",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings"]
+    }
+  },
+  "engines": { "node": ">=24" },
+  "license": "MIT"
+}

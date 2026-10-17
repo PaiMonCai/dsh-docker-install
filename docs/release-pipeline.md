@@ -16,7 +16,9 @@ must agree on these labels:
 | `io.caicailo.dsh.edition` | `standard`, `research`, `research-economics`, or `reverse` |
 | `io.caicailo.dsh.standard.revision` | Standard source commit |
 | `io.caicailo.dsh.source.tree` | Hash of the relevant edition's tracked source |
-| `io.caicailo.dsh.channels` | npm channel snapshot taken by Standard |
+| `io.caicailo.dsh.channels` | npm channel snapshot taken by Standard; metadata only |
+| `io.caicailo.dsh.release.track` | `dev` or `release`, derived from the Git ref |
+| `io.caicailo.dsh.release.tag` | Git release tag, such as `v1.2.3`; empty on development images |
 | `io.caicailo.dsh.base.digest` | Standard index digest, on derivatives |
 | `org.opencontainers.image.revision` | This edition's source commit |
 
@@ -28,20 +30,28 @@ against the artifact, including agreement between architectures.
 
 1. Standard runs its source compatibility and real runtime/browser audits.
 2. Multi-platform builds push only `candidate-<edition>-<run>-<attempt>` tags.
-3. A separate promotion job fetches current main while holding the shared
-   promotion lock. It rejects stale edition source and DSH version downgrades.
-   Derivatives must still use the currently published Standard digest.
-4. Promotion copies the validated index to version, channel and floating tags.
+3. A separate promotion job validates provenance while holding the shared
+   promotion lock. Development candidates must match current main and cannot
+   downgrade DSH. Tagged candidates must match the remote `v<SemVer>` Git tag;
+   release derivatives require the Standard digest published for that same tag.
+4. Main publishes only `dev` / `<edition>-dev` plus a snapshot named
+   `dev-<short-sha>-<run>-<attempt>` (with edition prefixes). Git tags publish
+   `<project-version>` / `<edition>-<project-version>` and the release floating
+   aliases (`latest`, `research`, `research-economics`, `reverse`). Published
+   version indices are reused on reruns, never replaced by different contents.
+   Older tagged releases cannot move newer floating aliases backwards.
+   npm channel aliases are no longer automatically published.
 5. Standard independently queues Research and Reverse with the immutable
    `image@sha256:...` reference and Standard provenance.
 
 Every downstream workflow checks out its own `github.sha`, matching its workflow
-definition. The legacy input name `source_sha` describes **Standard provenance**;
+definition. Tagged Standard dispatches use that same tag ref; development
+dispatches use main. The legacy input name `source_sha` describes **Standard provenance**;
 it never selects downstream source.
 
 Downstream preparation resolves the base once. Both Research matrix targets,
 Reverse audits, and Reverse publication reuse that exact digest. If main has
-unpublished Standard source changes, standalone downstream builds wait for the
+unpublished Standard source changes, standalone downstream development builds wait for the
 Standard dispatch. PRs changing Standard build a local candidate base instead
 of pulling a not-yet-published version tag.
 
@@ -61,9 +71,11 @@ including push events where workflow inputs are absent.
 
 ## Automatic updates and recovery
 
-`Check dsh Updates` runs daily and can also be dispatched manually.
+`Check dsh Updates (Development)` runs daily and can also be dispatched on main.
+It only reads and publishes development image aliases; releases require an existing
+versioned Git tag. Default installed instances continue following release aliases.
 
-- It checks the published Standard contract even when npm and Dockerfile versions
+- It checks the published `dev` Standard contract even when npm and Dockerfile versions
   are equal. Missing artifacts, legacy images without the contract, or changed
   Standard source request a new build.
 - The version-record commit happens after successful Standard promotion.
@@ -74,7 +86,8 @@ including push events where workflow inputs are absent.
   digest and current edition source. It queues only incomplete or outdated
   editions, without rebuilding a healthy Standard image.
 - Dispatch retries are independent. A dispatch outage does not undo a published
-  Standard release; a warning is recorded and reconciliation retries it.
+  Standard artifact; a warning is recorded. Daily reconciliation retries dev
+  dispatches. Tagged releases retry on the original tag by rerunning the failed job.
 
 The Standard source hash normalizes only the recorded DSH version in Dockerfile
 and Compose. Therefore the bot's post-publication version commit does not cause
@@ -82,8 +95,10 @@ an unnecessary second Standard build. The actual DSH version remains a separate,
 validated field in the contract.
 
 Existing images without contract labels are deliberately not accepted as
-downstream inputs. The first Standard build after this change bootstraps the
-contract and then queues all editions.
+downstream inputs. The first main Standard build bootstraps `dev` and queues the development editions.
+Legacy published release aliases remain unchanged until a Git tag is published.
+Project Git versions and installed DSH versions are separate fields; npm channels
+remain metadata and do not decide public image aliases.
 
 ## Path and regression checks
 

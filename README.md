@@ -6,16 +6,16 @@
 
 这是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Docker 发行与运维项目。它不 fork DSH Core，而是把官方 npm 包稳定地封装成可安装、可更新、可持久化、可反代的容器，并在此基础上提供可选的 Research Edition。
 
-版本来源保持单一：基础 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 引擎自身版本见 [research/VERSION](research/VERSION)（写入镜像并记录到每次运行，不参与镜像 tag）。研究镜像的发布 tag 跟随它实际包住的 DSH 版本。
+上游 DSH 版本见 [Dockerfile](Dockerfile) 的 `DSH_VERSION`，Research 引擎自身版本见 [research/VERSION](research/VERSION)。项目镜像发布版本由 `v<SemVer>` Git 标签决定；普通 `main` 构建只更新开发版镜像，各组件版本分别保存在镜像元数据中。
 
 ## 你应该用哪个版本
 
 | 版本 | 镜像标签 | 适合 |
 |---|---|---|
-| Standard | `:latest` / `:<dsh版本>` / `:alpha`·`:next` | 日常 DSH Agent、Web UI、开发环境 |
-| Research Core | `:research` / `:research-<dsh版本>` / `:research-alpha` | 一般科研、文献、数据、可复现分析 |
-| Research Economics | `:research-economics` / `:research-economics-<dsh版本>` / `:research-economics-alpha` | 经济学、计量、DiD / Event Study |
-| Reverse Edition | `:reverse`（独立镜像、待 CI 验收发布） | 原生逆向 Agent + REA + Ghidra/JADX/GDB/Frida；不再包含 dsh-purge；独立容器和数据卷 |
+| Standard | `:latest` / `:<发布版本>` / `:dev` | 日常 DSH Agent、Web UI、开发环境 |
+| Research Core | `:research` / `:research-<发布版本>` / `:research-dev` | 一般科研、文献、数据、可复现分析 |
+| Research Economics | `:research-economics` / `:research-economics-<发布版本>` / `:research-economics-dev` | 经济学、计量、DiD / Event Study |
+| Reverse Edition | `:reverse` / `:reverse-<发布版本>` / `:reverse-dev`（独立镜像、待 CI 验收发布） | 原生逆向 Agent + REA + Ghidra/JADX/GDB/Frida；不再包含 dsh-purge；独立容器和数据卷 |
 
 关系始终是：
 
@@ -131,6 +131,10 @@ dshd -i econ logs
 旧版已登录浏览器的 Cookie 独立持久，重置 Token 并不会注销已有登录。
 详细说明见 [部署文档](docs/deployment.md#固定-web-登录-token)。
 
+## 提示词与执行设置
+
+内置「设置 → 提示词与执行」支持逐轮追加全局指令、显式读取工作区 `DSH_PROMPT.md`、查看注入分块元数据、切换已加载会话的官方沙箱/审批预设，以及设置实例工具禁用名单。附加指令和禁用名单默认关闭；保存后按下一次组装或工具调用生效。完整使用、恢复与边界说明见 [提示词与执行设置](docs/prompt-manager.md)。
+
 ## Web 会话管理插件
 
 DSH 会话管理现由内置 `dsh-docker-session-manager` **Web 插件**提供，不再需要 `dshd sessions` CLI：
@@ -218,42 +222,35 @@ GHCR：
 
 ```text
 ghcr.io/paimoncai/dsh-docker-install:latest
-ghcr.io/paimoncai/dsh-docker-install:<dsh版本>
-ghcr.io/paimoncai/dsh-docker-install:alpha
-ghcr.io/paimoncai/dsh-docker-install:next
+ghcr.io/paimoncai/dsh-docker-install:1.2.3
+ghcr.io/paimoncai/dsh-docker-install:dev
+
 ghcr.io/paimoncai/dsh-docker-install:research
-ghcr.io/paimoncai/dsh-docker-install:research-<dsh版本>
-ghcr.io/paimoncai/dsh-docker-install:research-alpha
+ghcr.io/paimoncai/dsh-docker-install:research-1.2.3
+ghcr.io/paimoncai/dsh-docker-install:research-dev
+
 ghcr.io/paimoncai/dsh-docker-install:research-economics
-ghcr.io/paimoncai/dsh-docker-install:research-economics-<dsh版本>
-ghcr.io/paimoncai/dsh-docker-install:research-economics-alpha
+ghcr.io/paimoncai/dsh-docker-install:research-economics-dev
+
+ghcr.io/paimoncai/dsh-docker-install:reverse
+ghcr.io/paimoncai/dsh-docker-install:reverse-dev
 ```
 
-三类 tag 各有分工：
+普通推送或合并到 `main` 只发布开发镜像：`:dev`、`:research-dev`、
+`:research-economics-dev`、`:reverse-dev`。每日上游 DSH 自动更新也只更新开发版。
+每次开发构建另有带 commit、run 和 attempt 的快照 tag，方便定位具体构建。
 
-```text
-:<dsh版本>            锁定到具体 DSH 版本
-:latest              始终跟随最新一次构建（含 alpha / rc 预发布）
-:alpha  :next        与上游 npm dist-tag 同名，跟随上游发布通道
-```
+推送 `v1.2.3` 这样的 Git 版本标签，才发布 `:1.2.3`、`:research-1.2.3` 等版本镜像，
+并更新 `:latest`、`:research`、`:research-economics`、`:reverse` 正式浮动入口。
+项目发布版本与镜像内的 DSH 包版本分别记录；同一 DSH 版本也可通过新项目标签发布补丁。
+已发布版本不可用不同内容覆盖，旧标签重跑不会回退正式浮动入口。
+历史 `:alpha` / `:next` 等 npm 通道镜像别名不再自动更新，持续跟进开发请改用 `:dev`。
 
-自动更新链路不仅会重建 `:<dsh版本>` 与 `:latest`，还会把指向该版本的
-npm dist-tag 通道名原样打到镜像上，于是
+Standard 构建并发布成功后，独立启动 Research 与 Reverse 构建，使用精确的 Standard
+镜像 digest。标签发布的衍生版使用同一个 Git 标签的代码；普通开发使用 `main`。
+Research / Reverse 失败不会撤销已成功发布的 Standard。
 
-```text
-docker pull <image>:alpha   ≈   npm i @deepseek-ai/dsh@alpha
-```
-
-查询上游失败或版本不对应任何通道时，只发布版本号与 `:latest`，不让构建失败。
-
-Research 镜像用同样的三类含义，只是加上 edition 前缀（`:research` /
-`:research-economics` 是浮动 tag，相当于研究镜像的 `:latest`），且版本 tag 跟随
-**它实际包住的 DSH 版本**：`:research-<dsh版本>`、`:research-alpha`。
-`research/VERSION` 只标识研究引擎自身版本，不参与镜像 tag。
-
-基础镜像更新后，**Standard CI 会先独立完成并发布**，随后启动另一次 GitHub Actions 运行构建 Research；科研版失败不会影响已发布的基础版。该独立运行使用刚发布的**精确镜像 digest**、源码 commit、DSH 版本和通道快照，避免基于旧的 `:latest`。仅修改 Research 时可以单独构建；同一提交同时修改两者时，会等待基础版发布后再启动 Research。
-
-构建、GHCR、镜像 tag 通道对齐与自动检测上游 DSH 更新的说明见 [镜像构建与自动更新](docs/ci.md)。
+构建、GHCR、开发版与标签发布的完整说明见 [镜像构建与自动更新](docs/ci.md)。
 
 ## 自部署网页搜索（可选）
 
