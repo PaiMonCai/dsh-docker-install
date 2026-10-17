@@ -351,7 +351,7 @@ jobs:
               test -s "/opt/dsh-reverse/report-reader-skills/$skill/SKILL.md"
               test -s "/opt/dsh-reverse/report-reader-skills/$skill/references/attribution.md"
             done
-            /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py
+            DSH_REPORT_READER_CI_DIAGNOSTICS=1 /opt/dsh-reverse/report-reader-venv/bin/python /opt/dsh-reverse/report-reader-mcp/smoke.py
             test ! -e /opt/dsh-reverse/skills/android-apk-analysis/SKILL.md
             DSH_HOME="$(mktemp -d)" dsh --profile web \
               --patch /opt/dsh-reverse/cordis.patch.yml --dump-config > /tmp/reverse-config.yml
