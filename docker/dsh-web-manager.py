@@ -25,6 +25,11 @@ ACTIONS = {
     "proxy-test-all": ["proxy", "test-all"], "proxy-refresh": ["proxy", "refresh"],
 }
 
+# Phase 1: the host remains the authority. Expose only names that the
+# executor actually knows; this is metadata, not an executable command list.
+OPERATION_CONTRACT_VERSION = 1
+SUPPORTED_OPERATIONS = tuple(sorted((*ACTIONS, "settings", "proxy-use", "proxy-add", "proxy-subscribe")))
+
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -262,6 +267,8 @@ class Manager:
     def snapshot(self):
         description = self.describe()
         snapshot = {"schema": 1, "heartbeat": now(), "instance": description,
+                    "management": {"schema": OPERATION_CONTRACT_VERSION,
+                                   "operations": list(SUPPORTED_OPERATIONS)},
                     "settings": self.settings, "release": self.release, "container": None,
                     "proxy": {"nodes": [], "running": False}, "logs": ""}
         try:

@@ -250,8 +250,13 @@ window.__ModuleLoader__.load({
       const jobs = data?.jobs || []
       const busy = sending || jobs.some(job => ['queued', 'running'].includes(job.state))
       const enabled = Boolean(data?.online) && !busy && !disconnected
+      // A newer Web image may briefly talk to an older host manager. The host
+      // remains authoritative; absent metadata preserves existing deployments.
+      const supports = action => !status?.management || (status.management.schema === 1
+        && Array.isArray(status.management.operations) && status.management.operations.includes(action))
       async function submit(action, args = {}) {
         if (submitting.current) return
+        if (!supports(action)) { setError('宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。'); return }
         const id = taskId()
         submitting.current = true
         setSending(true); setError(''); setConfirmation(null)
@@ -270,7 +275,8 @@ window.__ModuleLoader__.load({
         } finally { submitting.current = false; setSending(false) }
       }
       function actionButton(action, args = {}, primary = false) {
-        return h('button', { type: 'button', disabled: !enabled,
+        return h('button', { type: 'button', disabled: !enabled || !supports(action),
+          title: supports(action) ? undefined : '当前宿主机管理器不支持该操作',
           className: primary ? 'dm-primary' : '',
           onClick: () => confirmations[action] ? setConfirmation({ action, args }) : void submit(action, args),
         }, labels[action])

@@ -1,0 +1,136 @@
+{
+  "schema": "dsh-web-management-operations/v1",
+  "version": 1,
+  "description": "Phase 1 audit contract. The host executor remains the runtime authority; CI asserts this inventory equals both allowlists.",
+  "taskStates": [
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "interrupted"
+  ],
+  "operations": [
+    {
+      "id": "check",
+      "category": "版本与更新",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "update",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "restart",
+      "category": "运行管理",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "recreate",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "rollback",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "cleanup",
+      "category": "版本与更新",
+      "risk": "destructive",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "settings",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {
+        "checkInterval": 21600
+      },
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-start",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "proxy-stop",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "proxy-restart",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-test",
+      "category": "网络与服务",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-test-all",
+      "category": "网络与服务",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-refresh",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-use",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {
+        "name": "hk-01"
+      },
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-add",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {
+        "name": "hk-01",
+        "url": "ss://example@example.com:443"
+      },
+      "confirmInWeb": false
+    },
+    {
+      "id": "proxy-subscribe",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {
+        "name": "subscription-1",
+        "url": "https://example.com/list"
+      },
+      "confirmInWeb": false
+    }
+  ]
+}

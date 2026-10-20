@@ -64,6 +64,21 @@ test('offline, corrupt, oversized and symlinked host data fail closed', async t 
   }
 })
 
+test('host capability metadata prevents submitting unsupported or unknown-version operations', async t => {
+  const f = await fixture(t)
+  const statusFile = join(f.root, 'results', 'status.json')
+  await writeFile(statusFile, JSON.stringify({ ...f.status,
+    management: { schema: 1, operations: ['check'] } }))
+  await assert.rejects(f.bridge.submit(task('restart')), /host-operation-unavailable/)
+  assert.deepEqual(await readdir(join(f.root, 'requests')), [])
+  assert.equal((await f.bridge.submit(task('check'))).state, 'queued')
+  await rm(join(f.root, 'requests'), { recursive: true })
+  await mkdir(join(f.root, 'requests'))
+  await writeFile(statusFile, JSON.stringify({ ...f.status,
+    management: { schema: 2, operations: ['restart', 'check'] } }))
+  await assert.rejects(f.bridge.submit(task('restart')), /host-operation-unavailable/)
+})
+
 test('only named operations and bounded proxy inputs are accepted', () => {
   for (const [action, args] of [
     ['shell', { command: 'rm -rf /' }], ['restart', { container: 'other' }],
