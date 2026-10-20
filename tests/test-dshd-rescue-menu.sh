@@ -22,7 +22,7 @@ for id in 01 02 03 04 05 06; do grep -Fq "[$id]" "$tmp/main"; done
 grep -Fq 'dshd menu legacy' "$tmp/main"
 menu_render_legacy_main >"$tmp/legacy"
 grep -Fq '配置与安全' "$tmp/legacy"
-grep -Fq '国际网络' "$tmp/legacy"
+grep -Fq '网络与服务' "$tmp/legacy"
 
 for section in install web rescue backup doctor uninstall; do
   menu_render_rescue_category "$section" >"$tmp/$section"
