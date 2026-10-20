@@ -115,6 +115,13 @@ export class AcpRuntime {
   }
   view(session) {
     let row = this.cache.get(session)
+    // DSH's append-only log is authoritative, even when another mounted
+    // ContextManager instance independently commits an ACP state record for
+    // this same in-memory Session. Never reuse a stale WeakMap projection.
+    const events=session.snapshotEvents()
+    if(row && (row.observedLogLength>events.length
+      || events.slice(row.observedLogLength).some(e=>e.type===STATE_EVENT)))
+      row=null
     if (!row) {
       const stored = recordFrom(session)
       row = {
@@ -122,9 +129,10 @@ export class AcpRuntime {
         checkpoints: stored?.checkpoints ?? {},
         settled: stored?.lastResult ?? null,
         recovered:stored?.recovered===true,
+        observedLogLength:events.length,
       }
       this.cache.set(session,row)
-    }
+    } else row.observedLogLength=events.length
     const messages = activeMessages(session,row.checkpoints)
     const config = configFor(session)
     const tokenCount = messages.reduce((total,m)=>total + Math.ceil(m.text.length/4),0)
