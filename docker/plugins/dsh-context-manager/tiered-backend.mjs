@@ -48,8 +48,11 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       signal?.throwIfAborted?.()
       const target=targetFrom(agent)
       const policy=resolvePolicy(readSettings(),scopeFrom(agent,target))
-      if (policy.engine!=='tiered') throw Error('tiered compaction not selected for routed Agent')
-      const stage=chooseTier(input?.messages)
+      if (policy.engine!=='tiered') return super.summarize(input,agent,signal)
+      const checkpointRows=agent.session?.surface?.nodes
+        ?.map(seq=>agent.session.eventAt(seq)?.data)
+        .filter(row=>row?.source?.kind==='compact-checkpoint') ?? []
+      const stage=chooseTier(agent.session?.surface?.nodes ? checkpointRows : input?.messages)
       const route=stageTarget(this.config,target)
       const options={
         provider:route.provider,model:route.model,

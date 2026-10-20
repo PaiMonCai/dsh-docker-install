@@ -4,11 +4,12 @@ export function auditOwnership(inventory, host) {
   const rows=presets.map(p=>{
     const native=Number(p.basic?.active||0)
     const external=Number(p.external?.active||0)
-    const duplicate=native>1||native>0&&external>0
+    const tiered=Number(p.tiered?.active||0)
+    const duplicate=native>1||tiered>1||native>0&&external>0||tiered>0&&(native>0||external>0)
     const suspect=duplicate||p.ownership==='conflict-risk'||p.ownership==='duplicate-native-risk'
     return {agentId:p.id,mounted:!!p.mounted,
-      activeNative: native, activeExternal:external,
-      state:suspect?'conflict-risk':native===1?'preset-native-observed':external>0?'external-observed':'unverified'}
+      activeNative: native, activeTiered:tiered, activeExternal:external,
+      state:suspect?'conflict-risk':tiered===1?'preset-tiered-lab-observed':native===1?'preset-native-observed':external>0?'external-observed':'unverified'}
   })
   return {
     // host.get('compaction') cannot inspect all child Agent scopes and an
