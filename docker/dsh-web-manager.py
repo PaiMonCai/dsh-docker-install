@@ -135,7 +135,9 @@ class Manager:
         self.bridge = self.state / "web-management"
         self.requests, self.results = self.bridge / "requests", self.bridge / "results"
         self.private = self.state / "web-management-private"
-        for directory in (self.bridge, self.requests, self.results, self.private):
+        self.backups = self.state / "backups"
+        self.uploads = self.bridge / "uploads"
+        for directory in (self.bridge, self.requests, self.results, self.private, self.backups, self.uploads):
             if directory.is_symlink():
                 raise ValueError("unsafe management directory")
             directory.mkdir(mode=0o700, exist_ok=True)
@@ -287,13 +289,60 @@ class Manager:
         if self.log_thread:
             self.log_thread.join(timeout=3)
 
+    def list_backups(self):
+        entries = []
+        for directory, kind in ((self.backups, "saved"), (self.uploads, "uploaded")):
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if not BACKUP_FILE.fullmatch(path.name) or path.is_symlink():
+                    continue
+                info = path.stat()
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                entries.append({"file": path.name, "kind": kind,
+                                "size": info.st_size,
+                                "createdAt": datetime.datetime.fromtimestamp(info.st_mtime, datetime.timezone.utc).isoformat()})
+        return sorted(entries, key=lambda row: row["createdAt"], reverse=True)[:50]
+
+    def backup_schedule(self):
+        hash_id = hashlib.sha256(str(self.state).encode()).hexdigest()[:12]
+        prefix = "dshd-backup-" + hash_id
+        timer = Path("/etc/systemd/system") / (prefix + ".timer")
+        service = Path("/etc/systemd/system") / (prefix + ".service")
+        result = {"enabled": False, "cadence": "daily", "keep": 7}
+        if timer.is_file() and not timer.is_symlink() and service.is_file() and not service.is_symlink():
+            try:
+                schedule = timer.read_text(encoding="utf-8")[:8192]
+                settings = service.read_text(encoding="utf-8")[:8192]
+                cadence = re.search(r"(?m)^OnCalendar=(daily|weekly)$", schedule)
+                keep = re.search(r"(?m)^Environment=DSHD_AUTO_BACKUP_KEEP=(\d+)$", settings)
+                if cadence and keep and 1 <= int(keep.group(1)) <= 90:
+                    result.update(enabled=True, cadence=cadence.group(1), keep=int(keep.group(1)))
+            except OSError:
+                pass
+        return result
+
+    def archive_path(self, filename):
+        if not isinstance(filename, str) or not BACKUP_FILE.fullmatch(filename):
+            raise ValueError("invalid archive filename")
+        directory = self.uploads if filename.startswith("upload-") else self.backups
+        path = directory / filename
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+            raise ValueError("archive missing or unsafe")
+        if directory == self.uploads and info.st_size > MAX_WEB_ARCHIVE:
+            raise ValueError("uploaded archive exceeds 1 GiB")
+        return path
+
     def snapshot(self):
         description = self.describe()
         snapshot = {"schema": 1, "heartbeat": now(), "instance": description,
                     "management": {"schema": OPERATION_CONTRACT_VERSION,
                                    "operations": list(SUPPORTED_OPERATIONS)},
                     "settings": self.settings, "release": self.release, "container": None,
-                    "proxy": {"nodes": [], "running": False}, "logs": ""}
+                    "proxy": {"nodes": [], "running": False}, "logs": "",
+                    "backup": {"files": self.list_backups(), "schedule": self.backup_schedule()}
         try:
             container = self.inspect(description["name"])
             image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
@@ -374,6 +423,9 @@ class Manager:
             self.next_check = time.monotonic() + self.settings["checkInterval"]
             return
         command = command_for(action, arguments)
+        if action in ("backup-verify", "backup-import"):
+            # Browser controls a bounded filename, never absolute host paths.
+            command[2] = str(self.archive_path(arguments["file"]))
         if action == "check":
             self.check()
             return
