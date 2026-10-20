@@ -230,7 +230,7 @@ test('background job access and searchable task history survive navigation', asy
   const filter = nodes(tree, n => n.props['aria-label'] === '筛选任务状态')[0]
   filter.props.onChange({ target: { value: 'failed' } })
   tree = f.entry({ view: 'detail' })
-  assert.equal(nodes(tree, n => n.className === 'dm-task').length, 1)
+  assert.equal(nodes(tree, n => n.props.className === 'dm-task').length, 1)
   nodes(tree, n => n.props['aria-label'] === '搜索任务')[0].props.onChange({ target: { value: 'nonexistent' } })
   tree = f.entry({ view: 'detail' })
   assert.match(text(tree), /没有匹配条件的任务/)
