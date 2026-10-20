@@ -149,3 +149,12 @@ with a hard 8192-character return cap. It rejects refs not covered by that
 block. Unlike `acp_decompress`'s short preview, retrieval does not shorten
 the source before pagination. This is a safe event-backed read path; it does
 **not** implement billion's arrival-time CCR tool-output offload.
+
+## Full offline AgentLoop acceptance
+
+`test-context-manager-acp-agent-loop.mjs` mounts the installed DSH
+AgentLoop, SessionStore, ToolRuntime, SystemPrompt and a deterministic
+LlmAdapter. It drives the full model/tool/retry handoff, calls four ACP
+tools and confirms the native compaction checkpoint and source preservation.
+It uses no paid provider or external proxy. Real provider performance,
+context-cache behavior and multiuser release security remain unvalidated.

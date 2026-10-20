@@ -288,6 +288,8 @@ COPY tests/test-context-manager-acp-t3.mjs /opt/dsh/test-context-manager-acp-t3.
 RUN node /opt/dsh/test-context-manager-acp-t3.mjs
 COPY tests/test-context-manager-acp-tools.mjs /opt/dsh/test-context-manager-acp-tools.mjs
 RUN node /opt/dsh/test-context-manager-acp-tools.mjs
+COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
 COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
 RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 
