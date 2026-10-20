@@ -112,3 +112,12 @@ ToolResultPruner. When a model ACP proposal is queued, the subclass skips
 to commit at its next `agent/pre-step`. Native overflow recovery is NEVER
 skipped. Pending state is per-Session and cleared after success/error.
 Model-driven compression is not claimed to replace automatic fallback.
+
+## Multi-generation hierarchical regression
+
+The `test-context-manager-acp-t3.mjs` image test folds four independently
+completed T1 blocks into two T2 blocks and finally one T3 block. Each
+layer commits through the session event-log transaction double, then
+replays from a cold Session and checks that deep source retrieval still
+reaches the original text. The real DSH compaction engine is separately
+exercised in `test-context-manager-acp-real-region.mjs`.
