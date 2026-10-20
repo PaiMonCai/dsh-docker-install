@@ -10,7 +10,7 @@ export const CCR_EVENT='plugin:dsh-docker-context-manager/ccr-result'
 const DEFAULT_MIN=16000
 const MAX_RECORD_BYTES=786432
 const MAX_PAGE=8192
-const REF=/^ccr:([1-9][0-9]{0,8})$/
+const REF=/^ccr:(0|[1-9][0-9]{0,8})$/
 function encodeRecord(record) {
   const encoded=JSON.stringify(record)
   if (!encoded || Buffer.byteLength(encoded,'utf8')>MAX_RECORD_BYTES)
