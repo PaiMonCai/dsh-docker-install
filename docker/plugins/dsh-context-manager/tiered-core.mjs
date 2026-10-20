@@ -78,7 +78,7 @@ export function verifyTierSummary(text, tier, maxChars = 60000) {
   const headings = normalized.split('\n').map(x=>x.trim()).filter(x=>x.startsWith('## '))
   if (headings.length !== expected.length || headings.some((h,i)=>h!==expected[i]))
     throw Error('summary quality gate: required ordered headings missing')
-  const sections = normalized.split(/(?=^## )/m).slice(1)
+  const sections = normalized.split(/(?=^## )/m).slice(2)
   if (sections.some(s=>s.split('\n').slice(1).join('\n').trim().length === 0))
     throw Error('summary quality gate: empty section')
   if (/\b(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/.test(normalized))

@@ -111,7 +111,7 @@ jobs:
           node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
-          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs
+          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
           bash tests/test-dshd-rollback.sh

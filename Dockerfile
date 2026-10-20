@@ -258,12 +258,19 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/native-inventory.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/policy.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/storage.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-backend.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-native.js \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \
  && node --check /usr/local/bin/patch-bili-client-ui.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+
+# Import the candidate native tiered backend without registering a second
+# CompactionEngine. This fails early if upstream DSH package exports move.
+RUN node --input-type=module -e "const module = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof module.default !== 'function') throw Error('tiered backend export missing')"
 
 # Verify that the installed DSH build accepts the inert native Cordis entry.
 RUN set -eu; home="$(mktemp -d)"; \
