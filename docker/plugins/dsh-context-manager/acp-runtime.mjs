@@ -8,6 +8,7 @@ import {
 } from 'acp-kernel'
 import { withAcpSummary } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
+export { INTENT_EVENT, STATE_EVENT } from './acp-recovery.mjs'
 
 const MAX_VIEW = 1600
 const MAX_ORIGINAL = 4500
