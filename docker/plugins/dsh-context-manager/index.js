@@ -159,7 +159,7 @@ export function apply(ctx) {
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'},
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false },
@@ -171,7 +171,7 @@ export function apply(ctx) {
           const revision = settingsRevision(settings)
           return { ok: true, value: { settings, revision,
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false } } }

@@ -52,7 +52,7 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       const checkpointRows=agent.session?.surface?.nodes
         ?.map(seq=>agent.session.eventAt(seq)?.data)
         .filter(row=>row?.source?.kind==='compact-checkpoint') ?? []
-      const stage=chooseTier(checkpointRows)
+      const stage=chooseTier(agent.session?.surface?.nodes ? checkpointRows : input?.messages)
       const route=stageTarget(this.config,target)
       const options={
         provider:route.provider,model:route.model,
