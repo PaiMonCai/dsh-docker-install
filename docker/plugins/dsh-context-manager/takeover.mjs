@@ -73,6 +73,8 @@ export function replacePresetCompactor(preset,settings,target=ALLOWED_PRESET,{ac
 export function createTakeoverPolicy(env=process.env,settings) {
   const active=env.DSH_CONTEXT_MANAGER_TIERED_ACTIVE==='1'
   const acp=env.DSH_CONTEXT_MANAGER_ACP_ACTIVE==='1'
+  if(env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1'&&!acp)
+    throw Error('native CCR requires the isolated ACP single-owner pilot')
   if(acp&&!active)throw Error('native ACP requires the explicit tiered single-owner pilot')
   if(!active)return {active:false,reason:'disabled'}
   if(env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1'

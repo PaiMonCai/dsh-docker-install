@@ -267,6 +267,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-pending.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-runtime.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-ccr.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-recovery.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-native.js \
  && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
@@ -290,6 +291,8 @@ COPY tests/test-context-manager-acp-tools.mjs /opt/dsh/test-context-manager-acp-
 RUN node /opt/dsh/test-context-manager-acp-tools.mjs
 COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
 RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
+COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
+RUN node /opt/dsh/test-context-manager-ccr.mjs
 COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
 RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 

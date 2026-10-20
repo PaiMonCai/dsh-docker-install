@@ -158,3 +158,19 @@ LlmAdapter. It drives the full model/tool/retry handoff, calls four ACP
 tools and confirms the native compaction checkpoint and source preservation.
 It uses no paid provider or external proxy. Real provider performance,
 context-cache behavior and multiuser release security remain unvalidated.
+
+## Native CCR: arrival-time tool result offload (opt-in)
+
+The ACP Standard lab may additionally set `DSH_CONTEXT_MANAGER_CCR_ACTIVE=1`.
+At DSH `tools/post-execute`, plain-text tool responses of >=16000 characters
+are copied to a bounded, ignorable native `ccr-result` Session Plugin Record.
+**Only after `ctx.sessions.flush(session)` reports a durable writer** can the
+normal tool result be replaced by a short `ccr:SEQ` locator + preview. The
+model may call `acp_ccr_retrieve` to read the exact original text by page in
+its own Session. A failed persistence, non-text response, oversized payload,
+nested PTC call, or failed tool execution returns the full original tool
+result unchanged. This protects durable provenance and avoids intercepting
+HTTP or using another store. Real PTC subcall result-log offload is not included.
+
+This is an **explicit additional laboratory flag**. It is not enabled for
+ordinary Agent sessions and is not authorization for shared/tenant history.

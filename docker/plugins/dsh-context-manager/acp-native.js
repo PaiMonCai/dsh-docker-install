@@ -5,6 +5,7 @@
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { AcpRuntime } from './acp-runtime.mjs'
+import { offloadCcr, retrieveCcr } from './acp-ccr.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const [{defineTool},{appendPluginRecord}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href),
@@ -59,10 +60,29 @@ export function apply(ctx) {
       startIndex:{type:'integer'},offset:{type:'integer'},limit:{type:'integer'}},
     (args,exec)=>runtime.retrieve(exec.agent.session,args))
 
+  tool('acp_ccr_retrieve',
+    'Read one page of an earlier large tool result that native CCR stored in this exact Session. It does not access other agents or sessions. Use the ccr:NNN ref from the tool-result placeholder.',
+    {ref:{type:'string',required:true},offset:{type:'integer'},limit:{type:'integer'}},
+    (args,exec)=>retrieveCcr(exec.agent.session,args))
+
+  if(process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1'){
+    ctx.on('tools/post-execute',async(exec,result,next)=>{
+      const decision=await next()
+      // Preserve the decisions of all other policies, including denials.
+      if(decision.kind!=='accept'||decision.content!==undefined||decision.value!==undefined)
+        return decision
+      const offload=await offloadCcr(exec,result,{
+        appendRecord:appendPluginRecord,flush:session=>ctx.sessions.flush(session),
+        logger:ctx.logger,
+      })
+      return offload?{kind:'accept',content:offload.content}:decision
+    })
+  }
+
   // A tool call is still unsettled while it is executing. DSH's next
   // pre-step has completed the tool/result pair, so use that boundary to
-  // enter the upstream compaction transaction. The existing Basic engine
-  // is configured with auto=false in this explicit ACP pilot.
+  // enter the upstream compaction transaction. The Basic engine remains
+  // auto=true for native pressure and overflow fallback.
   ctx.on('agent/pre-step',async ({agent,signal},next)=>{
     if(agent?.session){
       try { await runtime.processPending(agent,ctx.compaction,signal) }
