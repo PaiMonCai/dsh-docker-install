@@ -19,13 +19,19 @@ window.__ModuleLoader__.load({
       rollback: '回滚版本', cleanup: '清理旧容器与镜像', settings: '保存检查设置',
       'proxy-start': '开启代理', 'proxy-stop': '关闭代理', 'proxy-restart': '重载 sing-box',
       'proxy-test': '测试出口', 'proxy-test-all': '全部节点测速', 'proxy-refresh': '刷新全部订阅',
-      'proxy-use': '切换节点', 'proxy-add': '导入节点', 'proxy-subscribe': '添加订阅', pending: '等待执行',
+      'proxy-use': '切换节点', 'proxy-add': '导入节点', 'proxy-subscribe': '添加订阅',
+      'edition-standard': '切换 Standard', 'edition-research': '切换 Research',
+      'pack-none': '切换 Research Core', 'pack-economics': '启用 Economics Pack',
+      'diagnose-environment': '检查开发环境', 'diagnose-storage': '检查持久化存储',
+      'diagnose-plugins': '诊断内置插件', 'dashboard-start': '启动 Dashboard',
+      'dashboard-stop': '停止 Dashboard', pending: '等待执行',
     }
     const states = { queued: '等待执行', running: '正在执行', succeeded: '已完成', failed: '失败', interrupted: '执行中断' }
     const errors = {
       'instance-busy': '当前实例已有任务，请等待完成。',
       'host-executor-offline': '宿主机后台未连接，请使用 dshd web status 检查。',
       'management-unavailable': '管理数据暂不可用，请检查宿主机后台。',
+      'host-operation-unavailable': '宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。',
     }
     const css = `
       .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:#168577;color:inherit;font:inherit}
@@ -34,7 +40,7 @@ window.__ModuleLoader__.load({
       .dsh-manage button:disabled{opacity:.45;cursor:default}.dsh-manage button:focus-visible,.dsh-manage input:focus-visible,.dsh-manage select:focus-visible{outline:2px solid var(--dm-accent);outline-offset:3px}
       .dsh-manage .dm-primary{background:var(--dm-accent);color:white;border-color:var(--dm-accent)}
       .dm-head{display:flex;align-items:flex-start;gap:12px;padding:23px 26px 18px;border-bottom:1px solid var(--dm-line)}.dm-head h2{font-size:21px;font-weight:650;margin:0}.dm-head p{color:var(--dm-muted);font-size:12px;margin:7px 0 0}
-      .dm-tabs{display:flex;gap:20px;padding:0 26px;border-bottom:1px solid var(--dm-line)}.dm-tabs button{border:0;border-radius:0;padding:13px 0;border-bottom:2px solid transparent}.dm-tabs button[aria-selected=true]{border-bottom-color:var(--dm-accent);color:var(--dm-accent)}
+      .dm-tabs{display:flex;gap:20px;padding:0 26px;border-bottom:1px solid var(--dm-line);overflow-x:auto;flex-shrink:0;white-space:nowrap}.dm-tabs button{border:0;border-radius:0;padding:13px 0;border-bottom:2px solid transparent}.dm-tabs button[aria-selected=true]{border-bottom-color:var(--dm-accent);color:var(--dm-accent)}
       .dm-content{padding:22px 26px;overflow:auto;min-height:0;flex:1}.dm-content h3{font-size:15px;font-weight:650;margin:0 0 13px}
       .dm-summary{display:flex;justify-content:space-between;gap:16px;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--dm-line);margin-bottom:20px}.dm-state{display:flex;align-items:center;gap:8px;font-size:17px}.dm-dot{width:9px;height:9px;background:var(--dm-accent);border-radius:50%}.dm-dot[data-online=false]{background:#b47f32}
       .dm-muted{color:var(--dm-muted);font-size:12px;line-height:1.7}.dm-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px 16px;font-size:13px;margin:16px 0 23px}.dm-grid dt{color:var(--dm-muted)}.dm-grid dd{margin:0;overflow-wrap:anywhere}
@@ -203,6 +209,13 @@ window.__ModuleLoader__.load({
       cleanup: '清理当前实例停止的回滚容器及未使用旧镜像，清理后将失去这些回滚点。',
       'proxy-start': '首次开启代理可能重建 DSH，页面会暂时断开。',
       'proxy-stop': '关闭代理会恢复直连，并可能重建 DSH。',
+      'edition-standard': '将下载并切换到 Standard 镜像，停止当前会话后进行健康检查。Reverse 必须保持独立实例。',
+      'edition-research': '将下载并切换到 Research Core，容器会重建，数据卷不回滚。',
+      'pack-none': '将切换到 Research Core，可能中断当前任务。',
+      'pack-economics': '将切换到 Economics Pack，拉取镜像并重建容器；数据卷不回滚。',
+      'dashboard-start': '将为当前 Research 实例启动只读 Dashboard Sidecar。默认仅绑定宿主机回环地址。',
+      'dashboard-stop': '将停止并删除当前 Research Dashboard Sidecar，不删除工作区。',
+
     }
     function Panel({ embedded = false }) {
       const [data, setData] = React.useState(null)
@@ -252,8 +265,12 @@ window.__ModuleLoader__.load({
       const enabled = Boolean(data?.online) && !busy && !disconnected
       // A newer Web image may briefly talk to an older host manager. The host
       // remains authoritative; absent metadata preserves existing deployments.
-      const supports = action => !status?.management || (status.management.schema === 1
-        && Array.isArray(status.management.operations) && status.management.operations.includes(action))
+      const phaseTwoActions = new Set(['edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+        'diagnose-environment', 'diagnose-storage', 'diagnose-plugins', 'dashboard-start', 'dashboard-stop'])
+      const supports = action => status?.management
+        ? (status.management.schema === 1 && Array.isArray(status.management.operations)
+          && status.management.operations.includes(action))
+        : !phaseTwoActions.has(action)
       async function submit(action, args = {}) {
         if (submitting.current) return
         if (!supports(action)) { setError('宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。'); return }
@@ -294,7 +311,7 @@ window.__ModuleLoader__.load({
             h('p', null, '管理 DSH 更新、运行状态与网络出口')),
           !embedded && h('button', { type: 'button', onClick: () => open(false), 'aria-label': '关闭实例管理' }, '关闭')),
         h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '实例管理页面' },
-          ...[['overview', '运行与更新'], ['network', '国际网络'], ['tasks', '任务记录'], ['logs', '运行日志']].map(([id, title]) =>
+          ...[['overview', '运行与更新'], ['network', '国际网络'], ['diagnostics', '配置与诊断'], ['tasks', '任务记录'], ['logs', '运行日志']].map(([id, title]) =>
             h('button', { key: id, type: 'button', role: 'tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, title))),
         h('div', { className: 'dm-content', role: 'tabpanel', 'aria-live': 'polite' },
           disconnected && h('div', { className: 'dm-banner' }, '连接暂时断开，正在自动重连。后台已接收的任务会继续执行。'),
@@ -305,7 +322,7 @@ window.__ModuleLoader__.load({
           confirmation && h('div', { className: 'dm-banner' },
             h('p', null, confirmations[confirmation.action]),
             h('div', { className: 'dm-actions' },
-              h('button', { type: 'button', className: 'dm-primary', disabled: !enabled,
+              h('button', { type: 'button', className: 'dm-primary', disabled: !enabled || !supports(confirmation.action),
                 onClick: () => void submit(confirmation.action, confirmation.args) }, '确认' + labels[confirmation.action]),
               h('button', { type: 'button', onClick: () => setConfirmation(null) }, '取消'))),
           !data && !disconnected && h('p', { className: 'dm-muted' }, '正在读取实例状态…'),
@@ -337,7 +354,12 @@ window.__ModuleLoader__.load({
               h('p', { className: 'dm-muted' }, '宿主机后台定时检测，关闭页面后继续；结果仅在此处显示，不弹窗。安装更新需点击「更新镜像」并确认。')),
             section('维护',
               h('p', { className: 'dm-muted' }, '升级成功后默认清理旧容器。回滚仅在仍有保留的回滚容器时可用，且不会恢复历史数据。'),
-              h('div', { className: 'dm-actions' }, actionButton('recreate'), actionButton('rollback'), actionButton('cleanup')))),
+              h('div', { className: 'dm-actions' }, actionButton('recreate'), actionButton('rollback'), actionButton('cleanup'))),
+            status.instance.edition !== 'reverse' && section('Edition / Research Pack',
+              details([['当前 Edition', status.instance.edition], ['Research Pack', status.instance.researchPack || 'none']]),
+              h('p', { className: 'dm-muted' }, '固定镜像目标、先拉取再进行安全替换。Reverse 为独立实例，不能在此切换。'),
+              h('div', { className: 'dm-actions' }, actionButton('edition-standard'),
+                actionButton('edition-research'), actionButton('pack-economics')))),
           tab === 'network' && status && h(React.Fragment, null,
             section('sing-box',
               details([['代理出口', status.instance.proxyEnabled === 'true' ? '已开启' : '直连'],
@@ -363,7 +385,26 @@ window.__ModuleLoader__.load({
                 h('label', { className: 'dm-wide' }, '链接', h('input', { required: true, type: 'password', autoComplete: 'off',
                   value: importURL, disabled: !enabled, maxLength: 8192, placeholder: '粘贴节点或订阅链接', onChange: event => setImportURL(event.target.value) })),
                 h('div', { className: 'dm-actions dm-wide' }, h('button', { type: 'submit', className: 'dm-primary',
-                  disabled: !enabled || !importName || !importURL }, labels[importKind]))))),
+                  disabled: !enabled || !importName || !importURL }, labels[importKind])))),
+            status.instance.edition === 'research' && section('Research Dashboard',
+              details([['状态', status.dashboard?.running ? '运行中' : '未运行'],
+                ['宿主机端口', status.instance.dashboardPort || '8765']]),
+              h('p', { className: 'dm-muted' }, 'Dashboard 仅绑定宿主机 127.0.0.1；远程访问建议使用受控反代或 SSH 隧道。'),
+              h('div', { className: 'dm-actions' }, actionButton('dashboard-start'), actionButton('dashboard-stop')))),
+          tab === 'diagnostics' && status && h(React.Fragment, null,
+            section('当前配置摘要',
+              details([['Edition', status.instance.edition], ['Research Pack', status.instance.researchPack || 'none'],
+                ['存储模式', status.instance.storageMode], ['API 接入模式', status.instance.apiMode],
+                ['API Key', status.instance.apiKeyConfigured === 'true' ? '已配置（不显示明文）' : '未配置'],
+                ['容器 Docker 权限', status.instance.dockerAccess === 'true' ? '已启用（高风险）' : '未启用']]),
+              h('p', { className: 'dm-muted' }, '这里只显示非敏感摘要；API Key、Trusted Hosts 写入与 Docker Socket 授权仍需要宿主机 CLI。')),
+            section('环境与插件诊断',
+              h('p', { className: 'dm-muted' }, '诊断在当前实例宿主机执行，结果脱敏后保存在任务记录。不会开放 Shell、配置文件路径或任意命令参数。'),
+              h('div', { className: 'dm-actions' }, actionButton('diagnose-environment'),
+                actionButton('diagnose-storage'), actionButton('diagnose-plugins'))),
+            status.instance.edition === 'research' && section('Research Pack',
+              h('p', { className: 'dm-muted' }, '可以切换到通用科研包或经济学计量工具链。操作需要下载镜像并重建容器。'),
+              h('div', { className: 'dm-actions' }, actionButton('pack-none'), actionButton('pack-economics')))),
           tab === 'tasks' && h(React.Fragment, null,
             selectedJob && section('当前任务',
               h('div', { className: 'dm-task-head' }, h('strong', null, labels[selectedJob.action] || selectedJob.action),

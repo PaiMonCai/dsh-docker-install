@@ -79,6 +79,25 @@ test('host capability metadata prevents submitting unsupported or unknown-versio
   await assert.rejects(f.bridge.submit(task('restart')), /host-operation-unavailable/)
 })
 
+test('legacy hosts reject new phase-two requests while retaining old restart behavior', async t => {
+  const f = await fixture(t)
+  await assert.rejects(f.bridge.submit(task('edition-standard')), /host-operation-unavailable/)
+  await assert.deepEqual(await readdir(join(f.root, 'requests')), [])
+  assert.equal((await f.bridge.submit(task('restart'))).state, 'queued')
+})
+
+test('phase-two administrative actions are strictly fixed and do not accept paths or images', () => {
+  for (const action of [
+    'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+    'dashboard-start', 'dashboard-stop', 'diagnose-environment',
+    'diagnose-storage', 'diagnose-plugins'
+  ]) {
+    assert.doesNotThrow(() => validate(action, {}), action)
+    for (const parameters of [{ image: 'evil:latest' }, { instanceId: 'other' }, { command: 'id' }])
+      assert.throws(() => validate(action, parameters), action)
+  }
+})
+
 test('only named operations and bounded proxy inputs are accepted', () => {
   for (const [action, args] of [
     ['shell', { command: 'rm -rf /' }], ['restart', { container: 'other' }],

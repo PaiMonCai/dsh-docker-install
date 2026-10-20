@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 DSHD_VERSION="0.12.1"
-WEB_WORKER_SHA256="0e5b61b77576acfa0e7e5199d1ebf16b50acb527567c5f40f6e7760ba1cafa0b"
+WEB_WORKER_SHA256="4714ac2aa7cad75e29249642a705cdd83a6a5197721f7d60b701271a9e0251c7"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -3607,9 +3607,15 @@ cmd_web() {
   fi
   case "$action" in
     describe)
-      # Private host IPC: only nonsecret instance metadata is returned.
-      printf 'id\0%s\0name\0%s\0image\0%s\0edition\0%s\0proxyEnabled\0%s\0proxyNode\0%s\0' \
-        "${DSHD_INSTANCE_ID:-default}" "$DSH_NAME" "$DSH_IMAGE" "$DSH_EDITION" "$DSH_PROXY_ENABLED" "$DSH_PROXY_NODE"
+      # Host-only nonsecret metadata. Never expose credentials, arbitrary paths
+      # or the raw config.env through the Web status bridge.
+      local api_mode=official key_ready=false
+      [[ -n "${DEEPSEEK_BASE_URL:-}" ]] && api_mode=custom
+      [[ -n "${DEEPSEEK_API_KEY:-}" ]] && key_ready=true
+      printf 'id\0%s\0name\0%s\0image\0%s\0edition\0%s\0researchPack\0%s\0storageMode\0%s\0apiMode\0%s\0apiKeyConfigured\0%s\0dockerAccess\0%s\0dashboardPort\0%s\0proxyEnabled\0%s\0proxyNode\0%s\0' \
+        "${DSHD_INSTANCE_ID:-default}" "$DSH_NAME" "$DSH_IMAGE" "$DSH_EDITION" "$DSH_RESEARCH_PACK" \
+        "$DSH_STORAGE_MODE" "$api_mode" "$key_ready" "$DSH_DOCKER_ACCESS" \
+        "$DSH_RESEARCH_DASHBOARD_PORT" "$DSH_PROXY_ENABLED" "$DSH_PROXY_NODE"
       ;;
     status)
       if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
@@ -3641,6 +3647,68 @@ cmd_web() {
       ;;
     *) die "用法: dshd web enable|disable|status" ;;
   esac
+}
+
+# Noninteractive Web edition switches use a single host-owned transaction.
+# No image URL, instance ID, config path or shell fragment comes from the Web.
+cmd_web_switch() {
+  local target="${1:-}" old_edition old_pack old_image rollback_name had_container=false
+  case "$target" in
+    standard|research|research-economics) ;;
+    *) die "Web 版本切换仅支持 standard/research/research-economics。" ;;
+  esac
+  load_config
+  ensure_docker
+  [[ "$DSH_EDITION" != reverse && "${DSHD_REVERSE_MODE:-0}" != 1 ]] ||
+    die "Reverse 是独立实例，禁止从 Web 覆盖 Reverse。"
+  container_exists || die "Web 切换要求当前实例容器已安装；首次部署请使用 dshd install。"
+  ensure_rollback_slot_free || return 1
+  old_edition="$DSH_EDITION"; old_pack="$DSH_RESEARCH_PACK"; old_image="$DSH_IMAGE"
+  rollback_name="$(upgrade_rollback_name)"
+  had_container=true
+
+  case "$target" in
+    standard)
+      DSH_EDITION=standard; DSH_RESEARCH_PACK=none; DSH_IMAGE="$DEFAULT_IMAGE" ;;
+    research)
+      DSH_EDITION=research; DSH_RESEARCH_PACK=none; DSH_IMAGE="$RESEARCH_IMAGE" ;;
+    research-economics)
+      DSH_EDITION=research; DSH_RESEARCH_PACK=economics; DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE" ;;
+  esac
+
+  # The same edition may still use a custom or rollback-pinned image.
+  # Selecting an official edition must be able to leave that image behind.
+  if [[ "$DSH_EDITION" == "$old_edition" && "$DSH_RESEARCH_PACK" == "$old_pack" && "$DSH_IMAGE" == "$old_image" ]]; then
+    info "已是目标 Edition / Research Pack 的正式镜像，无需重建。"
+    return 0
+  fi
+  if ! pull_best_image; then
+    DSH_EDITION="$old_edition"; DSH_RESEARCH_PACK="$old_pack"; DSH_IMAGE="$old_image"
+    err "镜像拉取失败，配置和现有实例未修改。"
+    return 1
+  fi
+  if ! DSHD_SAFE_UPGRADE=1 create_container; then
+    DSH_EDITION="$old_edition"; DSH_RESEARCH_PACK="$old_pack"; DSH_IMAGE="$old_image"
+    err "切换失败，原配置未保存；请检查原实例是否健康。"
+    return 1
+  fi
+  if ! save_config; then
+    err "新镜像已启动，但配置保存失败；尝试恢复上一容器。"
+    if [[ "$had_container" == true ]]; then
+      restore_previous_dsh_container "$rollback_name" ||
+        warn "旧容器恢复失败，必须从终端手动检查 Docker 和配置。"
+    fi
+    DSH_EDITION="$old_edition"; DSH_RESEARCH_PACK="$old_pack"; DSH_IMAGE="$old_image"
+    return 1
+  fi
+  # Switching away from Research must not leave the old dashboard alive.
+  # Clean it up only AFTER the new Standard container is healthy and saved.
+  if [[ "$target" == standard ]] && dashboard_container_exists 2>/dev/null; then
+    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null ||
+      warn "无法清理旧 Research Dashboard；请从宿主机检查该 Sidecar。"
+  fi
+  finish_safe_upgrade
+  ok "Web 版本切换完成：$DSH_EDITION / $DSH_RESEARCH_PACK"
 }
 
 cmd_install() {
@@ -6191,7 +6259,7 @@ main() {
   esac
 
   case "$cmd" in
-    install|start|stop|restart|update|upgrade|rollback|recreate|config|edition|research-pack|pack|api|provider|hosts|trusted-hosts|admin-hosts|whale-admin-hosts|docker|docker-access|proxy|egress|sing-box|singbox|search|web-search|storage|data-storage|mounts|mount|persistent-mounts|dashboard|research-dashboard|env|environment|token|url|backup|restore|uninstall|remove)
+    install|start|stop|restart|update|upgrade|rollback|recreate|web-switch|config|edition|research-pack|pack|api|provider|hosts|trusted-hosts|admin-hosts|whale-admin-hosts|docker|docker-access|proxy|egress|sing-box|singbox|search|web-search|storage|data-storage|mounts|mount|persistent-mounts|dashboard|research-dashboard|env|environment|token|url|backup|restore|uninstall|remove)
       if command -v flock >/dev/null 2>&1; then
         ensure_state_dir
         exec 9>"$STATE_DIR/operation.lock"
@@ -6211,6 +6279,7 @@ main() {
     update|upgrade) cmd_update ;;
     rollback) shift; cmd_rollback "${1:-apply}" ;;
     recreate) cmd_recreate ;;
+    web-switch) shift; cmd_web_switch "${1:-}" ;;
     config) cmd_config ;;
     edition) shift; cmd_edition "${1:-show}" ;;
     reverse) shift; cmd_reverse_instance "${@:-status}" ;;

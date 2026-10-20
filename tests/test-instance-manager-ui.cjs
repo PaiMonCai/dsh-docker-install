@@ -114,8 +114,56 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 4)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 5)
   assert.equal(f.calls, 1)
+})
+
+test('edition selector is confirmed and disabled when an older worker lacks capabilities', async () => {
+  const f = harness()
+  f.data.status.instance.edition = 'research'
+  f.data.status.instance.researchPack = 'none'
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const legacy = nodes(tree, node => node.type === 'button' && text(node) === '切换 Standard')[0]
+  assert.ok(legacy?.props.disabled, 'new Web operations must be disabled against legacy workers')
+
+  f.data.status.management = { schema: 1, operations: ['edition-standard', 'edition-research', 'pack-economics'] }
+  await f.poll(3000)
+  tree = f.entry({ view: 'detail' })
+  const change = nodes(tree, node => node.type === 'button' && text(node) === '切换 Standard')[0]
+  assert.equal(change.props.disabled, false)
+  change.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /先拉取|下载并切换到 Standard/)
+  assert.match(text(tree), /确认切换 Standard/)
+})
+
+test('diagnostics shows nonsecret configuration and rejects unavailable dashboard controls', async () => {
+  const f = harness()
+  f.data.status.instance.edition = 'research'
+  f.data.status.instance.researchPack = 'economics'
+  f.data.status.instance.storageMode = 'bind'
+  f.data.status.instance.apiMode = 'custom'
+  f.data.status.instance.apiKeyConfigured = 'true'
+  f.data.status.instance.dockerAccess = 'false'
+  f.data.status.instance.dashboardPort = '8765'
+  f.data.status.dashboard = { running: false }
+  f.data.status.management = { schema: 1, operations: ['diagnose-environment', 'diagnose-storage', 'diagnose-plugins'] }
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const diagnosisTab = nodes(tree, n => n.props.role === 'tab' && text(n) === '配置与诊断')[0]
+  diagnosisTab.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /已配置（不显示明文）/)
+  assert.match(text(tree), /配置与诊断|持久化存储|内置插件/)
+  const diagnose = nodes(tree, n => n.type === 'button' && text(n) === '诊断内置插件')[0]
+  assert.equal(diagnose.props.disabled, false)
+  assert.ok(!text(tree).includes('sk-secret-value'))
+  const network = nodes(tree, n => n.props.role === 'tab' && text(n) === '国际网络')[0]
+  network.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  const start = nodes(tree, n => n.type === 'button' && text(n) === '启动 Dashboard')[0]
+  assert.ok(start.props.disabled, 'dashboard start is disabled when host did not allow it')
 })
 
 test('fresh page loads stay quiet even when an image update is available', async () => {

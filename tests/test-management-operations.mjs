@@ -20,7 +20,7 @@ test('the inventory has unique names and an explicit versioned shape', () => {
   assert.deepEqual(manifest.taskStates, ['queued', 'running', 'succeeded', 'failed', 'interrupted'])
   for (const item of manifest.operations) {
     assert.ok(['read', 'write', 'destructive'].includes(item.risk), item.id)
-    assert.ok(['版本与更新', '运行管理', '网络与服务'].includes(item.category), item.id)
+    assert.ok(['版本与更新', '运行管理', '网络与服务', '数据与维护'].includes(item.category), item.id)
     assert.equal(typeof item.confirmInWeb, 'boolean', item.id)
     assert.equal(Object.getPrototypeOf(item.exampleArguments), Object.prototype, item.id)
   }

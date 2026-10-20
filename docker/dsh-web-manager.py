@@ -23,6 +23,16 @@ ACTIONS = {
     "proxy-start": ["proxy", "enable"], "proxy-stop": ["proxy", "disable"],
     "proxy-restart": ["proxy", "reload"], "proxy-test": ["proxy", "test"],
     "proxy-test-all": ["proxy", "test-all"], "proxy-refresh": ["proxy", "refresh"],
+    # Edition changes are fixed targets, never arbitrary image URLs.
+    "edition-standard": ["web-switch", "standard"],
+    "edition-research": ["web-switch", "research"],
+    "pack-none": ["web-switch", "research"],
+    "pack-economics": ["web-switch", "research-economics"],
+    "diagnose-environment": ["env"],
+    "diagnose-storage": ["storage", "show"],
+    "diagnose-plugins": ["doctor", "plugins", "--json"],
+    "dashboard-start": ["dashboard", "start"],
+    "dashboard-stop": ["dashboard", "stop"],
 }
 
 # Phase 1: the host remains the authority. Expose only names that the
@@ -299,6 +309,15 @@ class Manager:
             snapshot["proxy"]["running"] = bool(proxy["State"]["Running"])
         except Exception:
             pass
+        # Dashboard is an optional research-only sidecar; never inspect arbitrary
+        # names supplied by Web or expose its filesystem paths.
+        snapshot["dashboard"] = {"running": False}
+        if description.get("edition") == "research":
+            try:
+                dashboard = self.inspect(description["name"] + "-dashboard")
+                snapshot["dashboard"]["running"] = bool(dashboard["State"]["Running"])
+            except Exception:
+                pass
         nodes = self.state / "proxy" / "nodes"
         if nodes.is_dir():
             snapshot["proxy"]["nodes"] = sorted(p.stem for p in nodes.glob("*.json")

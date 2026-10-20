@@ -11,6 +11,8 @@
 
 新宿主机在状态快照中公布 `management.schema` 和 `management.operations`，以便 Web 禁用宿主机尚不支持的操作；老宿主机没有该字段时仍沿用原有双端白名单和拒绝行为。该字段是只读能力摘要，**不是可以由 Web 编辑的授权表**。
 
+第二批已增加固定 Edition / Research Pack 切换、Research Dashboard 启停、配置摘要以及开发环境/存储/插件诊断。新增操作仅对声明相应能力的宿主机开放，详见 [Web 迁移第二批](web-management-phase2.md)。
+
 ## 当前能力
 
 - 运行状态、健康检查、当前镜像版本和最近运行日志。

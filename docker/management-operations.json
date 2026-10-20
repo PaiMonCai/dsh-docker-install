@@ -1,7 +1,7 @@
 {
   "schema": "dsh-web-management-operations/v1",
   "version": 1,
-  "description": "Phase 1 audit contract. The host executor remains the runtime authority; CI asserts this inventory equals both allowlists.",
+  "description": "Phase 2 audited contract: current fixed Web operations; host executor is the final authority, CI verifies both allowlists.",
   "taskStates": [
     "queued",
     "running",
@@ -131,6 +131,69 @@
         "url": "https://example.com/list"
       },
       "confirmInWeb": false
+    },
+    {
+      "id": "edition-standard",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "edition-research",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "pack-none",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "pack-economics",
+      "category": "版本与更新",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "diagnose-environment",
+      "category": "运行管理",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "diagnose-storage",
+      "category": "数据与维护",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "diagnose-plugins",
+      "category": "数据与维护",
+      "risk": "read",
+      "exampleArguments": {},
+      "confirmInWeb": false
+    },
+    {
+      "id": "dashboard-start",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "dashboard-stop",
+      "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
     }
   ]
 }
