@@ -25,7 +25,6 @@
 | [提示词与执行设置](prompt-manager.md) | 附加指令、工作区 `DSH_PROMPT.md`、会话审批/沙箱和工具禁用名单 |
 | [Web Search](web-search.md) | 官方搜索 / SearXNG 切换、保存并应用、Brave 备用及预算 |
 | [Icon Dock](icon-dock.md) | 快捷栏布局、排序/隐藏、原生导航与扩展接口 |
-| [billion-context 域名管理页](billion-context-domain-ui.md) | 已安装第三方插件的同源桥接与排障 |
 | [插件诊断](plugin-diagnostics.md) | 内置插件加载自检、认证 API 与 Chromium E2E |
 
 ## Research 与 Reverse
