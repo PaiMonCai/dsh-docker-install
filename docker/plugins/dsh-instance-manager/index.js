@@ -337,19 +337,9 @@ async function uploadBackup(req, name) {
     throw error
   }
   await file.close()
-  const destination = transferLocation(name)
-  try {
-    // The ID was a fresh UUID, but still refuse clobber if it already exists.
-    const existing = await lstat(destination).catch(error => {
-      if (error.code === 'ENOENT') return null
-      throw error
-    })
-    if (existing) refuse(409, 'duplicate-backup-file')
-    await import('node:fs/promises').then(fs => fs.rename(temporary, destination))
-  } catch (error) {
-    await unlink(temporary).catch(() => {})
-    throw error
-  }
+  // Hard link publishes atomically without overwriting an existing file.
+  try { await link(temporary, transferLocation(name)) }
+  finally { await unlink(temporary).catch(() => {}) }
   return { file: name, size }
 }
 
