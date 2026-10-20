@@ -481,3 +481,10 @@ Web 任务执行策略统一在 `web/execution-policy.mjs`：默认拒绝，只�
 新任务在原有 `.reverse-tasks/<uuid>.json` 中记录至多 24 条脱敏的状态迁移事件，包含时间、动作和状态；不复制工具输出、样本路径、参数或凭证。旧记录不填充虚假的历史。Web 可通过 `workbenchTaskAudit` 只读查看任务状态轨迹；**这不是防篡改安全审计，也不是逆向结论的真伪证明**。新增 `workbenchQueueStatus` 供工作台显示队列积压情况。
 
 有 `case_id` 的任务在 Web 执行及显式恢复时，必须属于当前项目已关联的 Case。其他项目即使关联了任务 UUID，也不能借恢复界面将它转为可执行。未改变原有 Python CLI 的授权边界，亦没有接管 Agent 直接使用 Bash 和 REA MCP 的权限。
+
+## 上下文压缩
+
+逆向工程和报告解读两个自定义 preset 默认由 Standard 基础镜像内置的 host 级压缩补丁覆盖，
+无需在 `reverse/cordis.patch.yml` 中复制局部 compaction group，也不会写入用户持久 profile。
+遇到上游 bili 网关 `422`、不合理的模型输出预留或局部监听器冲突，请参阅
+[部署文档中的上下文压缩说明](deployment.md#web-agent-的原生上下文压缩)。
