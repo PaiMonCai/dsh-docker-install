@@ -408,7 +408,7 @@ test('backup page supports archive selection, upload and typed new-instance conf
   assert.equal(start.props.disabled, false)
   start.props.onClick()
   tree = f.entry({ view: 'detail' })
-  assert.match(text(tree), /确认操作 · 导入新实例/)
+  assert.match(text(tree), /确认操作 ·\s+导入新实例/)
   const confirm = nodes(tree, n => n.type === 'button' && text(n).includes('确认导入新实例'))[0]
   assert.equal(confirm.props.disabled, true, 'must type exact target ID')
   nodes(tree, n => n.props['aria-label'] === '输入新实例 ID 确认导入')[0]
