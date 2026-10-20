@@ -12,6 +12,8 @@ test('native transaction suite is executed inside the packaged DSH build',()=>{
  assert.match(smoke,/ControlledAdapter extends LlmAdapter/)
  assert.match(smoke,/NATIVE_TIERED_SUCCESS/)
  assert.match(smoke,/NATIVE_TIERED_FAIL_CLOSED/)
+ assert.match(docker,/test-context-manager-external-preflight.mjs/)
+ assert.match(read('tests/test-context-manager-external-preflight.mjs'),/BILI_CONFLICT_GATE_PASS/)
 })
 test('live takeover remains disabled in production default and only a single Standard preset is targeted',()=>{
  const code=read('docker/plugins/dsh-context-manager/takeover.mjs')

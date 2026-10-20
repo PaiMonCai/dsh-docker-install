@@ -10,7 +10,7 @@ export const MANUAL='@deepseek-ai/dsh-command-compact'
 export const TIERED='/opt/dsh/plugins/dsh-context-manager/tiered-native.js'
 export const GATE='dshContextTieredPolicy'
 const PRESET_PACKAGE='@deepseek-ai/dsh-agent-preset'
-const BILI=new Set(['billion-context','bili-native'])
+const BILI_NAME=/(?:billion-context|(?:^|[\\/])bili-native)(?:$|[\\/])/i
 const ALLOWED_PRESET='standard'
 function safeRows(rows,depth=0) {
   if(depth>20||!Array.isArray(rows)||rows.length>2048)
@@ -30,7 +30,7 @@ function checkAndReplace(rows,policy,observed,depth=0) {
           modelPolicies: policy.modelPolicies??[]}}
     }
     if(name===MANUAL&&!disabled)observed.manual++
-    if(BILI.has(name)&&!disabled)observed.external++
+    if(typeof name==='string'&&BILI_NAME.test(name)&&!disabled)observed.external++
     if(name===TIERED&&!disabled)observed.tiered++
     if(Array.isArray(row.config)&&row.group===true)
       return {...row,config:checkAndReplace(row.config,policy,observed,depth+1)}

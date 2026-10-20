@@ -36,6 +36,10 @@ test('refuses duplicate Basic, competing external bili, absent /compact, preexis
  assert.throws(()=>replacePresetCompactor(both,selected()),/precondition/)
  const external=native(); external.plugins[0].config.push({name:'bili-native'})
  assert.throws(()=>replacePresetCompactor(external,selected()),/precondition/)
+ const scoped=native(); scoped.plugins[0].config.push({name:'@ranxianglei/billion-context'})
+ assert.throws(()=>replacePresetCompactor(scoped,selected()),/precondition/)
+ const pathBased=native(); pathBased.plugins[0].config.push({name:'/opt/dsh/plugins/bili-native'})
+ assert.throws(()=>replacePresetCompactor(pathBased,selected()),/precondition/)
  const noManual=native(); noManual.plugins[0].config.splice(1,1)
  assert.throws(()=>replacePresetCompactor(noManual,selected()),/precondition/)
  const preexisting=native();preexisting.plugins[0].config[0].name=TIERED
