@@ -53,8 +53,11 @@ export function replacePresetCompactor(preset,settings,target=ALLOWED_PRESET) {
     if(row.engine&&row.engine!=='inherit'&&row.engine!=='tiered')
       throw Error('model engine override unsupported in tiered pilot')
   }
+  const modelPolicies=settings.modelPolicies.map(row=>({
+    provider:row.provider,model:row.model,...(row.basic??{}),
+  }))
   const seen={basic:0,manual:0,external:0,tiered:0}
-  const plugins=checkAndReplace(preset.plugins,{basic:desired.basic},seen)
+  const plugins=checkAndReplace(preset.plugins,{basic:desired.basic,modelPolicies},seen)
   if(seen.external||seen.tiered||seen.basic!==1||seen.manual!==1)
     throw Error('single-owner native compaction precondition failed')
   return {changed:true,config:{...preset,plugins},

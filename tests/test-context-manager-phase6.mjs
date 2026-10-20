@@ -23,6 +23,14 @@ test('single owner replaces exact basic backend and retains manual /compact and 
  assert.equal(rows[1].name,'@deepseek-ai/dsh-command-compact')
  assert.deepEqual(src,before)
 })
+test('model-specific native threshold overrides are applied without a second service',()=>{
+ const s=selected()
+ s.modelPolicies=[{provider:'provider1',model:'model1',basic:{thresholdRatio:.65,retainRatio:.1}}]
+ const result=replacePresetCompactor(native(),s)
+ const config=result.config.plugins[0].config[0].config
+ assert.deepEqual(config.modelPolicies,[{provider:'provider1',model:'model1',thresholdRatio:.65,retainRatio:.1}])
+ assert.equal(config.thresholdRatio,.75)
+})
 test('refuses duplicate Basic, competing external bili, absent /compact, preexisting tiered',()=>{
  const both=native(); both.plugins[0].config.push({id:'other',name:BASIC})
  assert.throws(()=>replacePresetCompactor(both,selected()),/precondition/)
