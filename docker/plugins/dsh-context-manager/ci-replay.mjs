@@ -25,6 +25,14 @@ export function installReplaySmoke(ctx) {
         running=true
         try {
           if(mode==='seed'){
+            // Agent presets may be registered after sessionController is mounted.
+            // Do not race session creation against the Reverse preset loader.
+            const registry=ctx.get?.('agentPresets')
+            const rows=typeof registry?.list==='function' ? await registry.list() : []
+            if(!rows.some(row=>row.id===preset && !row.broken)) {
+              if(++attempts<70)return
+              throw Error('native CI replay preset unavailable')
+            }
             const created=await c.sessionController.create({cwd:process.cwd(),agentPreset:preset})
             const sessionId=created?.sessionId
             if(!isSafeId(sessionId))throw Error('invalid created native session id')
