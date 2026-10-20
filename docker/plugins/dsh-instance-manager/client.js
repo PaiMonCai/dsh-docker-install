@@ -640,7 +640,7 @@ window.__ModuleLoader__.load({
                   h('input', { type: 'file', accept: '.dshbak', 'aria-label': '选择本地完整备份文件',
                     onChange: event => { setUpload(event.target.files?.[0] || null); setUploadMessage('') } })),
                 h('div', { className: 'dm-actions', style: { alignItems: 'end' } },
-                  h('button', { type: 'button', disabled: !enabled || uploading || !upload,
+                  h('button', { type: 'button', disabled: !enabled || !supports('backup-import') || uploading || !upload,
                     onClick: () => void uploadArchive() }, uploading ? '上传中…' : '上传到服务器')),
                 uploadMessage && h('p', { className: 'dm-muted dm-wide', role: 'status' }, uploadMessage),
                 h('label', null, '待恢复归档',
