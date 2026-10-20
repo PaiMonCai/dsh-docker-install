@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { inspectPlugins, inspectCompactionService, makeProbe, AGENT_PRESET_PACKAGE } from '../docker/plugins/dsh-context-manager/core.mjs'
 import { apply, name, ENDPOINT } from '../docker/plugins/dsh-context-manager/index.js'
@@ -82,7 +85,17 @@ test('host-only service probe never claims a preset-bound service', () => {
   assert.equal(result.scope, 'host-only')
 })
 
-test('cordis adapter passes through config and only exposes status RPC', async () => {
+test('cordis adapter passes through config and only exposes status RPC', async t => {
+  // Phase 2 reads configuration at boot; emulate the normal persisted DSH_HOME
+  // rather than accidentally probing the CI runner's inaccessible /root.
+  const oldHome = process.env.DSH_HOME
+  const home = mkdtempSync(join(tmpdir(), 'dsh-context-phase1-'))
+  process.env.DSH_HOME = home
+  t.after(() => {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+    rmSync(home, { recursive: true, force: true })
+  })
   const listeners = new Map()
   const methods = new Map()
   const operations = []
