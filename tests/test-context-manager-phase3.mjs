@@ -42,7 +42,7 @@ test('tier prompt preserves essential task state, rejects missing ordered headin
     const prompt=buildTierPrompt(tier)
     assert.match(prompt,/constraints/i)
     assert.match(prompt,/Do not execute any tools/)
-    assert.match(prompt,/not invent/)
+    assert.match(prompt,/never invent/i)
     const summary=quality(tier)
     assert.equal(verifyTierSummary(summary,tier).tier,tier)
     assert.throws(()=>verifyTierSummary(summary,'T1'===tier?'T2':'T1'),/quality gate/)
