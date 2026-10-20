@@ -27,6 +27,14 @@ window.__ModuleLoader__.load({
           h('div', null, '观察到的 Agent Preset 配置：' + result.hooks.presetConfigsObserved),
           h('div', null, '观察到的压缩事件：' + result.hooks.sessionEventsObserved),
           h('div', null, '宿主压缩服务：' + (result.hostCompaction.available ? '可见' : '未见到；可能在 Agent 内部作用域')),
+          h('div', null, '官方 Agent 运行时清单：' +
+            (result.nativePresets?.available ? result.nativePresets.count + ' 个预设' : '暂不可用')),
+          ...(result.nativePresets?.presets || []).map((preset, i) =>
+            h('div', { key: preset.id + i, style: { padding: '7px 0', borderTop: '1px solid var(--dsw-alias-border-l2)', display: 'grid', gap: 3 } },
+              h('strong', null, preset.id),
+              h('span', null, '状态：' + (preset.mounted ? '已挂载' : '仅声明') + '；预设级压缩：' + preset.ownership),
+              h('span', null, '原生压缩 ' + preset.basic.active + '/' + preset.basic.configured
+                + ' 已运行/已配置；外部插件 ' + preset.external.active + '/' + preset.external.configured))),
           ...(result.warnings || []).map((warning, i) =>
             h('p', { key: i, role: 'status', style: { color: 'var(--dsw-alias-label-secondary)', margin: 0, overflowWrap: 'anywhere' } }, warning)))
           : h('p', null, '正在读取兼容性状态…'))

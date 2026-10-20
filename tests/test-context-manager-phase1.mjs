@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { inspectPlugins, inspectCompactionService, makeProbe, AGENT_PRESET_PACKAGE } from '../docker/plugins/dsh-context-manager/core.mjs'
 import { apply, name, ENDPOINT } from '../docker/plugins/dsh-context-manager/index.js'
+import { projectCompositions, inspectRuntimePresets } from '../docker/plugins/dsh-context-manager/native-inventory.mjs'
 
 const text = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8')
 
@@ -109,6 +110,7 @@ test('cordis adapter passes through config and only exposes status RPC', async (
   assert.equal(status.value.presets.length, 1)
   assert.equal(status.value.events['compaction/start'], 1)
   assert.equal(status.value.engine, 'not-installed')
+  assert.equal(status.value.nativePresets.available, false)
   assert.deepEqual(await rpc('save', {}), {
     ok: false, error: { code: 'invalid_request', message: 'phase 1 is read-only' },
   })
@@ -145,4 +147,56 @@ test('read-only DSH client registers its own settings slot without mutating conf
     } } })
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0], ['/dsh-docker-context-manager', 'status', {}])
+})
+
+test('official runtime composition distinguishes active vs merely declared compaction', async () => {
+  const rows = [
+    { id: 'standard', rows: [
+      { moduleName: '@deepseek-ai/dsh-compaction-basic', enabled: true, fiberState: 2 },
+      { moduleName: '@deepseek-ai/dsh-command-compact', enabled: true, fiberState: 2 },
+      { moduleName: '@deepseek-ai/dsh-compaction-tool-result-pruner', enabled: true, fiberState: 0 },
+    ] },
+    { id: 'reverse-engineering', rows: [
+      { moduleName: '@deepseek-ai/dsh-tool-bash', enabled: true, fiberState: 2 },
+    ] },
+    { id: 'reverse-report-reader', rows: [
+      { moduleName: 'billion-context', enabled: true },
+      { moduleName: '@deepseek-ai/dsh-compaction-basic', enabled: true, fiberState: 2 },
+    ] },
+  ]
+  const original = structuredClone(rows)
+  const inventory = await inspectRuntimePresets({
+    get: key => key === 'agentPresets' ? { compositionInventory: async () => rows } : undefined,
+  })
+  assert.equal(inventory.available, true)
+  assert.equal(inventory.presets[0].ownership, 'preset-native-active')
+  assert.equal(inventory.presets[0].manual.active, 1)
+  assert.equal(inventory.presets[1].ownership, 'no-preset-compaction')
+  assert.equal(inventory.presets[1].mounted, true)
+  assert.equal(inventory.presets[2].ownership, 'conflict-risk')
+  assert.equal(inventory.presets[2].external.active, 0)
+  assert.equal(inventory.scope, 'preset-only')
+  assert.deepEqual(rows, original)
+})
+
+test('runtime inventory rejects unknown state and never exposes arbitrary descriptions', () => {
+  const secret = 'SECRETDATA123456'
+  const items = projectCompositions([
+    { id: 'standard', name: secret, description: secret, rows: [
+      { moduleName: secret, enabled: true, fiberState: 2, condition: secret, config: { key: secret } },
+      { moduleName: '@deepseek-ai/dsh-compaction-basic', enabled: 'conditional', condition: secret },
+    ] },
+    { id: secret + '/', broken: secret, rows: [] },
+  ])
+  assert.equal(items[0].ownership, 'unverified-conditional')
+  assert.equal(items[1].id, 'unknown')
+  assert.equal(items[1].ownership, 'preset-broken')
+  assert.ok(!JSON.stringify(items).includes(secret))
+  assert.deepEqual(projectCompositions(new Array(80).fill({ id: 'x', rows: [] })).length, 32)
+})
+
+test('missing official registry is explicitly unavailable, never inferred from static YAML', async () => {
+  const result = await inspectRuntimePresets({ get: () => undefined })
+  assert.equal(result.available, false)
+  assert.equal(result.reason, 'composition-inventory-unavailable')
 })

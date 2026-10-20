@@ -432,7 +432,9 @@ jobs:
           }
           trap cleanup EXIT
           docker volume create "$token_volume" >/dev/null
-          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 dsh-ci:pr
+          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 \\
+            -e DSH_CONTEXT_MANAGER_PROBE=true \\
+            -e DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=standard dsh-ci:pr
           mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
           mapped_port="${mapped_port##*:}"
           [[ "$mapped_port" =~ ^[0-9]+$ ]]
@@ -473,6 +475,20 @@ jobs:
             exit 1
           fi
           echo "DSH Docker healthcheck reports healthy"
+          # The opt-in plugin must execute inside the *running* image, not merely
+          # show up in --dump-config. It does not create or alter sessions.
+          context_ready=""
+          for _ in {1..50}; do
+            context_ready="$(docker logs "$name" 2>&1 | grep 'DSH_CONTEXT_MANAGER_CI_READY' | tail -1 || true)"
+            [[ -n "$context_ready" ]] && break
+            sleep 1
+          done
+          if [[ -z "$context_ready" ]]; then
+            echo "::error::Standard context manager failed to inspect official runtime preset inventory"
+            docker logs "$name" | tail -100
+            exit 1
+          fi
+          echo "$context_ready"
 
           # Native bundled Web plugins must be loaded from the immutable
           # image patch files, not Profile dependencies or pnpm state.

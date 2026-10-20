@@ -255,6 +255,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-context-manager/index.js \
  && node --check /opt/dsh/plugins/dsh-context-manager/core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/native-inventory.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \

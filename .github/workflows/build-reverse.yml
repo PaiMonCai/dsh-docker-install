@@ -411,6 +411,19 @@ jobs:
               docker logs "$name"; exit 1
             fi
             if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_SESSION_CREATED"; then
+              context_ready=""
+              for probe_attempt in {1..65}; do
+                context_ready="$(docker logs "$name" 2>&1 | grep 'DSH_CONTEXT_MANAGER_CI_READY' | tail -1 || true)"
+                [[ -n "$context_ready" ]] && break
+                if docker logs "$name" 2>&1 | grep -Fq 'DSH_CONTEXT_MANAGER_CI_FAILED'; then break; fi
+                sleep 1
+              done
+              if [[ -z "$context_ready" ]]; then
+                docker logs "$name"
+                echo "::error::Reverse context manager could not inspect both runtime preset compositions"
+                exit 1
+              fi
+              echo "$context_ready"
               for health_attempt in {1..70}; do
                 health="$(docker inspect --format '{{.State.Health.Status}}' "$name")"
                 [[ "$health" == healthy ]] && break

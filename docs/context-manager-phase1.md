@@ -15,6 +15,24 @@ If the Agent-preset config hook ran *before* this plugin loaded, the panel
 reports `preset-overlay-not-observed`; no coverage is inferred. The service
 probe can only see the host context; it cannot certify per-Agent scopes.
 
+The plugin also reads DSH's official `agentPresets.compositionInventory()`
+on each RPC request to inspect **per-preset declared and active-Fiber plugin
+entries**. The resulting `nativePresets` summary reports `declared` versus
+`mounted`, with sanitized compaction-related counts only. No arbitrary
+module names, conditions, user paths or prompt text are returned. A preset
+with no local compaction is reported as `no-preset-compaction`, which does
+**not** prove a global host fallback is absent. `external-plugin-active-unverified`
+does not prove the bili proxy actually owns model traffic. The legacy
+`internal/config` observation is retained as an optional diagnostic, not
+the source of truth.
+
+In CI, set `DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=standard` (Standard) or
+`reverse-engineering,reverse-report-reader` (Reverse). Once the live
+composition inventory includes the expected IDs, the plugin emits one
+`DSH_CONTEXT_MANAGER_CI_READY` marker. Reverse's separate session creation
+smoke verifies the agents actually mount. The marker deliberately does not
+claim the compaction backend is unique or functioning.
+
 The RPC command is `/dsh-docker-context-manager` / `status`; writes are rejected.
 No conversation content, session IDs, tool arguments, API credentials or user
 prompts are collected or returned. Event counters include only the known
@@ -29,6 +47,9 @@ Upstream DSH exposes `CompactionEngine` with `compactIfNeeded`,
 `compaction/prune` events. Official `BasicCompactionEngine` subscribes to
 `agent/pre-step`, `agent/request-error`, `agent/status` and `session/event`.
 The `command-compact` package depends on the `compaction` service.
+
+This PR also runs a Web process with `DSH_CONTEXT_MANAGER_PROBE=true`
+and checks that `DSH_CONTEXT_MANAGER_CI_READY` was emitted.
 
 The Phase 1 tests validate the probe's **non-mutating** behavior, bounded
 telemetry, plugin wiring and container build-time `--dump-config` recognition.
