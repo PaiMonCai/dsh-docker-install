@@ -114,7 +114,7 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 4)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 5)
   assert.equal(f.calls, 1)
 })
 
