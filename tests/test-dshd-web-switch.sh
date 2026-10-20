@@ -15,16 +15,16 @@ upgrade_rollback_name() { printf '%s\n' 'dsh-test-rollback'; }
 restore_previous_dsh_container() { [[ "$1" == dsh-test-rollback ]]; restored=1; }
 finish_safe_upgrade() { cleaned=$((cleaned + 1)); }
 pull_best_image() {
-  if [[ "\${FAIL_PULL:-0}" == 1 ]]; then return 1; fi
+  if [[ "${FAIL_PULL:-0}" == 1 ]]; then return 1; fi
   DSH_IMAGE="fixture-$DSH_EDITION-$DSH_RESEARCH_PACK"
 }
 create_container() {
-  [[ "\${DSHD_SAFE_UPGRADE:-0}" == 1 ]] || return 1
+  [[ "${DSHD_SAFE_UPGRADE:-0}" == 1 ]] || return 1
   created=$((created + 1))
-  [[ "\${FAIL_CREATE:-0}" != 1 ]]
+  [[ "${FAIL_CREATE:-0}" != 1 ]]
 }
 save_config() {
-  [[ "\${FAIL_SAVE:-0}" != 1 ]] || return 1
+  [[ "${FAIL_SAVE:-0}" != 1 ]] || return 1
   saved=$((saved + 1))
 }
 created=0 saved=0 cleaned=0 restored=0
