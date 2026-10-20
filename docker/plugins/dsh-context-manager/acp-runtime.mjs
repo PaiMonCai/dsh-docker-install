@@ -267,6 +267,13 @@ export class AcpRuntime {
       this.appendRecord(session,STATE_EVENT,durableJson({
         version:1,state:nextState,checkpoints:currentCheckpoints,lastResult,
       }))
+      // ACK is not durable until the native Session Store confirms its
+      // persistence hooks have settled. This flush covers the prior native
+      // compaction transaction AND our ACP state plugin record.
+      if(this.flushIntent){
+        const persisted=await this.flushIntent(session)
+        if(persisted!==true)throw Error('native ACP state commit lacks durable persistence listener')
+      }
       current.row.state=nextState
       current.row.checkpoints=currentCheckpoints
       current.row.settled=lastResult
