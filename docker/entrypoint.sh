@@ -120,7 +120,6 @@ run_web() {
     [[ -f "$BIND_PATCH" ]] || { log "缺少 Web bind 补丁：$BIND_PATCH"; return 1; }
     append_native_web_patch "/opt/dsh/plugins/dsh-reasoning-editor/cordis.patch.yml" "${DSH_REASONING_EDITOR:-true}" "推理等级编辑器"
     append_native_web_patch "/opt/dsh/plugins/dsh-icon-dock/cordis.patch.yml" "${DSH_ICON_DOCK_ENABLED:-true}" "Icon Dock"
-    append_native_web_patch "/opt/dsh/plugins/dsh-bili-ui-bridge/cordis.patch.yml" "${DSH_BILI_UI_BRIDGE:-true}" "billion-context 域名管理页"
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
     append_native_web_patch "/opt/dsh/plugins/dsh-instance-manager/cordis.patch.yml" "${DSH_INSTANCE_MANAGER:-true}" "实例管理"
     append_native_web_patch "/opt/dsh/plugins/dsh-prompt-manager/cordis.patch.yml" "${DSH_PROMPT_MANAGER:-true}" "提示词与执行"
@@ -154,12 +153,6 @@ run_web() {
     # Migrate only legacy bundled plugin selections; dependencies, third-party
     # selection and pnpm-lock.yaml stay untouched, with a manifest backup.
     prepare_native_web_plugins
-    # Bundle upgrades are installed in DSH_HOME; make only the known native
-    # billion-context UI use the authenticated DSH same-origin route.
-    # A failed adapter leaves DSH usable but logs an explicit warning.
-    if ! node /usr/local/bin/patch-bili-client-ui.js; then
-        log "警告：billion-context 域名 UI 修复未生效；可查看插件安装版本或禁用 DSH_BILI_UI_BRIDGE"
-    fi
     # No more launcher flags after here: --no-open, --port, and --trusted-host
     # all belong to the Web application rather than the top-level DSH CLI.
     args+=(--no-open)
