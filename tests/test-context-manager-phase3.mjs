@@ -144,3 +144,16 @@ test('quality gate fails closed without modifying Session on invalid model outpu
   await assert.rejects(()=>e.summarize({messages:[text('Hi')]},agent),/quality gate/)
   assert.equal(wrote,false)
 })
+
+test('production Cordis overlay excludes the candidate backend and keeps the opt-in ownership gate', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const { dirname, resolve } = await import('node:path')
+  const root=resolve(dirname(fileURLToPath(import.meta.url)),'..')
+  const patch=readFileSync(resolve(root,'docker/plugins/dsh-context-manager/cordis.patch.yml'),'utf8')
+  const launch=readFileSync(resolve(root,'docker/entrypoint.sh'),'utf8')
+  const backend=readFileSync(resolve(root,'docker/plugins/dsh-context-manager/tiered-backend.mjs'),'utf8')
+  assert.equal(patch.includes('tiered-native'),false)
+  assert.equal(launch.includes('tiered-native'),false)
+  assert.match(backend,/TIERED_OWNER_TESTED/)
+})
