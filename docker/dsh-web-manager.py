@@ -4,6 +4,7 @@ import argparse
 from collections import deque
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,9 @@ import time
 import uuid
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+BACKUP_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak\Z")
+NEW_INSTANCE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+MAX_WEB_ARCHIVE = 1024 * 1024 * 1024  # 1 GiB upload cap
 JOB = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 ACTIONS = {
     "check": [], "update": ["update"], "restart": ["restart"],
@@ -33,12 +37,15 @@ ACTIONS = {
     "diagnose-plugins": ["doctor", "plugins", "--json"],
     "dashboard-start": ["dashboard", "start"],
     "dashboard-stop": ["dashboard", "stop"],
+    "backup-export": ["backup", "export"],
+    "backup-auto-off": ["backup", "auto", "off"],
 }
 
 # Phase 1: the host remains the authority. Expose only names that the
 # executor actually knows; this is metadata, not an executable command list.
 OPERATION_CONTRACT_VERSION = 1
-SUPPORTED_OPERATIONS = tuple(sorted((*ACTIONS, "settings", "proxy-use", "proxy-add", "proxy-subscribe")))
+SUPPORTED_OPERATIONS = tuple(sorted((*ACTIONS, "settings", "proxy-use", "proxy-add", "proxy-subscribe",
+                                     "backup-verify", "backup-import", "backup-auto-on")))
 
 
 def now():
@@ -98,6 +105,12 @@ def command_for(action, arguments):
         if not isinstance(url, str) or len(url) > 8192 or re.search(r"[\x00-\x20\x7f]", url) or not re.match(schemes, url):
             raise ValueError("invalid proxy address")
         return ["proxy", "subscribe" if action == "proxy-subscribe" else "add", name, url]
+    if action == "backup-verify" and set(arguments) == {"file"} and isinstance(arguments["file"], str) and BACKUP_FILE.fullmatch(arguments["file"]):
+        return ["backup", "verify", arguments["file"]]
+    if action == "backup-import" and set(arguments) == {"file", "instance"} and isinstance(arguments["file"], str) and BACKUP_FILE.fullmatch(arguments["file"]) and isinstance(arguments["instance"], str) and NEW_INSTANCE.fullmatch(arguments["instance"]) and arguments["instance"] != "default":
+        return ["backup", "import", arguments["file"], arguments["instance"]]
+    if action == "backup-auto-on" and set(arguments) == {"cadence", "keep"} and arguments["cadence"] in ("daily", "weekly") and type(arguments["keep"]) is int and 1 <= arguments["keep"] <= 90:
+        return ["backup", "auto", "on", arguments["cadence"], str(arguments["keep"])]
     raise ValueError("unsupported operation")
 
 
