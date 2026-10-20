@@ -74,7 +74,7 @@ export function createTakeoverPolicy(env=process.env,settings) {
   const active=env.DSH_CONTEXT_MANAGER_TIERED_ACTIVE==='1'
   const acp=env.DSH_CONTEXT_MANAGER_ACP_ACTIVE==='1'
   if(acp&&!active)throw Error('native ACP requires the explicit tiered single-owner pilot')
-  if(!active)return {active:false,acp:false,reason:'disabled'}
+  if(!active)return {active:false,reason:'disabled'}
   if(env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1'
     ||env.DSH_CONTEXT_MANAGER_NO_EXTERNAL_PROXY!=='1')
     throw Error('tiered pilot requires owner and external-proxy attestations')
