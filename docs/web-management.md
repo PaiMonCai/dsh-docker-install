@@ -5,6 +5,12 @@
 开启 Agent 的 Docker 项目管理权限。
 插件列表仅显示摘要，点击进入详情后才加载管理面板。
 
+## 迁移与操作契约
+
+终端六分类菜单的 Web 迁移边界、40 项功能清单及逐批验收要求见 [终端 → Web 管理迁移](web-management-migration.md)。当前 Web 支持的 16 种任务名称固定在 [`docker/management-operations.json`](../docker/management-operations.json)，由 CI 校验 Node 接口与 Python 宿主机执行器的白名单一致。
+
+新宿主机在状态快照中公布 `management.schema` 和 `management.operations`，以便 Web 禁用宿主机尚不支持的操作；老宿主机没有该字段时仍沿用原有双端白名单和拒绝行为。该字段是只读能力摘要，**不是可以由 Web 编辑的授权表**。
+
 ## 当前能力
 
 - 运行状态、健康检查、当前镜像版本和最近运行日志。
