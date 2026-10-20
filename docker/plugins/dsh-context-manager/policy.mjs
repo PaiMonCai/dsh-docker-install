@@ -29,7 +29,8 @@ function engine(value, label, inherit = false) {
 }
 function identifier(value, label) {
   if (typeof value !== 'string' || value.length < 1 || value.length > 128
-    || !/^[A-Za-z0-9_.:/@+-]+$/.test(value)) throw Error('invalid ' + label)
+    || !/^[A-Za-z0-9_.:/@+-]+$/.test(value) || value.includes('..')
+    || value.startsWith('/')) throw Error('invalid ' + label)
   return value
 }
 export function validateBasic(value, partial = false) {
