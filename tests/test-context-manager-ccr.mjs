@@ -78,6 +78,19 @@ try{
  const settled=await invocation()
  assert.equal(settled.isError,false)
  assert.equal(settled.value,exact)
+ const diagOffload=await offloadCcr({name:'read_native_large',callId:'ccr-probe',agent},{
+   isError:false,content:[{type:'text',text:exact}]},{
+   appendRecord:sessions.appendPluginRecord,
+   flush:s=>ctx.sessions.flush(s),
+   logger:{warn:msg=>process.stdout.write('CCR_WARN '+String(msg)+'\\n')}
+ })
+ process.stdout.write('CCR_DIAGNOSTIC '+JSON.stringify({
+   settledLength:settled.content?.[0]?.text?.length,
+   firstContent:settled.content?.[0]?.text?.slice(0,100),
+   directOffload:diagOffload?.ref??null,
+   ccrEvents:live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT).length,
+   flush:await ctx.sessions.flush(live.session),
+ })+'\\n')
  assert.ok(settled.content[0].text.length<600)
  assert.match(settled.content[0].text,/ccr:/)
  const events=live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT)
