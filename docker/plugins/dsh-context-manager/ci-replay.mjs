@@ -17,7 +17,7 @@ export function installReplaySmoke(ctx) {
     throw Error('CI replay requires explicit isolated test-volume confirmation')
   const preset=process.env.DSH_CONTEXT_MANAGER_CI_REPLAY_PRESET||'standard'
   if(!isSafeId(preset))throw Error('invalid CI replay preset')
-  ctx.inject(['sessionController'], c=>{
+  ctx.inject(['sessionController', 'sessions'], c=>{
     c.effect(()=>{
       let running=false,complete=false,attempts=0
       const check=async()=>{
@@ -36,7 +36,7 @@ export function installReplaySmoke(ctx) {
             const created=await c.sessionController.create({cwd:process.cwd(),agentPreset:preset})
             const sessionId=created?.sessionId
             if(!isSafeId(sessionId))throw Error('invalid created native session id')
-            const session=ctx.sessions?.get(sessionId)
+            const session=c.sessions.get(sessionId)
             if(!session)throw Error('created session is not attached')
             const origin=session.append('user/message',{role:'user',
               source:{kind:'user'},content:[{type:'text',text:EVIDENCE}]},
@@ -59,7 +59,7 @@ export function installReplaySmoke(ctx) {
               sourceEventSeqs:[begin.seq,summary.seq,origin.seq],
             })
             session.append('compaction/end',{compactionId,turn:null})
-            await ctx.sessions.flush(session)
+            await c.sessions.flush(session)
             const inspection=await c.sessionController.inspect(sessionId)
             const index=indexCompactions(inspection)
             if(index.total!==1 || index.incomplete!==0 || index.rows[0].sourceCount!==1)
@@ -81,7 +81,7 @@ export function installReplaySmoke(ctx) {
             })
             if(!page?.items?.[0]?.text?.startsWith('CI context manager replay native log evidence'))
               throw Error('original source event lost across container recreate')
-            const cold=ctx.sessions?.get(sessionId)===undefined
+            const cold=c.sessions.get(sessionId)===undefined
             if(!cold)throw Error('replay unexpectedly activated live Agent')
             process.stdout.write(PREFIX+'VERIFIED '+sessionId+' cold=true\n')
           }
