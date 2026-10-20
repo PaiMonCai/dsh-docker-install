@@ -273,6 +273,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
 # Verify the real upstream /compact command dispatches to the unique service.
 COPY tests/test-context-manager-native-compact.mjs /opt/dsh/test-context-manager-native-compact.mjs
 RUN node /opt/dsh/test-context-manager-native-compact.mjs
+COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-manager-native-transaction.mjs
+RUN node /opt/dsh/test-context-manager-native-transaction.mjs
 
 # Import native summary candidate without mounting another compression owner.
 RUN node --input-type=module -e "const m = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof m.default !== 'function') throw Error('tiered backend export missing')"
