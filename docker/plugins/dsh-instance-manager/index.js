@@ -11,6 +11,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'cleanup',
   'proxy-start', 'proxy-stop', 'proxy-restart', 'proxy-test', 'proxy-test-all', 'proxy-refresh'])
+export const OPERATION_CONTRACT_VERSION = 1
+export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe'].sort())
 const busy = job => ['queued', 'running'].includes(job.state)
 const offline = status => {
   const age = Date.now() - Date.parse(status?.heartbeat)
@@ -107,6 +109,14 @@ export class HostBridge {
     const previous = snapshot.jobs.find(job => job.id === data.id)
     if (previous) return { id: previous.id, state: previous.state }
     if (!snapshot.online) refuse(503, 'host-executor-offline')
+    // Older workers publish no management metadata and retain the previous
+    // behavior. New workers advertise capabilities so Web cannot submit an
+    // operation the running host executable does not understand.
+    const management = snapshot.status?.management
+    if (management && (management.schema !== OPERATION_CONTRACT_VERSION
+      || !Array.isArray(management.operations) || !management.operations.includes(data.action))) {
+      refuse(503, 'host-operation-unavailable')
+    }
     if (snapshot.jobs.some(busy)) refuse(409, 'instance-busy')
     const destination = join(this.requests, data.id + '.json')
     const tmp = join(this.requests, '.' + randomUUID() + '.tmp')
