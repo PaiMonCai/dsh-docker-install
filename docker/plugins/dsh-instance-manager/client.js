@@ -26,25 +26,62 @@ window.__ModuleLoader__.load({
       'diagnose-plugins': '诊断内置插件', 'dashboard-start': '启动 Dashboard',
       'dashboard-stop': '停止 Dashboard', pending: '等待执行',
     }
+    // One navigation model for overlay, Plugin Hub embed and task deep-links.
+    const pages = [
+      { id: 'overview', label: '总览', description: '当前实例状态、健康检查与快捷操作', icon: '◫' },
+      { id: 'instances', label: '实例', description: '当前绑定实例与管理边界', icon: '▣' },
+      { id: 'versions', label: '版本与更新', description: '镜像检查、升级、回滚和 Edition', icon: '↻' },
+      { id: 'network', label: '网络与服务', description: 'sing-box、节点订阅与 Research Dashboard', icon: '◎' },
+      { id: 'diagnostics', label: '配置与诊断', description: '只读设置摘要与环境健康检查', icon: '⚙' },
+      { id: 'tasks', label: '任务记录', description: '执行进度、结果和历史任务', icon: '☷' },
+      { id: 'logs', label: '运行日志', description: '实时事件、级别过滤与自动重连', icon: '≡' },
+    ]
     const states = { queued: '等待执行', running: '正在执行', succeeded: '已完成', failed: '失败', interrupted: '执行中断' }
     const errors = {
       'instance-busy': '当前实例已有任务，请等待完成。',
       'host-executor-offline': '宿主机后台未连接，请使用 dshd web status 检查。',
       'management-unavailable': '管理数据暂不可用，请检查宿主机后台。',
       'host-operation-unavailable': '宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。',
+      'unsupported-operation': '此操作暂未被管理器授权。',
+      'invalid-arguments': '操作参数有误，请检查输入。',
+      'same-origin-request-required': '安全校验失败，请从当前 DSH 页面重新操作。',
     }
     const css = `
-      .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:#168577;color:inherit;font:inherit}
+      .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:var(--dsw-alias-brand-primary,#168577);--dm-soft:rgba(128,128,128,.075);color:inherit;font:inherit}
       .dsh-manage *{box-sizing:border-box}.dsh-manage button,.dsh-manage input,.dsh-manage select{font:inherit;color:inherit}
       .dsh-manage button{cursor:pointer;padding:8px 13px;border:1px solid var(--dm-line);border-radius:7px;background:transparent;line-height:1.5}
       .dsh-manage button:disabled{opacity:.45;cursor:default}.dsh-manage button:focus-visible,.dsh-manage input:focus-visible,.dsh-manage select:focus-visible{outline:2px solid var(--dm-accent);outline-offset:3px}
       .dsh-manage .dm-primary{background:var(--dm-accent);color:white;border-color:var(--dm-accent)}
       .dm-head{display:flex;align-items:flex-start;gap:12px;padding:23px 26px 18px;border-bottom:1px solid var(--dm-line)}.dm-head h2{font-size:21px;font-weight:650;margin:0}.dm-head p{color:var(--dm-muted);font-size:12px;margin:7px 0 0}
-      .dm-tabs{display:flex;gap:20px;padding:0 26px;border-bottom:1px solid var(--dm-line);overflow-x:auto;flex-shrink:0;white-space:nowrap}.dm-tabs button{border:0;border-radius:0;padding:13px 0;border-bottom:2px solid transparent}.dm-tabs button[aria-selected=true]{border-bottom-color:var(--dm-accent);color:var(--dm-accent)}
-      .dm-content{padding:22px 26px;overflow:auto;min-height:0;flex:1}.dm-content h3{font-size:15px;font-weight:650;margin:0 0 13px}
+      .dm-workspace{display:grid;grid-template-columns:196px minmax(0,1fr);min-height:0;flex:1}
+      .dm-tabs{display:flex;flex-direction:column;gap:4px;padding:15px 11px;border-right:1px solid var(--dm-line);min-width:0}
+      .dm-tabs button{display:flex;align-items:center;gap:10px;border:0;border-radius:8px;padding:10px 12px;text-align:left;font-size:13px;width:100%;white-space:nowrap}
+      .dm-tabs button[aria-selected=true]{background:var(--dm-soft);color:var(--dm-accent);font-weight:650}
+      .dm-tabs button:focus-visible{outline-offset:-2px}
+      .dm-nav-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;width:22px;height:22px;border-radius:6px;background:var(--dm-soft);font-size:14px}
+      .dm-main{display:flex;flex-direction:column;min-height:0;min-width:0}
+      .dm-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px}
+      .dm-page-head h3{margin:0;font-size:18px}.dm-page-head p{margin:5px 0 0}
+      .dm-statusbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px 18px;padding:10px 0;margin-bottom:16px;border-bottom:1px solid var(--dm-line);font-size:12px}
+      .dm-statusitem{display:inline-flex;align-items:center;gap:6px;color:var(--dm-muted)}
+      .dm-statusitem strong{color:inherit;font-weight:650}
+      .dm-task-jump{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 13px;background:var(--dm-soft);border-radius:9px;margin:0 0 15px;font-size:12px}
+      .dm-task-jump button{margin-left:auto;padding:5px 9px}
+      .dm-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:17px}
+      .dm-mini{min-width:0;padding:13px;border:1px solid var(--dm-line);border-radius:9px}
+      .dm-mini .dm-muted{margin-bottom:5px}.dm-mini strong{font-size:15px;overflow-wrap:anywhere}
+      .dm-empty{padding:23px 15px;text-align:center;border:1px dashed var(--dm-line);border-radius:9px;color:var(--dm-muted);font-size:13px}
+      .dm-confirm{padding:15px;border:1px solid var(--dm-line);border-radius:10px;margin-bottom:16px;background:var(--dm-soft)}
+      .dm-confirm h4{margin:0 0 8px;font-size:14px}.dm-confirm p{font-size:12px;line-height:1.7;margin:6px 0 10px}
+      .dm-confirm input{width:min(320px,100%);padding:8px 10px;border:1px solid var(--dm-line);border-radius:7px;background:transparent}
+      .dm-danger{border-color:rgba(190,100,65,.48)!important;color:#bb6943!important}
+      .dm-task-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 9px}
+      .dm-task-filter input,.dm-task-filter select{padding:8px 10px;border:1px solid var(--dm-line);border-radius:7px;background:transparent}
+      .dm-task-filter input{flex:1;min-width:150px}
+      .dm-content{padding:18px 24px;overflow:auto;min-height:0;flex:1}.dm-content h3{font-size:15px;font-weight:650;margin:0 0 13px}
       .dm-summary{display:flex;justify-content:space-between;gap:16px;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--dm-line);margin-bottom:20px}.dm-state{display:flex;align-items:center;gap:8px;font-size:17px}.dm-dot{width:9px;height:9px;background:var(--dm-accent);border-radius:50%}.dm-dot[data-online=false]{background:#b47f32}
       .dm-muted{color:var(--dm-muted);font-size:12px;line-height:1.7}.dm-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px 16px;font-size:13px;margin:16px 0 23px}.dm-grid dt{color:var(--dm-muted)}.dm-grid dd{margin:0;overflow-wrap:anywhere}
-      .dm-actions{display:flex;gap:9px;flex-wrap:wrap}.dm-section{margin:0 0 25px}.dm-section+.dm-section{padding-top:22px;border-top:1px solid var(--dm-line)}
+      .dm-actions{display:flex;gap:9px;flex-wrap:wrap}.dm-section{margin:0 0 20px}.dm-section+.dm-section{padding-top:18px;border-top:1px solid var(--dm-line)}
       .dm-banner{font-size:13px;padding:13px 15px;line-height:1.7;background:rgba(128,128,128,.08);border-left:3px solid var(--dm-accent);margin-bottom:18px;overflow-wrap:anywhere}.dm-banner[data-error=true]{border-left-color:#bc6b42}
       .dm-inputs{display:grid;grid-template-columns:1fr 1fr;gap:13px}.dm-inputs label{display:flex;flex-direction:column;gap:7px;font-size:12px}.dm-inputs input,.dm-inputs select,.dm-setting select{min-width:0;width:100%;padding:9px 10px;border:1px solid var(--dm-line);border-radius:6px;background:transparent}.dm-wide{grid-column:1/-1}
       .dm-setting{display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:13px}.dm-setting select{width:auto;max-width:55%}
@@ -58,9 +95,10 @@ window.__ModuleLoader__.load({
       .dm-log-toolbar input[type=checkbox]{accent-color:var(--dm-accent)}
       .dm-log-stream{height:min(54dvh,540px);min-height:230px;max-height:none;white-space:pre;overflow:auto}
       .dm-log-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--dm-muted);font-size:12px}
-      .dm-dialog{width:min(900px,100%);height:min(790px,92dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
+      .dm-dialog{width:min(1040px,100%);height:min(840px,94dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
       .dm-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(7,13,24,.5);backdrop-filter:blur(4px)}
-      @media(max-width:600px){.dm-overlay{padding:8px}.dm-dialog{height:96dvh;border-radius:10px}.dm-head{padding:18px 16px}.dm-tabs{padding:0 16px;gap:18px}.dm-content{padding:18px 16px}.dm-inputs{grid-template-columns:1fr}.dm-summary{align-items:flex-start}.dm-grid{grid-template-columns:80px minmax(0,1fr);gap:10px}.dm-actions button{flex:1 1 auto}.dm-setting{align-items:flex-start;flex-direction:column}.dm-setting select{width:100%;max-width:100%}}
+      @media(max-width:780px){.dm-workspace{display:flex;flex-direction:column}.dm-tabs{flex-direction:row;overflow-x:auto;gap:4px;padding:8px 12px;border-right:0;border-bottom:1px solid var(--dm-line);flex-shrink:0}.dm-tabs button{width:auto;flex:0 0 auto;padding:9px 11px}.dm-main{flex:1}.dm-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:600px){.dm-overlay{padding:8px}.dm-dialog{height:96dvh;border-radius:10px}.dm-head{padding:15px 16px}.dm-content{padding:15px 16px}.dm-inputs{grid-template-columns:1fr}.dm-summary{align-items:flex-start}.dm-grid{grid-template-columns:95px minmax(0,1fr);gap:9px}.dm-actions button{flex:1 1 auto}.dm-setting{align-items:flex-start;flex-direction:column}.dm-setting select{width:100%;max-width:100%}.dm-cards{grid-template-columns:1fr 1fr}.dm-statusbar{gap:8px 12px}.dm-nav-icon{display:none}}
     `
     async function request(data, signal) {
       const response = await fetch(ENDPOINT, {
