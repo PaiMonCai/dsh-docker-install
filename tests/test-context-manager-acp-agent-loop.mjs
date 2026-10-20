@@ -23,6 +23,12 @@ const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp
 const oldGate=process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
 process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED='1'
 const ctx=new cordis.Context()
+const owned=[]
+async function mount(plugin,config){
+ const fiber=ctx.plugin(plugin,config)
+ await fiber
+ owned.push(fiber)
+}
 let agent=null
 const visited=[]
 let calls=0
@@ -81,14 +87,14 @@ class OfflineAdapter extends llm.LlmAdapter {
 }
 try{
  for(const plugin of [llm.default,sessions.default,projections.default])
-  await ctx.plugin(plugin)
- await ctx.plugin(system.default,{})
- await ctx.plugin(tools.default,{})
- await ctx.plugin(agents.default)
- await ctx.plugin(meter.default)
- await ctx.plugin(tiered.default,{auto:true,thresholdRatio:.8})
- await ctx.plugin(acp)
- await ctx.plugin(loop.default,{agents:[]})
+  await mount(plugin)
+ await mount(system.default,{})
+ await mount(tools.default,{})
+ await mount(agents.default)
+ await mount(meter.default)
+ await mount(tiered.default,{auto:true,thresholdRatio:.8})
+ await mount(acp)
+ await mount(loop.default,{agents:[]})
  ctx.on('session/flush',()=>{})
  ctx.llm.registerAdapter(['offline'],new OfflineAdapter())
  agent=await ctx.agentLoop.create(sessions.SessionId('acp-offline-real-loop'),{
@@ -121,7 +127,7 @@ try{
  assert.equal(events.filter(e=>e.type==='compaction/summary').length,1)
  process.stdout.write('DSH_CONTEXT_MANAGER_ACP_AGENT_LOOP_PASS tools=4 turns=1 nativeCompaction=1 replayable=true\n')
 }finally{
- await ctx.dispose()
+ for(const fiber of owned.reverse())await fiber.dispose()
  if(oldGate===undefined)delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
  else process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED=oldGate
 }
