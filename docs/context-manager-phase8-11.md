@@ -58,10 +58,21 @@ valuable sessions. Unset all four and recreate the container to roll back.
 
 ## Phase 10 — persistence and recovery
 
-The ACP state record is replay/fork-safe but the actual compaction transaction
-and subsequent state record are **not one atomic append**. A crash between
-these operations can leave a valid native checkpoint without an ACP block.
-This must be detected and repaired or quarantined before promotion.
+A versioned native `acp-intent` Plugin Record is now appended and
+`ctx.sessions.flush(session)` must confirm a durability listener BEFORE the
+native compaction transaction begins. On restart, the adapter reads the intent
+and the native append-only log, validates a **completed** start/summary/
+checkpoint/end transaction with matching summary and source-range provenance,
+and reconstructs the ACP state without mutating cold Session history.
+Failed/uncommitted intents are ignored; unfinished or conflicting native
+transactions quarantine recovery rather than guessing. The Docker image
+executes crash-injection and failed-intent replay cases. This is one-step
+recovery, not a claim of full multi-owner/multi-block crash linearizability.
+
+
+Native ACP intent + native checkpoint recovery handles the single-transaction
+crash window. Multi-intent concurrent stress, Fork with partial/seeded logs and
+all storage failure scenarios still require production-level verification.
 `acp_decompress` never changes the active context prefix. CCR, lossless
 arrival-time tool-result offload, live nudge injection, block-level T2/T3
 reconciliation and multi-preset cross-session recovery remain open.

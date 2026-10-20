@@ -11,11 +11,12 @@ const [{defineTool},{appendPluginRecord}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-session')).href),
 ])
 export const name='dsh-context-manager-acp'
-export const inject=['tools','compaction']
+export const inject=['tools','compaction','sessions']
 function textOutput() {return {schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]}}
 function printable(value) {return JSON.stringify(value)}
 export function apply(ctx) {
-  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,logger:ctx.logger})
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,
+    flushIntent:session=>ctx.sessions.flush(session),logger:ctx.logger})
   const tool=(name,description,parameters,execute)=>{
     ctx.tools.register(defineTool({name,description,parameters,output:textOutput(),
       async execute(args,exec) {

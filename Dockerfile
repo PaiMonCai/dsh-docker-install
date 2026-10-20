@@ -267,6 +267,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-pending.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-runtime.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-recovery.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/acp-native.js \
  && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \

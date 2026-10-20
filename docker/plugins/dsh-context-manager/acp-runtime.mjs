@@ -7,8 +7,8 @@ import {
   createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
 } from 'acp-kernel'
 import { withAcpSummary } from './acp-pending.mjs'
+import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
 
-export const STATE_EVENT = 'plugin:dsh-docker-context-manager/acp-state'
 const MAX_VIEW = 1600
 const MAX_ORIGINAL = 4500
 const MAX_SUMMARY = 12000
@@ -60,19 +60,7 @@ function activeMessages(session, checkpoints) {
 function historicMessages(session) {
   return session.snapshotEvents().map(ev => asMessage(ev, true)).filter(Boolean)
 }
-function recordFrom(session) {
-  // Restore the last complete, ignorable plugin record. No side channel to an
-  // unversioned JSON file; cold restore and fork replay naturally carry records.
-  const events = session.snapshotEvents()
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i]
-    if (ev.type !== STATE_EVENT) continue
-    if (ev.ignorable !== true || ev.data?.version !== 1 || !ev.data?.state?.messageRefs)
-      throw Error('ACP state record invalid; refusing to silently reset compressed history')
-    return ev.data
-  }
-  return null
-}
+function recordFrom(session) { return replayAcpState(session) }
 function configFor(session) {
   // The host remains authoritative for actual routed model capacity and
   // overflow recovery. This is only the kernel's pressure/decision window.
@@ -113,9 +101,10 @@ function fullSummaryBlock(block) {
     messageCount:block.effectiveMessageIds.length }
 }
 export class AcpRuntime {
-  constructor({ appendRecord, logger } = {}) {
+  constructor({ appendRecord, flushIntent, logger } = {}) {
     if (typeof appendRecord !== 'function') throw Error('native appendPluginRecord required')
     this.appendRecord = appendRecord
+    this.flushIntent = flushIntent
     this.logger = logger
     this.core = createCore()
     this.cache = new WeakMap()
@@ -130,6 +119,7 @@ export class AcpRuntime {
         state: stored?.state ?? createInitialState(),
         checkpoints: stored?.checkpoints ?? {},
         settled: stored?.lastResult ?? null,
+        recovered:stored?.recovered===true,
       }
       this.cache.set(session,row)
     }
@@ -151,7 +141,8 @@ export class AcpRuntime {
       }))
     return {kernel:'acp-kernel',surface:'dsh-native',owner:'agent-preset',
       tokenEstimate:tokenCount,window:config.modelContextLimit,
-      pending:!!this.pending.get(session),nudgeRecommended:!!nudge?.shouldInject,
+      pending:!!this.pending.get(session),recoveredFromNativeLog:row.recovered,
+      nudgeRecommended:!!nudge?.shouldInject,
       blocks:row.state.blocks.filter(b=>b.active).slice(-MAX_ITEMS).map(fullSummaryBlock),
       refs,latest:row.settled}
   }
@@ -201,6 +192,19 @@ export class AcpRuntime {
       const start=Number(proposal.firstId),end=Number(proposal.lastId)
       if(!session.surface.nodes.includes(start)||!session.surface.nodes.includes(end))
         throw Error('ACP proposal bounds are no longer visible')
+      // Persist the EXACT proposed post-compaction kernel state *before*
+      // the native engine can replace the visible DSH Surface.
+      // On crash after native commit, recovery validates the DSH transaction
+      // against this intent. Missing durability listener is fail-closed.
+      this.appendRecord(session,INTENT_EVENT,durableJson({
+        version:1,state:proposal.nextState,blockId:proposal.newBlock.blockId,
+        summary:proposal.summary,startSeq:start,endSeq:end,
+        checkpoints:current.row.checkpoints,
+      }))
+      if(this.flushIntent){
+        const persisted=await this.flushIntent(session)
+        if(persisted!==true)throw Error('native ACP intent lacks durable persistence listener')
+      }
       const result=await withAcpSummary(session,proposal,
         ()=>compaction.compactRegion(start,end,agent,signal))
       const nextState=proposal.nextState
@@ -221,6 +225,7 @@ export class AcpRuntime {
       current.row.state=nextState
       current.row.checkpoints=currentCheckpoints
       current.row.settled=lastResult
+      current.row.recovered=false
       return lastResult
     } catch(error) {
       this.logger?.warn?.('native ACP proposal refused: '+String(error?.message??error))
