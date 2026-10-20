@@ -28,7 +28,7 @@ test('defaults, schema and budget math use DSH native pressure formula', () => {
 test('reject unknown keys, NaNs, incompatible thresholds, duplicate model and agent scopes', () => {
   const base = defaults()
   assert.throws(() => normalizeSettings({ ...base, unauthorized: true }), /invalid settings/)
-  assert.throws(() => normalizeSettings({ ...base, basic: { ...base.basic, retainRatio: .79, thresholdRatio: .7 } }), /retention ratio/)
+  assert.throws(() => normalizeSettings({ ...base, basic: { ...base.basic, retainRatio: .79, thresholdRatio: .7 } }), /retainRatio|retention ratio/)
   assert.throws(() => normalizeSettings({ ...base, basic: { ...base.basic, thresholdRatio: NaN } }), /thresholdRatio/)
   assert.throws(() => normalizeSettings({ ...base, basic: { ...base.basic, headroomTokens: 1.5 } }), /headroomTokens/)
   assert.throws(() => normalizeSettings({ ...base, engine: 'dangerous' }), /engine/)
@@ -108,6 +108,7 @@ test('RPC saves desired policy, reports not applied, rejects stale revision', as
   const initial = await rpc('settings', {})
   assert.equal(initial.ok, true)
   assert.equal(initial.value.runtime.applied, false)
+  assert.equal(initial.value.runtime.bootRevisionObserved, true)
   assert.equal(initial.value.runtime.effectiveEngine, 'upstream-unmanaged')
   const wanted = structuredClone(initial.value.settings)
   wanted.engine = 'off'
