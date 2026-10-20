@@ -424,6 +424,10 @@ test('backup page fails closed for old host executors', async () => {
   let tree = f.entry({ view: 'detail' })
   nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '备份与恢复')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
+  // Even after selecting a valid file, old workers must not accept uploads.
+  nodes(tree, n => n.props['aria-label'] === '选择本地完整备份文件')[0]
+    .props.onChange({ target: { files: [{ name: 'test.dshbak', size: 100 }] } })
+  tree = f.entry({ view: 'detail' })
   for (const label of ['导出完整备份', '上传到服务器', '保存并开启自动备份']) {
     const control = nodes(tree, n => n.type === 'button' && text(n).trim() === label)[0]
     assert.ok(control, 'missing button ' + label)
