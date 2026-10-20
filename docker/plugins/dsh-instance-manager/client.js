@@ -263,6 +263,9 @@ window.__ModuleLoader__.load({
       const [sending, setSending] = React.useState(false)
       const submitting = React.useRef(false)
       const [confirmation, setConfirmation] = React.useState(null)
+      const [confirmationInput, setConfirmationInput] = React.useState('')
+      const [taskFilter, setTaskFilter] = React.useState('all')
+      const [taskQuery, setTaskQuery] = React.useState('')
       const [selected, setSelected] = React.useState(() => {
         try { return localStorage.getItem('dsh-management-task') || '' } catch { return '' }
       })
@@ -299,6 +302,18 @@ window.__ModuleLoader__.load({
       }
       const status = data?.status
       const jobs = data?.jobs || []
+      const page = pages.find(item => item.id === tab) || pages[0]
+      const activeJob = jobs.find(job => ['queued', 'running'].includes(job.state))
+      const lastJob = jobs[0]
+      const completedJobs = jobs.filter(job => (taskFilter === 'all' || job.state === taskFilter)
+        && (!taskQuery || (labels[job.action] || job.action || '').toLowerCase().includes(taskQuery.toLowerCase())
+          || String(job.id).toLowerCase().includes(taskQuery.toLowerCase())))
+      const navigate = next => {
+        if (!pages.some(item => item.id === next)) return
+        setConfirmation(null)
+        setConfirmationInput('')
+        setTab(next)
+      }
       const busy = sending || jobs.some(job => ['queued', 'running'].includes(job.state))
       const enabled = Boolean(data?.online) && !busy && !disconnected
       // A newer Web image may briefly talk to an older host manager. The host
@@ -310,7 +325,7 @@ window.__ModuleLoader__.load({
           && status.management.operations.includes(action))
         : !phaseTwoActions.has(action)
       async function submit(action, args = {}) {
-        if (submitting.current) return
+        if (submitting.current || !enabled) return
         if (!supports(action)) { setError('宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。'); return }
         const id = taskId()
         submitting.current = true
@@ -321,7 +336,7 @@ window.__ModuleLoader__.load({
           try { localStorage.setItem('dsh-management-task', result.id) } catch {}
           setData(current => ({ ...current, jobs: [{ id: result.id, action, state: result.state }, ...(current?.jobs || [])] }))
           if (['proxy-add', 'proxy-subscribe'].includes(action)) { setImportURL(''); setImportName('') }
-          setTab('tasks')
+          navigate('tasks')
         } catch (failure) {
           // The host may have accepted a task before the connection disappeared.
           setSelected(id)
@@ -330,14 +345,21 @@ window.__ModuleLoader__.load({
         } finally { submitting.current = false; setSending(false) }
       }
       function actionButton(action, args = {}, primary = false) {
-        return h('button', { type: 'button', disabled: !enabled || !supports(action),
-          title: supports(action) ? undefined : '当前宿主机管理器不支持该操作',
-          className: primary ? 'dm-primary' : '',
-          onClick: () => confirmations[action] ? setConfirmation({ action, args }) : void submit(action, args),
+        const unavailable = !supports(action)
+        return h('button', { type: 'button', disabled: !enabled || unavailable,
+          title: unavailable ? '当前宿主机管理器不支持该操作' : undefined,
+          className: (primary ? 'dm-primary' : '') + (action === 'cleanup' || action === 'dashboard-stop' ? ' dm-danger' : ''),
+          onClick: () => confirmations[action] ? (setConfirmation({ action, args }), setConfirmationInput('')) : void submit(action, args),
         }, labels[action])
       }
       const selectedJob = jobs.find(job => job.id === selected) || jobs[0]
       const release = currentRelease(data)
+      const healthText = status?.container?.health || '未知'
+      const stateText = status?.container?.state === 'running' ? '运行中' : status?.container?.state || '不可用'
+      const instanceName = status?.instance?.name || '未连接'
+      const selectedTaskState = activeJob || lastJob
+      const confirmationNeedsName = confirmation?.action === 'cleanup'
+      const confirmationReady = !confirmationNeedsName || confirmationInput === instanceName
       const section = (title, ...children) => h('section', { className: 'dm-section' }, h('h3', null, title), ...children)
       const details = entries => h('dl', { className: 'dm-grid' }, ...entries.flatMap(([key, value]) => [
         h('dt', { key: key + '-label' }, key), h('dd', { key }, value || '—'),
