@@ -101,7 +101,8 @@ export function apply(ctx) {
           const state=await inspectRuntimePresets(ctx)
           const row=state.presets?.find(p=>p.id==='standard')
           if(takeoverEvidence && row?.tiered?.configured===1 && row?.basic?.configured===0
-            && row?.manual?.configured===1 && row?.external?.configured===0){
+            && row?.manual?.configured===1 && row?.external?.configured===0
+            && (!takeover.acp || (row?.acp?.active===1 && row?.tiered?.active===1 && row?.mounted))){
             process.stdout.write('DSH_CONTEXT_MANAGER_TIERED_LAB_READY standard:single-provider\\n')
             done=true;clearInterval(timer)
           }else if(++tries>=80){
