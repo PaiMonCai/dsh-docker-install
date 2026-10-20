@@ -6,7 +6,7 @@
 import {
   createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
 } from 'acp-kernel'
-import { withAcpSummary } from './acp-pending.mjs'
+import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
 export { INTENT_EVENT, STATE_EVENT } from './acp-recovery.mjs'
 
@@ -192,6 +192,7 @@ export class AcpRuntime {
     proposal.nextState=draft.state
     proposal.newBlock=draft.state.blocks.find(b=>!row.state.blocks.some(old=>old.blockId===b.blockId))
     if(!proposal.newBlock)throw Error('ACP kernel produced no durable block')
+    queueAcpSummary(session,proposal)
     this.pending.set(session,proposal)
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
       block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
@@ -251,6 +252,7 @@ export class AcpRuntime {
       throw error
     } finally {
       this.pending.delete(session)
+      clearQueuedAcpSummary(session,proposal)
       this.processing.delete(session)
     }
   }

@@ -21,7 +21,7 @@ test('single Standard preset retains native engine and adds exactly one ACP tool
  assert.equal(result.changed,true)
  const rows=result.config.plugins[0].config
  assert.equal(rows.filter(r=>r.name===ACP_TOOLS).length,1)
- assert.equal(rows.find(r=>r.id==='compaction-basic').config.auto,false)
+ assert.equal(rows.find(r=>r.id==='compaction-basic').config.auto,true)
  assert.equal(rows.filter(r=>r.name==='@deepseek-ai/dsh-command-compact').length,1)
  assert.equal(replacePresetCompactor({...preset,id:'reverse-engineering'},settings,'standard',{acp:true}).changed,false)
 })

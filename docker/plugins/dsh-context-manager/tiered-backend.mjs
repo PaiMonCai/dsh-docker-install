@@ -10,7 +10,7 @@
 import { buildTierPrompt, chooseTier, getSummaryText, verifyTierSummary } from './tiered-core.mjs'
 import { readSettings } from './storage.mjs'
 import { resolvePolicy } from './policy.mjs'
-import { currentAcpSummary } from './acp-pending.mjs'
+import { currentAcpSummary, hasQueuedAcpSummary } from './acp-pending.mjs'
 
 function targetFrom(agent) {
   const routed=agent?.session?.requestHeader?.()?.config
@@ -44,6 +44,15 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       if (process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1')
         throw Error('tiered backend requires explicit owner verification; not enabled')
       super(ctx,config)
+    }
+    // Preserve the upstream pressure and context-overflow recovery state
+    // machine. A model-authored ACP proposal owns the NEXT safe step; skip
+    // only the automatic pressure branch while that proposal is queued.
+    // Never suppress context-overflow recovery (it may rescue a failed model
+    // response independently). No second CompactionEngine is registered.
+    async compactIfNeeded(agent,trigger,signal) {
+      if(trigger==='pressure' && hasQueuedAcpSummary(agent?.session))return null
+      return super.compactIfNeeded(agent,trigger,signal)
     }
     async summarize(input, agent, signal) {
       signal?.throwIfAborted?.()

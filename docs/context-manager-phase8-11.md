@@ -101,3 +101,14 @@ an external model call. The Context Manager ready marker requires **active**
 Tiered and ACP Fiber counts and a mounted Standard preset, not just YAML
 configuration presence. This is a boot/ownership test, not proof of model
 calling the four tools correctly across multiple Agent steps.
+
+## Automatic pressure and overflow recovery (upstream DSH)
+
+ACP experimental Standard sets `auto:true` on the one native Tiered
+BasicCompactionEngine. That **restores** DSH's upstream pre-step
+pressure handling, context-overflow retry accounting and optional
+ToolResultPruner. When a model ACP proposal is queued, the subclass skips
+**only** the pressure pass for that one Session, allowing the ACP adapter
+to commit at its next `agent/pre-step`. Native overflow recovery is NEVER
+skipped. Pending state is per-Session and cleared after success/error.
+Model-driven compression is not claimed to replace automatic fallback.

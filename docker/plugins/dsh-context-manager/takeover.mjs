@@ -29,7 +29,7 @@ function checkAndReplace(rows,policy,observed,depth=0) {
         config:{...(row.config&&typeof row.config==='object'&&!Array.isArray(row.config)?row.config:{}),
           ...policy.basic,
           modelPolicies: policy.modelPolicies??[],
-          ...(policy.acp ? {auto:false} : {})}}
+          ...(policy.acp ? {auto:true} : {})}}
     }
     if(name===MANUAL&&!disabled)observed.manual++
     if(typeof name==='string'&&BILI_NAME.test(name)&&!disabled)observed.external++
