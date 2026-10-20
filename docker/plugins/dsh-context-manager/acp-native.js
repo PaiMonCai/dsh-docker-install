@@ -53,6 +53,11 @@ export function apply(ctx) {
     'Search summaries of native ACP blocks; use acp_decompress to inspect a selected original range.',
     {query:{type:'string',required:true}},
     (args,exec)=>runtime.search(exec.agent.session,args.query))
+  tool('acp_retrieve',
+    'Retrieve full-length, paginated original text from DSH immutable events covered by an active ACP block. First call with blockId to list source refs, then request one ref with offset and limit (max 8192 characters). No proxy store or unsafe history mutation.',
+    {blockId:{type:'string',required:true},ref:{type:'string'},
+      startIndex:{type:'integer'},offset:{type:'integer'},limit:{type:'integer'}},
+    (args,exec)=>runtime.retrieve(exec.agent.session,args))
 
   // A tool call is still unsettled while it is executing. DSH's next
   // pre-step has completed the tool/result pair, so use that boundary to

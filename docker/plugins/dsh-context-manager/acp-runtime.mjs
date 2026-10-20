@@ -298,6 +298,56 @@ export class AcpRuntime {
         || (b.topic??'').toLocaleLowerCase().includes(needle)))
     return [...ranked,...exact].slice(0,10).map(fullSummaryBlock)
   }
+  /**
+   * Lossless bounded paging over the ORIGINAL native Session event, not a
+   * second copy or ACP's shortened in-memory projection. Only source events
+   * already covered by an active ACP Block are accessible.
+   */
+  retrieve(session,{blockId,ref,startIndex=0,offset=0,limit=4096}={}) {
+    if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
+    if(!Number.isSafeInteger(startIndex)||startIndex<0||startIndex>100000
+       ||!Number.isSafeInteger(offset)||offset<0||offset>100000000
+       ||!Number.isSafeInteger(limit)||limit<1||limit>8192)
+      throw Error('invalid ACP original retrieval bounds')
+    const {row}=this.view(session)
+    const block=row.state.blocks.find(b=>b.blockId===blockId&&b.active)
+    if(!block)throw Error('unknown or inactive ACP block')
+    const originals=block.effectiveMessageIds
+      .filter(id=>typeof id==='string'&&/^\d+$/.test(id))
+      .filter((id,i,arr)=>arr.indexOf(id)===i)
+    const isSource=ev=>['user/message','assistant/message','tool/result'].includes(ev?.type)
+    if(ref===undefined) {
+      const selected=originals.slice(startIndex,startIndex+24).map(id=>{
+        const ev=session.eventAt(Number(id))
+        const m=ev?.type==='user/message'?ev.data:ev?.data?.message
+        const allowed=isSource(ev)&&Array.isArray(m?.content)
+        const length=allowed ? m.content.filter(c=>c?.type==='text'&&typeof c.text==='string')
+          .reduce((n,c,i)=>n+c.text.length+(i?1:0),0):0
+        return {ref:row.state.messageRefs.byRaw[id]??null,type:ev?.type??'missing',
+          characters:length,available:allowed}
+      })
+      return {blockId,sourceCount:originals.length,sources:selected,
+        nextIndex:startIndex+24<originals.length?startIndex+24:null}
+    }
+    if(!REF.test(ref))throw Error('invalid ACP original message ref')
+    const raw=row.state.messageRefs.byRef[ref]
+    if(!raw||!originals.includes(raw))throw Error('message ref is not covered by the requested active ACP block')
+    const ev=session.eventAt(Number(raw))
+    if(!isSource(ev))throw Error('original source event is unavailable')
+    const m=ev.type==='user/message'?ev.data:ev.data?.message
+    if(!Array.isArray(m?.content))throw Error('original message content is unavailable')
+    const chunks=m.content.filter(c=>c?.type==='text'&&typeof c.text==='string').map(c=>c.text)
+    let fullLength=0;let result=''
+    for(let i=0;i<chunks.length;i++) {
+      const part=(i?'\n':'')+chunks[i]
+      const from=Math.max(0,offset-fullLength)
+      const to=Math.min(part.length,offset+limit-fullLength)
+      if(to>from)result+=part.slice(from,to)
+      fullLength+=part.length
+    }
+    return {blockId,ref,offset,nextOffset:offset+result.length<fullLength?offset+result.length:null,
+      characters:fullLength,text:result,truncated:offset+result.length<fullLength}
+  }
   decompress(session,blockId) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
     const {row}=this.view(session)

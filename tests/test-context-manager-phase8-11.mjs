@@ -31,7 +31,7 @@ test('image build and all four model-facing native ACP tools are wired',()=>{
  assert.match(docker,/test-context-manager-acp-native.mjs/)
  assert.match(docker,/npm install --prefix \/opt\/dsh\/plugins\/dsh-context-manager/)
  const src=read('docker/plugins/dsh-context-manager/acp-native.js')
- for(const name of ['acp_status','acp_compress','acp_decompress','acp_search_context'])
+ for(const name of ['acp_status','acp_compress','acp_decompress','acp_search_context','acp_retrieve'])
  assert.ok(src.includes("'"+name+"'"))
  assert.match(src,/agent\/pre-step/)
  assert.match(src,/systemPrompt\.context/)

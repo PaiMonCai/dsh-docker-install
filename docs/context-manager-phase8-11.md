@@ -140,3 +140,12 @@ The generated text is stable across initial assembly and prompt refresh for
 a single DSH Surface content generation and never contains raw user or tool
 content. DSH's single-engine automatic pressure and overflow recovery remains
 authoritative. This guidance is not a substitute for real model validation.
+
+## Lossless original paging (not CCR offload)
+
+`acp_retrieve` lists source refs from an active block, then pages through
+the **actual original DSH Session event text** by ref and character offset,
+with a hard 8192-character return cap. It rejects refs not covered by that
+block. Unlike `acp_decompress`'s short preview, retrieval does not shorten
+the source before pagination. This is a safe event-backed read path; it does
+**not** implement billion's arrival-time CCR tool-output offload.
