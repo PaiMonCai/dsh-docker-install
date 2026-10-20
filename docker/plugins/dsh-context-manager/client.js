@@ -369,6 +369,11 @@ window.__ModuleLoader__.load({
             h('span', { style: styles.chip }, '实际：' + (remote?.runtime?.effectiveEngine || '未知')),
             h('span', { style: styles.chip },
               remote?.runtime?.restartPending ? '已保存变更，待重新读取' : '无启动后配置差异')),
+          h('p', { style: styles.muted }, '压缩服务接管检查：' +
+            (remote?.ownerAudit?.status === 'conflict-risk' ? '检测到潜在冲突' : '尚未证明唯一所有权') +
+            '；T1/T2/T3 实际接管：未启用'),
+          h('p', { style: styles.muted },
+            '诊断不能发现所有网关级拦截。即使只看到一个原生压缩插件，也不能据此认定切换安全。'),
           h('p', { style: styles.muted }, '累计观测压缩开始：' + (remote?.events?.['compaction/start'] ?? 0)
             + '；摘要：' + (remote?.events?.['compaction/summary'] ?? 0)
             + '；结束：' + (remote?.events?.['compaction/end'] ?? 0)),

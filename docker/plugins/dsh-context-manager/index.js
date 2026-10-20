@@ -3,6 +3,8 @@ import { inspectRuntimePresets } from './native-inventory.mjs'
 import { defaults, normalizeSettings, resolvePolicy, previewNative } from './policy.mjs'
 import { readSettings, writeSettings, settingsRevision } from './storage.mjs'
 import { indexCompactions, publicIndex, summaryDetail, originalPage } from './history-index.mjs'
+import { installReplaySmoke } from './ci-replay.mjs'
+import { auditOwnership } from './ownership-audit.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
@@ -14,6 +16,9 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  */
 export function apply(ctx) {
   const probe = makeProbe()
+  // Inert unless a disposable CI container explicitly enables the replay
+  // smoke; never writes real user sessions or enables live compaction.
+  installReplaySmoke(ctx)
   // This RPC channel lacks DSH's per-Peer Typert resource guards; never expose
   // Session content by default. A single-owner deployment can explicitly opt in.
   const historyEnabled = process.env.DSH_CONTEXT_MANAGER_HISTORY_READ === 'owner-only'
@@ -128,7 +133,8 @@ export function apply(ctx) {
         }
         if (method === 'status' && Object.keys(payload).length === 0) {
           const nativePresets = await inspectRuntimePresets(ctx)
-          return { ok: true, value: { ...probe.snapshot(ctx), nativePresets } }
+          return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
+            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction) } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
           const settings = readSettings()
@@ -136,6 +142,7 @@ export function apply(ctx) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
+            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
               reason: 'phase2-configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
