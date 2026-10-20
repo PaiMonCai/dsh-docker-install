@@ -75,7 +75,7 @@ export function apply(ctx) {
         appendRecord:appendPluginRecord,flush:session=>ctx.sessions.flush(session),
         logger:ctx.logger,
       })
-      return offload?{kind:'accept',content:offload.content}:decision
+      return offload?{...decision,content:offload.content}:decision
     })
   }
 
