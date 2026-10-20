@@ -12,6 +12,7 @@
 | [Web 实例管理](web-management.md) | 宿主机执行器、定时镜像检查、更新与回滚、SSE 运行日志、故障恢复 |
 | [终端 → Web 运维迁移](web-management-migration.md) | 六分类 40 项菜单归属、双端操作契约、四批次迁移验收边界 |
 | [Web 迁移第二批](web-management-phase2.md) | 受控 Edition / Pack 切换、Research Dashboard、只读配置和诊断 |
+| [Web 迁移第三批](web-management-phase3.md) | 统一七页管理中心、侧栏导航、任务检索与危险操作确认 |
 | [安全升级与回滚](safe-upgrade-rollback.md) | 容器替换、失败恢复、回滚点、旧镜像清理与数据边界 |
 | [国际网络出口 / sing-box](proxy.md) | 节点、订阅、环境变量代理、诊断与安全边界 |
 

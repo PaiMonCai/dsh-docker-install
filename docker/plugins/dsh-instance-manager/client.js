@@ -26,25 +26,63 @@ window.__ModuleLoader__.load({
       'diagnose-plugins': '诊断内置插件', 'dashboard-start': '启动 Dashboard',
       'dashboard-stop': '停止 Dashboard', pending: '等待执行',
     }
+    // One navigation model for overlay, Plugin Hub embed and task deep-links.
+    const pages = [
+      { id: 'overview', label: '总览', description: '当前实例状态、健康检查与快捷操作', icon: '◫' },
+      { id: 'instances', label: '实例', description: '当前绑定实例与管理边界', icon: '▣' },
+      { id: 'versions', label: '版本与更新', description: '镜像检查、升级、回滚和 Edition', icon: '↻' },
+      { id: 'network', label: '网络与服务', description: 'sing-box、节点订阅与 Research Dashboard', icon: '◎' },
+      { id: 'diagnostics', label: '配置与诊断', description: '只读设置摘要与环境健康检查', icon: '⚙' },
+      { id: 'tasks', label: '任务记录', description: '执行进度、结果和历史任务', icon: '☷' },
+      { id: 'logs', label: '运行日志', description: '实时事件、级别过滤与自动重连', icon: '≡' },
+    ]
     const states = { queued: '等待执行', running: '正在执行', succeeded: '已完成', failed: '失败', interrupted: '执行中断' }
     const errors = {
       'instance-busy': '当前实例已有任务，请等待完成。',
       'host-executor-offline': '宿主机后台未连接，请使用 dshd web status 检查。',
       'management-unavailable': '管理数据暂不可用，请检查宿主机后台。',
       'host-operation-unavailable': '宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。',
+      'unsupported-operation': '此操作暂未被管理器授权。',
+      'invalid-arguments': '操作参数有误，请检查输入。',
+      'same-origin-request-required': '安全校验失败，请从当前 DSH 页面重新操作。',
     }
     const css = `
-      .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:#168577;color:inherit;font:inherit}
+      .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:var(--dsw-alias-brand-primary,#168577);--dm-soft:rgba(128,128,128,.075);color:inherit;font:inherit}
       .dsh-manage *{box-sizing:border-box}.dsh-manage button,.dsh-manage input,.dsh-manage select{font:inherit;color:inherit}
       .dsh-manage button{cursor:pointer;padding:8px 13px;border:1px solid var(--dm-line);border-radius:7px;background:transparent;line-height:1.5}
       .dsh-manage button:disabled{opacity:.45;cursor:default}.dsh-manage button:focus-visible,.dsh-manage input:focus-visible,.dsh-manage select:focus-visible{outline:2px solid var(--dm-accent);outline-offset:3px}
       .dsh-manage .dm-primary{background:var(--dm-accent);color:white;border-color:var(--dm-accent)}
       .dm-head{display:flex;align-items:flex-start;gap:12px;padding:23px 26px 18px;border-bottom:1px solid var(--dm-line)}.dm-head h2{font-size:21px;font-weight:650;margin:0}.dm-head p{color:var(--dm-muted);font-size:12px;margin:7px 0 0}
-      .dm-tabs{display:flex;gap:20px;padding:0 26px;border-bottom:1px solid var(--dm-line);overflow-x:auto;flex-shrink:0;white-space:nowrap}.dm-tabs button{border:0;border-radius:0;padding:13px 0;border-bottom:2px solid transparent}.dm-tabs button[aria-selected=true]{border-bottom-color:var(--dm-accent);color:var(--dm-accent)}
-      .dm-content{padding:22px 26px;overflow:auto;min-height:0;flex:1}.dm-content h3{font-size:15px;font-weight:650;margin:0 0 13px}
+      .dm-workspace{display:grid;grid-template-columns:196px minmax(0,1fr);min-height:0;flex:1}
+      .dm-tabs{display:flex;flex-direction:column;gap:4px;padding:15px 11px;border-right:1px solid var(--dm-line);min-width:0}
+      .dm-tabs button{display:flex;align-items:center;gap:10px;border:0;border-radius:8px;padding:10px 12px;text-align:left;font-size:13px;width:100%;white-space:nowrap}
+      .dm-tabs button[aria-selected=true]{background:var(--dm-soft);color:var(--dm-accent);font-weight:650}
+      .dm-tabs button:focus-visible{outline-offset:-2px}
+      .dm-nav-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;width:22px;height:22px;border-radius:6px;background:var(--dm-soft);font-size:14px}
+      .dm-nav-icon::before{content:attr(data-icon)}
+      .dm-main{display:flex;flex-direction:column;min-height:0;min-width:0}
+      .dm-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px}
+      .dm-page-head h3{margin:0;font-size:18px}.dm-page-head p{margin:5px 0 0}
+      .dm-statusbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px 18px;padding:10px 0;margin-bottom:16px;border-bottom:1px solid var(--dm-line);font-size:12px}
+      .dm-statusitem{display:inline-flex;align-items:center;gap:6px;color:var(--dm-muted)}
+      .dm-statusitem strong{color:inherit;font-weight:650}
+      .dm-task-jump{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 13px;background:var(--dm-soft);border-radius:9px;margin:0 0 15px;font-size:12px}
+      .dm-task-jump button{margin-left:auto;padding:5px 9px}
+      .dm-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:17px}
+      .dm-mini{min-width:0;padding:13px;border:1px solid var(--dm-line);border-radius:9px}
+      .dm-mini .dm-muted{margin-bottom:5px}.dm-mini strong{font-size:15px;overflow-wrap:anywhere}
+      .dm-empty{padding:23px 15px;text-align:center;border:1px dashed var(--dm-line);border-radius:9px;color:var(--dm-muted);font-size:13px}
+      .dm-confirm{padding:15px;border:1px solid var(--dm-line);border-radius:10px;margin-bottom:16px;background:var(--dm-soft)}
+      .dm-confirm h4{margin:0 0 8px;font-size:14px}.dm-confirm p{font-size:12px;line-height:1.7;margin:6px 0 10px}
+      .dm-confirm input{width:min(320px,100%);padding:8px 10px;border:1px solid var(--dm-line);border-radius:7px;background:transparent}
+      .dm-danger{border-color:rgba(190,100,65,.48)!important;color:#bb6943!important}
+      .dm-task-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 9px}
+      .dm-task-filter input,.dm-task-filter select{padding:8px 10px;border:1px solid var(--dm-line);border-radius:7px;background:transparent}
+      .dm-task-filter input{flex:1;min-width:150px}
+      .dm-content{padding:18px 24px;overflow:auto;min-height:0;flex:1}.dm-content h3{font-size:15px;font-weight:650;margin:0 0 13px}
       .dm-summary{display:flex;justify-content:space-between;gap:16px;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--dm-line);margin-bottom:20px}.dm-state{display:flex;align-items:center;gap:8px;font-size:17px}.dm-dot{width:9px;height:9px;background:var(--dm-accent);border-radius:50%}.dm-dot[data-online=false]{background:#b47f32}
       .dm-muted{color:var(--dm-muted);font-size:12px;line-height:1.7}.dm-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px 16px;font-size:13px;margin:16px 0 23px}.dm-grid dt{color:var(--dm-muted)}.dm-grid dd{margin:0;overflow-wrap:anywhere}
-      .dm-actions{display:flex;gap:9px;flex-wrap:wrap}.dm-section{margin:0 0 25px}.dm-section+.dm-section{padding-top:22px;border-top:1px solid var(--dm-line)}
+      .dm-actions{display:flex;gap:9px;flex-wrap:wrap}.dm-section{margin:0 0 20px}.dm-section+.dm-section{padding-top:18px;border-top:1px solid var(--dm-line)}
       .dm-banner{font-size:13px;padding:13px 15px;line-height:1.7;background:rgba(128,128,128,.08);border-left:3px solid var(--dm-accent);margin-bottom:18px;overflow-wrap:anywhere}.dm-banner[data-error=true]{border-left-color:#bc6b42}
       .dm-inputs{display:grid;grid-template-columns:1fr 1fr;gap:13px}.dm-inputs label{display:flex;flex-direction:column;gap:7px;font-size:12px}.dm-inputs input,.dm-inputs select,.dm-setting select{min-width:0;width:100%;padding:9px 10px;border:1px solid var(--dm-line);border-radius:6px;background:transparent}.dm-wide{grid-column:1/-1}
       .dm-setting{display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:13px}.dm-setting select{width:auto;max-width:55%}
@@ -58,9 +96,10 @@ window.__ModuleLoader__.load({
       .dm-log-toolbar input[type=checkbox]{accent-color:var(--dm-accent)}
       .dm-log-stream{height:min(54dvh,540px);min-height:230px;max-height:none;white-space:pre;overflow:auto}
       .dm-log-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--dm-muted);font-size:12px}
-      .dm-dialog{width:min(900px,100%);height:min(790px,92dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
+      .dm-dialog{width:min(1040px,100%);height:min(840px,94dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
       .dm-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(7,13,24,.5);backdrop-filter:blur(4px)}
-      @media(max-width:600px){.dm-overlay{padding:8px}.dm-dialog{height:96dvh;border-radius:10px}.dm-head{padding:18px 16px}.dm-tabs{padding:0 16px;gap:18px}.dm-content{padding:18px 16px}.dm-inputs{grid-template-columns:1fr}.dm-summary{align-items:flex-start}.dm-grid{grid-template-columns:80px minmax(0,1fr);gap:10px}.dm-actions button{flex:1 1 auto}.dm-setting{align-items:flex-start;flex-direction:column}.dm-setting select{width:100%;max-width:100%}}
+      @media(max-width:780px){.dm-workspace{display:flex;flex-direction:column}.dm-tabs{flex-direction:row;overflow-x:auto;gap:4px;padding:8px 12px;border-right:0;border-bottom:1px solid var(--dm-line);flex-shrink:0}.dm-tabs button{width:auto;flex:0 0 auto;padding:9px 11px}.dm-main{flex:1}.dm-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:600px){.dm-overlay{padding:8px}.dm-dialog{height:96dvh;border-radius:10px}.dm-head{padding:15px 16px}.dm-content{padding:15px 16px}.dm-inputs{grid-template-columns:1fr}.dm-summary{align-items:flex-start}.dm-grid{grid-template-columns:95px minmax(0,1fr);gap:9px}.dm-actions button{flex:1 1 auto}.dm-setting{align-items:flex-start;flex-direction:column}.dm-setting select{width:100%;max-width:100%}.dm-cards{grid-template-columns:1fr 1fr}.dm-statusbar{gap:8px 12px}.dm-nav-icon{display:none}}
     `
     async function request(data, signal) {
       const response = await fetch(ENDPOINT, {
@@ -225,6 +264,9 @@ window.__ModuleLoader__.load({
       const [sending, setSending] = React.useState(false)
       const submitting = React.useRef(false)
       const [confirmation, setConfirmation] = React.useState(null)
+      const [confirmationInput, setConfirmationInput] = React.useState('')
+      const [taskFilter, setTaskFilter] = React.useState('all')
+      const [taskQuery, setTaskQuery] = React.useState('')
       const [selected, setSelected] = React.useState(() => {
         try { return localStorage.getItem('dsh-management-task') || '' } catch { return '' }
       })
@@ -261,6 +303,18 @@ window.__ModuleLoader__.load({
       }
       const status = data?.status
       const jobs = data?.jobs || []
+      const page = pages.find(item => item.id === tab) || pages[0]
+      const activeJob = jobs.find(job => ['queued', 'running'].includes(job.state))
+      const lastJob = jobs[0]
+      const completedJobs = jobs.filter(job => (taskFilter === 'all' || job.state === taskFilter)
+        && (!taskQuery || (labels[job.action] || job.action || '').toLowerCase().includes(taskQuery.toLowerCase())
+          || String(job.id).toLowerCase().includes(taskQuery.toLowerCase())))
+      const navigate = next => {
+        if (!pages.some(item => item.id === next)) return
+        setConfirmation(null)
+        setConfirmationInput('')
+        setTab(next)
+      }
       const busy = sending || jobs.some(job => ['queued', 'running'].includes(job.state))
       const enabled = Boolean(data?.online) && !busy && !disconnected
       // A newer Web image may briefly talk to an older host manager. The host
@@ -272,7 +326,7 @@ window.__ModuleLoader__.load({
           && status.management.operations.includes(action))
         : !phaseTwoActions.has(action)
       async function submit(action, args = {}) {
-        if (submitting.current) return
+        if (submitting.current || !enabled) return
         if (!supports(action)) { setError('宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。'); return }
         const id = taskId()
         submitting.current = true
@@ -283,7 +337,7 @@ window.__ModuleLoader__.load({
           try { localStorage.setItem('dsh-management-task', result.id) } catch {}
           setData(current => ({ ...current, jobs: [{ id: result.id, action, state: result.state }, ...(current?.jobs || [])] }))
           if (['proxy-add', 'proxy-subscribe'].includes(action)) { setImportURL(''); setImportName('') }
-          setTab('tasks')
+          navigate('tasks')
         } catch (failure) {
           // The host may have accepted a task before the connection disappeared.
           setSelected(id)
@@ -292,14 +346,21 @@ window.__ModuleLoader__.load({
         } finally { submitting.current = false; setSending(false) }
       }
       function actionButton(action, args = {}, primary = false) {
-        return h('button', { type: 'button', disabled: !enabled || !supports(action),
-          title: supports(action) ? undefined : '当前宿主机管理器不支持该操作',
-          className: primary ? 'dm-primary' : '',
-          onClick: () => confirmations[action] ? setConfirmation({ action, args }) : void submit(action, args),
+        const unavailable = !supports(action)
+        return h('button', { type: 'button', disabled: !enabled || unavailable,
+          title: unavailable ? '当前宿主机管理器不支持该操作' : undefined,
+          className: (primary ? 'dm-primary' : '') + (action === 'cleanup' || action === 'dashboard-stop' ? ' dm-danger' : ''),
+          onClick: () => confirmations[action] ? (setConfirmation({ action, args }), setConfirmationInput('')) : void submit(action, args),
         }, labels[action])
       }
       const selectedJob = jobs.find(job => job.id === selected) || jobs[0]
       const release = currentRelease(data)
+      const healthText = status?.container?.health || '未知'
+      const stateText = status?.container?.state === 'running' ? '运行中' : status?.container?.state || '不可用'
+      const instanceName = status?.instance?.name || '未连接'
+      const selectedTaskState = activeJob || lastJob
+      const confirmationNeedsName = confirmation?.action === 'cleanup'
+      const confirmationReady = !confirmationNeedsName || confirmationInput === instanceName
       const section = (title, ...children) => h('section', { className: 'dm-section' }, h('h3', null, title), ...children)
       const details = entries => h('dl', { className: 'dm-grid' }, ...entries.flatMap(([key, value]) => [
         h('dt', { key: key + '-label' }, key), h('dd', { key }, value || '—'),
@@ -307,32 +368,117 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dsh-manage', style: { display: 'flex', flexDirection: 'column', minHeight: 0, height: embedded ? undefined : '100%' } },
         h('style', null, css),
         h('header', { className: 'dm-head' },
-          h('div', { style: { flex: 1 } }, h('h2', { id: embedded ? undefined : 'dsh-management-title' }, '实例管理'),
-            h('p', null, '管理 DSH 更新、运行状态与网络出口')),
-          !embedded && h('button', { type: 'button', onClick: () => open(false), 'aria-label': '关闭实例管理' }, '关闭')),
-        h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '实例管理页面' },
-          ...[['overview', '运行与更新'], ['network', '国际网络'], ['diagnostics', '配置与诊断'], ['tasks', '任务记录'], ['logs', '运行日志']].map(([id, title]) =>
-            h('button', { key: id, type: 'button', role: 'tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, title))),
-        h('div', { className: 'dm-content', role: 'tabpanel', 'aria-live': 'polite' },
-          disconnected && h('div', { className: 'dm-banner' }, '连接暂时断开，正在自动重连。后台已接收的任务会继续执行。'),
-          data && !data.configured && h('div', { className: 'dm-banner' }, '此实例尚未启用 Web 管理。请在宿主机执行 dshd web enable；命名实例使用 dshd -i 实例ID web enable。'),
-          data?.configured && !data.online && h('div', { className: 'dm-banner', 'data-error': true },
-            '宿主机后台未连接。请运行 dshd web status 检查；必要时用 dshd web enable 修复。'),
-          error && h('div', { className: 'dm-banner', 'data-error': true, role: 'alert' }, error),
-          confirmation && h('div', { className: 'dm-banner' },
-            h('p', null, confirmations[confirmation.action]),
-            h('div', { className: 'dm-actions' },
-              h('button', { type: 'button', className: 'dm-primary', disabled: !enabled || !supports(confirmation.action),
-                onClick: () => void submit(confirmation.action, confirmation.args) }, '确认' + labels[confirmation.action]),
-              h('button', { type: 'button', onClick: () => setConfirmation(null) }, '取消'))),
-          !data && !disconnected && h('p', { className: 'dm-muted' }, '正在读取实例状态…'),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('h2', { id: embedded ? undefined : 'dsh-management-title' }, 'DSH 管理中心'),
+            h('p', null, '当前实例的运行、版本、网络和维护操作')),
+          !embedded && h('button', { type: 'button', onClick: () => open(false),
+            'aria-label': '关闭实例管理' }, '关闭')),
+        h('div', { className: 'dm-workspace' },
+          h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '管理中心导航' },
+            ...pages.map((item, index) => h('button', { key: item.id, id: 'dm-nav-' + item.id,
+              type: 'button', role: 'tab', 'aria-selected': tab === item.id,
+              'aria-controls': 'dm-page-panel', tabIndex: tab === item.id ? 0 : -1,
+              onClick: () => navigate(item.id),
+              onKeyDown: event => {
+                const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1
+                  : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0
+                if (!step && event.key !== 'Home' && event.key !== 'End') return
+                event.preventDefault()
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? pages.length - 1
+                  : (index + step + pages.length) % pages.length
+                navigate(pages[next].id)
+                event.currentTarget?.parentElement?.querySelectorAll('[role="tab"]')?.[next]?.focus?.()
+              } },
+              h('span', { className: 'dm-nav-icon', 'data-icon': item.icon, 'aria-hidden': true }),
+              item.label))),
+          h('div', { className: 'dm-main' },
+            h('div', { className: 'dm-content', id: 'dm-page-panel', role: 'tabpanel',
+              'aria-labelledby': 'dm-nav-' + tab, tabIndex: 0, 'aria-live': 'polite' },
+              h('div', { className: 'dm-page-head' },
+                h('div', null, h('h3', null, page.label),
+                  h('p', { className: 'dm-muted' }, page.description))),
+              status && h('div', { className: 'dm-statusbar', 'aria-label': '当前实例状态' },
+                h('span', { className: 'dm-statusitem' },
+                  h('span', { className: 'dm-dot', 'data-online': data.online && !disconnected }),
+                  h('strong', null, instanceName), ' · ', stateText),
+                h('span', { className: 'dm-statusitem' }, '健康：', h('strong', null, healthText)),
+                h('span', { className: 'dm-statusitem' }, 'Edition：', h('strong', null, status.instance.edition)),
+                h('span', { className: 'dm-statusitem' }, '执行器：', data.online && !disconnected ? '在线' : '离线')),
+              selectedTaskState && tab !== 'tasks' && h('div', { className: 'dm-task-jump', role: 'status' },
+                h('span', null, labels[selectedTaskState.action] || selectedTaskState.action, ' · ',
+                  states[selectedTaskState.state] || selectedTaskState.state),
+                h('button', { type: 'button', onClick: () => navigate('tasks') }, '查看任务')),
+              disconnected && h('div', { className: 'dm-banner', role: 'status' },
+                '连接暂时断开，正在自动重连。后台已接收的任务会继续执行。'),
+              data && !data.configured && h('div', { className: 'dm-banner' },
+                '此实例尚未启用 Web 管理。请在宿主机执行 dshd web enable；命名实例使用 dshd -i 实例ID web enable。'),
+              data?.configured && !data.online && h('div', { className: 'dm-banner', 'data-error': true },
+                '宿主机后台未连接。请运行 dshd web status 检查；必要时用 dshd web enable 修复。'),
+              error && h('div', { className: 'dm-banner', 'data-error': true, role: 'alert' }, error),
+              confirmation && h('div', { className: 'dm-confirm', role: 'group', 'aria-label': '确认管理操作' },
+                h('h4', null, '确认操作 · ', labels[confirmation.action]),
+                h('p', null, confirmations[confirmation.action]),
+                h('p', { className: 'dm-muted' }, '目标实例：', instanceName,
+                  '。任务提交到宿主机后即使页面断开，仍会在后台继续执行。'),
+                confirmationNeedsName && h('label', null,
+                  '请输入实例名称以确认清理：',
+                  h('input', { value: confirmationInput, autoComplete: 'off',
+                    'aria-label': '输入实例名称确认清理', placeholder: instanceName,
+                    onChange: event => setConfirmationInput(event.target.value) })),
+                h('div', { className: 'dm-actions', style: { marginTop: 12 } },
+                  h('button', { type: 'button', className: 'dm-primary', disabled: !enabled
+                      || !supports(confirmation.action) || !confirmationReady,
+                    onClick: () => void submit(confirmation.action, confirmation.args) },
+                    '确认' + labels[confirmation.action]),
+                  h('button', { type: 'button', onClick: () => {
+                    setConfirmation(null); setConfirmationInput('')
+                  } }, '取消'))),
+              !data && !disconnected && h('p', { className: 'dm-muted' }, '正在读取实例状态…'),
           tab === 'overview' && status && h(React.Fragment, null,
-            h('div', { className: 'dm-summary' },
-              h('div', null, h('div', { className: 'dm-state' },
-                h('span', { className: 'dm-dot', 'data-online': data.online }),
-                status.instance.name, ' · ', status.container?.state === 'running' ? '运行中' : status.container?.state || '不可用'),
-              h('p', { className: 'dm-muted', style: { margin: '6px 0 0' } }, status.instance.edition)),
-              actionButton('restart')),
+            h('div', { className: 'dm-cards' },
+              h('div', { className: 'dm-mini' },
+                h('div', { className: 'dm-muted' }, '运行状态'),
+                h('strong', null, stateText)),
+              h('div', { className: 'dm-mini' },
+                h('div', { className: 'dm-muted' }, '当前 DSH 版本'),
+                h('strong', null, status.container?.version || '未知')),
+              h('div', { className: 'dm-mini' },
+                h('div', { className: 'dm-muted' }, '健康检查'),
+                h('strong', null, healthText))),
+            section('当前实例',
+              details([['容器名称', instanceName], ['Edition', status.instance.edition],
+                ['Research Pack', status.instance.researchPack || 'none'],
+                ['镜像', status.instance.image], ['出口模式',
+                  status.instance.proxyEnabled === 'true' ? 'sing-box' : '直连']])),
+            section('升级状态',
+              h('p', { className: 'dm-muted' },
+                release?.error ? '更新检查失败：' + release.error
+                  : release?.available === true ? '检测到可用更新，安装前请查看版本页面的操作说明。'
+                    : release?.available === false ? '当前运行镜像与远端一致。'
+                      : status.release ? '运行镜像或更新源已变化，请重新检查更新。' : '尚未完成更新检查。'),
+              h('div', { className: 'dm-actions' },
+                h('button', { type: 'button', onClick: () => navigate('versions') }, '打开版本与更新'),
+                actionButton('restart'))),
+            section('快捷入口',
+              h('div', { className: 'dm-actions' },
+                h('button', { type: 'button', onClick: () => navigate('network') }, '网络与服务'),
+                h('button', { type: 'button', onClick: () => navigate('diagnostics') }, '配置与诊断'),
+                h('button', { type: 'button', onClick: () => navigate('logs') }, '运行日志')))),
+          tab === 'instances' && status && h(React.Fragment, null,
+            section('当前绑定实例',
+              details([['实例 ID', status.instance.id || 'default'],
+                ['容器名称', instanceName], ['运行状态', stateText],
+                ['健康状态', healthText], ['Edition', status.instance.edition],
+                ['当前镜像', status.instance.image]]),
+              h('div', { className: 'dm-actions' }, actionButton('restart'),
+                h('button', { type: 'button', onClick: () => navigate('versions') }, '管理版本'))),
+            section('多实例与权限边界',
+              h('p', { className: 'dm-muted' },
+                '当前 Web 控制台只管理宿主机执行器绑定的这一实例，不会通过浏览器输入切换其他实例。'),
+              h('p', { className: 'dm-muted' },
+                '其他实例的列表、创建与授权暂由宿主机执行 dshd instances / dshd instance add ID 完成。'),
+              h('div', { className: 'dm-empty' }, '跨实例统一管理尚未开放；需要独立宿主机授权后才能启用。'))),
+          tab === 'versions' && status && h(React.Fragment, null,
             section('镜像与更新',
               details([['当前 DSH 版本', status.container?.version], ['镜像', status.instance.image],
                 ['当前镜像标识', shortDigest(status.container?.imageId)], ['远端镜像标识', shortDigest(release?.latest)],
@@ -406,22 +552,40 @@ window.__ModuleLoader__.load({
               h('p', { className: 'dm-muted' }, '可以切换到通用科研包或经济学计量工具链。操作需要下载镜像并重建容器。'),
               h('div', { className: 'dm-actions' }, actionButton('pack-none'), actionButton('pack-economics')))),
           tab === 'tasks' && h(React.Fragment, null,
-            selectedJob && section('当前任务',
-              h('div', { className: 'dm-task-head' }, h('strong', null, labels[selectedJob.action] || selectedJob.action),
-                h('span', null, states[selectedJob.state] || selectedJob.state)),
-              h('p', { className: 'dm-muted' }, formatTime(selectedJob.startedAt), ' · ', selectedJob.id),
+            selectedJob && section('任务详情',
+              h('div', { className: 'dm-task-head' },
+                h('strong', null, labels[selectedJob.action] || selectedJob.action),
+                h('span', { role: 'status', 'data-state': selectedJob.state },
+                  states[selectedJob.state] || selectedJob.state)),
+              h('p', { className: 'dm-muted' },
+                formatTime(selectedJob.startedAt || selectedJob.finishedAt), ' · ', selectedJob.id),
+              selectedJob.state === 'interrupted' && h('div', { className: 'dm-banner', 'data-error': true },
+                '后台执行器曾中断，此任务不会自动重试。请先确认容器状态，再决定是否重新提交。'),
               selectedJob.error && h('div', { className: 'dm-banner', 'data-error': true }, selectedJob.error),
               h('pre', { className: 'dm-log', 'aria-label': '任务日志' }, selectedJob.log
-                || (['queued', 'running'].includes(selectedJob.state) ? '任务已记录，正在等待后台结果…' : '本任务没有额外执行日志。'))),
-            section('最近任务', ...jobs.map(job => h('div', { className: 'dm-task', key: job.id },
-              h('div', { className: 'dm-task-head' },
-                h('button', { type: 'button', onClick: () => setSelected(job.id) }, labels[job.action] || job.action),
-                h('span', null, states[job.state] || job.state)),
-              h('time', null, formatTime(job.startedAt || job.finishedAt))))),
-            !jobs.length && h('p', { className: 'dm-muted' }, '暂无管理任务。更新、重启及代理操作的执行结果会保存在这里。')),
+                || (['queued', 'running'].includes(selectedJob.state)
+                  ? '任务已记录，正在等待后台结果…' : '本任务没有额外执行日志。'))),
+            section('任务历史',
+              h('div', { className: 'dm-task-filter' },
+                h('input', { value: taskQuery, 'aria-label': '搜索任务', type: 'search',
+                  placeholder: '搜索操作名称或任务 ID', onChange: event => setTaskQuery(event.target.value) }),
+                h('select', { value: taskFilter, 'aria-label': '筛选任务状态',
+                  onChange: event => setTaskFilter(event.target.value) },
+                  ...[['all', '全部状态'], ...Object.entries(states)].map(([value, label]) =>
+                    h('option', { value, key: value }, label)))),
+              ...completedJobs.map(job => h('div', { className: 'dm-task', key: job.id },
+                h('div', { className: 'dm-task-head' },
+                  h('button', { type: 'button', 'aria-current': selectedJob?.id === job.id ? 'true' : undefined,
+                    onClick: () => setSelected(job.id) },
+                    labels[job.action] || job.action),
+                  h('span', { 'data-state': job.state }, states[job.state] || job.state)),
+                h('time', null, formatTime(job.startedAt || job.finishedAt)))),
+              !completedJobs.length && h('div', { className: 'dm-empty' },
+                jobs.length ? '没有匹配条件的任务。试试调整筛选。'
+                  : '暂无管理任务，新的执行记录会自动显示在这里。'))),
           tab === 'logs' && h(LogConsole, { logs: status?.logs, updatedAt: status?.logsUpdatedAt
             || status?.heartbeat, online: Boolean(data?.online) && !disconnected,
-            refresh: refreshStatus })))
+            refresh: refreshStatus })))))
     }
     function Overlay() {
       const active = React.useSyncExternalStore(subscribe, () => opened)

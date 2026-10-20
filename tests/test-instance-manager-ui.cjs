@@ -114,7 +114,7 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 5)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 7)
   assert.equal(f.calls, 1)
 })
 
@@ -124,13 +124,15 @@ test('edition selector is confirmed and disabled when an older worker lacks capa
   f.data.status.instance.researchPack = 'none'
   f.entry({ view: 'detail' }); await f.settle()
   let tree = f.entry({ view: 'detail' })
-  const legacy = nodes(tree, node => node.type === 'button' && text(node) === '切换 Standard')[0]
+  nodes(tree, node => node.props.role === 'tab' && text(node).trim() === '版本与更新')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  const legacy = nodes(tree, node => node.type === 'button' && text(node).trim() === '切换 Standard')[0]
   assert.ok(legacy?.props.disabled, 'new Web operations must be disabled against legacy workers')
 
   f.data.status.management = { schema: 1, operations: ['edition-standard', 'edition-research', 'pack-economics'] }
   await f.poll(3000)
   tree = f.entry({ view: 'detail' })
-  const change = nodes(tree, node => node.type === 'button' && text(node) === '切换 Standard')[0]
+  const change = nodes(tree, node => node.type === 'button' && text(node).trim() === '切换 Standard')[0]
   assert.equal(change.props.disabled, false)
   change.props.onClick()
   tree = f.entry({ view: 'detail' })
@@ -151,19 +153,90 @@ test('diagnostics shows nonsecret configuration and rejects unavailable dashboar
   f.data.status.management = { schema: 1, operations: ['diagnose-environment', 'diagnose-storage', 'diagnose-plugins'] }
   f.entry({ view: 'detail' }); await f.settle()
   let tree = f.entry({ view: 'detail' })
-  const diagnosisTab = nodes(tree, n => n.props.role === 'tab' && text(n) === '配置与诊断')[0]
+  const diagnosisTab = nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '配置与诊断')[0]
   diagnosisTab.props.onClick()
   tree = f.entry({ view: 'detail' })
   assert.match(text(tree), /已配置（不显示明文）/)
   assert.match(text(tree), /配置与诊断|持久化存储|内置插件/)
-  const diagnose = nodes(tree, n => n.type === 'button' && text(n) === '诊断内置插件')[0]
+  const diagnose = nodes(tree, n => n.type === 'button' && text(n).trim() === '诊断内置插件')[0]
   assert.equal(diagnose.props.disabled, false)
   assert.ok(!text(tree).includes('sk-secret-value'))
-  const network = nodes(tree, n => n.props.role === 'tab' && text(n) === '国际网络')[0]
+  const network = nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '网络与服务')[0]
   network.props.onClick()
   tree = f.entry({ view: 'detail' })
-  const start = nodes(tree, n => n.type === 'button' && text(n) === '启动 Dashboard')[0]
+  const start = nodes(tree, n => n.type === 'button' && text(n).trim() === '启动 Dashboard')[0]
   assert.ok(start.props.disabled, 'dashboard start is disabled when host did not allow it')
+})
+
+test('sidebar separates status, single-instance scope, versions, network and diagnostics', async () => {
+  const f = harness()
+  f.data.status.instance.edition = 'standard'
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const tabs = nodes(tree, n => n.props.role === 'tab')
+  assert.deepEqual(tabs.map(n => text(n).trim()), ['总览', '实例', '版本与更新', '网络与服务',
+    '配置与诊断', '任务记录', '运行日志'])
+  assert.equal(tabs[0].props['aria-selected'], true)
+  assert.match(text(tree), /当前 DSH 版本|健康检查/)
+  const instance = tabs[1]
+  instance.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /当前绑定实例/)
+  assert.match(text(tree), /跨实例统一管理尚未开放/)
+  assert.equal(nodes(tree, n => n.props.role === 'tab' && n.props['aria-selected']).length, 1)
+  let prevented = false
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '实例')[0].props.onKeyDown({
+    key: 'Home', preventDefault() { prevented = true },
+  })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(prevented, true)
+  assert.equal(nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '总览')[0].props['aria-selected'], true)
+})
+
+test('dangerous rollback cleanup requires matching current instance name and navigation cancels', async () => {
+  const f = harness()
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '版本与更新')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.type === 'button' && text(n).trim() === '清理旧容器与镜像')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /目标实例：\s*dsh-test/)
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n).trim() === '确认清理旧容器与镜像')[0].props.disabled, true)
+  const input = nodes(tree, n => n.props['aria-label'] === '输入实例名称确认清理')[0]
+  input.props.onChange({ target: { value: 'different' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n).trim() === '确认清理旧容器与镜像')[0].props.disabled, true)
+  nodes(tree, n => n.props['aria-label'] === '输入实例名称确认清理')[0].props.onChange({ target: { value: 'dsh-test' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n).trim() === '确认清理旧容器与镜像')[0].props.disabled, false)
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '总览')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.doesNotMatch(text(tree), /确认操作 · 清理旧容器与镜像/)
+})
+
+test('background job access and searchable task history survive navigation', async () => {
+  const f = harness()
+  f.data.jobs = [
+    { id: '111', state: 'succeeded', action: 'update', startedAt: new Date().toISOString(), log: 'updated' },
+    { id: '222', state: 'failed', action: 'restart', startedAt: new Date().toISOString(), error: 'network error' },
+  ]
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /查看任务/)
+  nodes(tree, n => n.type === 'button' && text(n).trim() === '查看任务')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /任务历史/)
+  const filter = nodes(tree, n => n.props['aria-label'] === '筛选任务状态')[0]
+  filter.props.onChange({ target: { value: 'failed' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.props.className === 'dm-task').length, 1)
+  nodes(tree, n => n.props['aria-label'] === '搜索任务')[0].props.onChange({ target: { value: 'nonexistent' } })
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /没有匹配条件的任务/)
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '网络与服务')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /查看任务/)
 })
 
 test('fresh page loads stay quiet even when an image update is available', async () => {
@@ -175,7 +248,9 @@ test('fresh page loads stay quiet even when an image update is available', async
     assert.equal(f.calls, 0)
     assert.deepEqual(f.overlays(), [null])
     f.entry({ view: 'detail' }); await f.settle()
-    const detail = f.entry({ view: 'detail' })
+    let detail = f.entry({ view: 'detail' })
+    nodes(detail, n => n.props.role === 'tab' && text(n).trim() === '版本与更新')[0].props.onClick()
+    detail = f.entry({ view: 'detail' })
     assert.match(text(detail), /检测到可用更新/)
     assert.match(text(detail), /关闭页面后继续/)
     assert.match(text(detail), /不弹窗/)
@@ -207,11 +282,13 @@ test('panel rejects update results for a different image source', async () => {
 test('panel connection loss disables management until status recovers', async () => {
   const f = harness()
   f.entry({ view: 'detail' }); await f.settle()
+  let detail = f.entry({ view: 'detail' })
+  nodes(detail, n => n.props.role === 'tab' && text(n).trim() === '版本与更新')[0].props.onClick()
   f.fail = true
   await f.poll(3000)
-  const detail = f.entry({ view: 'detail' })
+  detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /连接暂时断开/)
-  assert.ok(nodes(detail, node => node.type === 'button' && text(node) === '更新镜像')[0].props.disabled)
+  assert.ok(nodes(detail, node => node.type === 'button' && text(node).trim() === '更新镜像')[0].props.disabled)
 })
 
 test('failed registry checks remain visible in details', async () => {
@@ -230,7 +307,7 @@ test('live runtime logs are reachable from manager and the dedicated shortcut is
   f.entry({ view: 'detail' })
   await f.settle()
   let tree = f.entry({ view: 'detail' })
-  const tab = nodes(tree, node => node.props.role === 'tab' && text(node) === '运行日志')[0]
+  const tab = nodes(tree, node => node.props.role === 'tab' && text(node).trim() === '运行日志')[0]
   assert.ok(tab)
   tab.props.onClick()
   tree = f.entry({ view: 'detail' })
@@ -254,19 +331,19 @@ test('log search and pause freeze the display while status continues to refresh'
   f.entry({ view: 'detail' })
   await f.settle()
   let tree = f.entry({ view: 'detail' })
-  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '运行日志')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
   const search = nodes(tree, n => n.props['aria-label'] === '搜索运行日志')[0]
   search.props.onChange({ target: { value: 'failure' } })
   tree = f.entry({ view: 'detail' })
   assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /startup/)
-  nodes(tree, n => n.type === 'button' && text(n) === '暂停显示')[0].props.onClick()
+  nodes(tree, n => n.type === 'button' && text(n).trim() === '暂停显示')[0].props.onClick()
   f.data.status.logs = 'ERROR new failure\nINFO restarted'
   await f.poll(3000)
   tree = f.entry({ view: 'detail' })
   assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /first failure/)
   assert.doesNotMatch(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
-  nodes(tree, n => n.type === 'button' && text(n) === '继续显示')[0].props.onClick()
+  nodes(tree, n => n.type === 'button' && text(n).trim() === '继续显示')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
   assert.match(text(nodes(tree, n => n.props.role === 'log')[0]), /new failure/)
 })
@@ -276,7 +353,7 @@ test('SSE subscription receives snapshots and appends, deduplicates and reconnec
   f.entry({ view: 'detail' })
   await f.settle()
   let tree = f.entry({ view: 'detail' })
-  nodes(tree, n => n.props.role === 'tab' && text(n) === '运行日志')[0].props.onClick()
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '运行日志')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
   assert.equal(f.sources.length, 1)
   const source = f.sources[0]
@@ -300,7 +377,7 @@ test('SSE subscription receives snapshots and appends, deduplicates and reconnec
   source.onerror()
   tree = f.entry({ view: 'detail' })
   assert.match(text(tree), /自动重连中/)
-  nodes(tree, n => n.type === 'button' && text(n) === '重新连接')[0].props.onClick()
+  nodes(tree, n => n.type === 'button' && text(n).trim() === '重新连接')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
   assert.equal(f.sources.length, 2)
   assert.equal(source.closed, true)
