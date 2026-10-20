@@ -293,6 +293,8 @@ COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager
 RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
 COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
 RUN node /opt/dsh/test-context-manager-ccr.mjs
+COPY tests/test-context-manager-acp-fork.mjs /opt/dsh/test-context-manager-acp-fork.mjs
+RUN node /opt/dsh/test-context-manager-acp-fork.mjs
 COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
 RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 
