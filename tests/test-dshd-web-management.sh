@@ -25,6 +25,10 @@ cmd_web describe >"$tmp/description"
 ! grep -aq PRIVATE_TEST_KEY "$tmp/description"
 ! grep -aq private.example.com "$tmp/description"
 grep -aq dsh-test "$tmp/description"
+grep -aq 'researchPack' "$tmp/description"
+grep -aq 'storageMode' "$tmp/description"
+grep -aq 'apiKeyConfigured' "$tmp/description"
+! grep -aq 'PRIVATE_TEST_KEY' "$tmp/description"
 [[ "$(web_service_name)" == "$(web_service_name)" ]]
 [[ "$(web_systemd_quote '/etc/test%name')" == '"/etc/test%%name"' ]]
 
