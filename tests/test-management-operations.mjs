@@ -49,7 +49,7 @@ for item in contract["operations"]:
         worker.Manager.validate_settings(args)
     else:
         worker.command_for(item["id"], args)
-    extra = dict(args, instance="other")
+    extra = dict(args, unexpected="other")
     try:
         if item["id"] == "settings":
             worker.Manager.validate_settings(extra)
