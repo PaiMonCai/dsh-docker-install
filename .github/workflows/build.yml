@@ -109,7 +109,7 @@ jobs:
           bash tests/test-dshd-web-switch.sh
           python3 tests/test-web-manager.py
           python3 tests/test-portable-backup.py
-          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
+          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-web-backup-transfer.mjs
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
           bash -n tests/test-dshd-storage.sh
