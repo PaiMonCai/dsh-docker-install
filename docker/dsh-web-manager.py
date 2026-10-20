@@ -17,6 +17,7 @@ import time
 import uuid
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+UPLOAD_FILE = re.compile(r"upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.dshbak\\Z")
 BACKUP_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak\Z")
 NEW_INSTANCE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
 MAX_WEB_ARCHIVE = 1024 * 1024 * 1024  # 1 GiB upload cap
@@ -326,7 +327,7 @@ class Manager:
     def archive_path(self, filename):
         if not isinstance(filename, str) or not BACKUP_FILE.fullmatch(filename):
             raise ValueError("invalid archive filename")
-        directory = self.uploads if filename.startswith("upload-") else self.backups
+        directory = self.uploads if UPLOAD_FILE.fullmatch(filename) else self.backups
         path = directory / filename
         info = path.lstat()
         if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
