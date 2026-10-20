@@ -647,6 +647,11 @@ jobs:
         shell: bash
         run: bash tests/test-context-manager-tiered-lab.sh dsh-ci:pr
 
+      - name: Verify active Tiered + ACP Standard preset in disposable CI Web
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-acp-lab.sh dsh-ci:pr
+
       - name: Report image footprint
         if: github.event_name == 'pull_request'
         shell: bash

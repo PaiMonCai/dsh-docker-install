@@ -91,3 +91,13 @@ reconciliation and multi-preset cross-session recovery remain open.
   remains disabled for history reads by default.
 
 No claim of billion-context feature or performance parity is made here.
+
+## CI experimental preset loading
+
+The PR-only `test-context-manager-acp-lab.sh` runs in a newly allocated
+Docker volume, deliberately enables `DSH_CONTEXT_MANAGER_ACP_ACTIVE=1`, and
+uses the existing disposable Session replay smoke to mount Standard without
+an external model call. The Context Manager ready marker requires **active**
+Tiered and ACP Fiber counts and a mounted Standard preset, not just YAML
+configuration presence. This is a boot/ownership test, not proof of model
+calling the four tools correctly across multiple Agent steps.
