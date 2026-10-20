@@ -296,9 +296,12 @@ class Manager:
             if directory.is_symlink() or not directory.is_dir():
                 continue
             for path in directory.iterdir():
-                if not BACKUP_FILE.fullmatch(path.name) or path.is_symlink():
+                if not BACKUP_FILE.fullmatch(path.name):
                     continue
-                info = path.stat()
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:  # timer pruning an expired snapshot
+                    continue
                 if not stat.S_ISREG(info.st_mode):
                     continue
                 entries.append({"file": path.name, "kind": kind,
