@@ -123,6 +123,7 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-session-manager-web/cordis.patch.yml" "${DSH_SESSION_MANAGER_WEB:-true}" "会话回收站"
     append_native_web_patch "/opt/dsh/plugins/dsh-instance-manager/cordis.patch.yml" "${DSH_INSTANCE_MANAGER:-true}" "实例管理"
     append_native_web_patch "/opt/dsh/plugins/dsh-prompt-manager/cordis.patch.yml" "${DSH_PROMPT_MANAGER:-true}" "提示词与执行"
+    append_native_web_patch "/opt/dsh/plugins/dsh-context-manager/cordis.patch.yml" "${DSH_CONTEXT_MANAGER_PROBE:-true}" "上下文管理"
     # The web seam selects a provider at service construction, not when a new
     # provider registers. Read the persisted choice before the DSH launcher runs.
     # Invalid settings fail closed to official search and remain repairable in UI.

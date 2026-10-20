@@ -1,0 +1,5 @@
+# Phase 1 is a read-only compatibility probe. Launcher opt-in only.
+# No native compaction backend is enabled/replaced by this patch.
+- insert:
+    - id: dsh-docker-context-manager
+      name: ./index.js
