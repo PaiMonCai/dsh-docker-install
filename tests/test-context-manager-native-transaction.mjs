@@ -125,6 +125,11 @@ try {
   })
   assert.ok(orig.items.some(x=>x.text.includes('original evidence')))
   assert.ok(originalSnapshot.every(e=>session.snapshotEvents().some(now=>now.seq===e.seq)))
+  // Independently replay every persisted event into the native Session
+  // projection, matching the cold-read constructor's event validation.
+  const restored=Session.create(session.id,session.snapshotEvents(),session.header)
+  assert.deepEqual(restored.surface.nodes,session.surface.nodes)
+  assert.equal(indexCompactions({meta:{id:restored.id},events:restored.snapshotEvents()}).total,1)
   const snap=session.snapshotEvents()
   assert.ok(snap.some(e=>e.type==='compaction/start'))
   assert.ok(snap.some(e=>e.type==='compaction/summary'))
@@ -147,6 +152,9 @@ try {
     assert.equal(indexCompactions({meta:{id:failed.id},events:after}).total,0)
     assert.equal(indexCompactions({meta:{id:failed.id},events:after}).incomplete,1)
     assert.ok(after.length>before)
+    const restoredFailed=Session.create(failed.id,after,failed.header)
+    assert.deepEqual(restoredFailed.surface.nodes,startSurface)
+    assert.equal(indexCompactions({meta:{id:failed.id},events:restoredFailed.snapshotEvents()}).total,0)
   }
   process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_TIERED_FAIL_CLOSED modes=invalid,transport\n')
 } finally {
