@@ -4,7 +4,7 @@
  * The original event log remains the only source of conversation truth.
  */
 import {
-  createCore, createInitialState, defaultConfig, collectBlockContent,
+  createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
 } from 'acp-kernel'
 import { withAcpSummary } from './acp-pending.mjs'
 
@@ -44,7 +44,15 @@ function activeMessages(session, checkpoints) {
     const event = session.eventAt(seq)
     const message = asMessage(event)
     if (message && checkpoints?.[String(seq)]) {
-      message.summaryOfBlockId = checkpoints[String(seq)]
+      const blockId=checkpoints[String(seq)]
+      // Kernel's syncBlocks expects its own summaryMessageId carrier to
+      // keep a committed block active after the native DSH Surface replace.
+      // This is an IN-MEMORY ACP view only; DSH's durable user/message and
+      // checkpoint source are never rewritten into a system message.
+      message.id=summaryMessageId(blockId)
+      message.role='system'
+      message.contentType='text'
+      message.summaryOfBlockId=blockId
     }
     return message
   }).filter(Boolean)
