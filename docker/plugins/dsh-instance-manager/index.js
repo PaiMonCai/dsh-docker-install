@@ -10,7 +10,10 @@ export const LOGS_ENDPOINT = ENDPOINT + '/logs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'cleanup',
-  'proxy-start', 'proxy-stop', 'proxy-restart', 'proxy-test', 'proxy-test-all', 'proxy-refresh'])
+  'proxy-start', 'proxy-stop', 'proxy-restart', 'proxy-test', 'proxy-test-all', 'proxy-refresh',
+  'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+  'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
+  'dashboard-start', 'dashboard-stop'])
 export const OPERATION_CONTRACT_VERSION = 1
 export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe'].sort())
 const busy = job => ['queued', 'running'].includes(job.state)
