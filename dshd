@@ -2800,9 +2800,13 @@ create_container() {
   )
 
   if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
+    mkdir -p "$STATE_DIR/backups" "$STATE_DIR/web-management/uploads" || return 1
+    chmod 700 "$STATE_DIR/backups" "$STATE_DIR/web-management/uploads" || return 1
     args+=(
       --mount "type=bind,src=$STATE_DIR/web-management/requests,dst=/run/dsh-management/requests"
       --mount "type=bind,src=$STATE_DIR/web-management/results,dst=/run/dsh-management/results,readonly"
+      --mount "type=bind,src=$STATE_DIR/backups,dst=/run/dsh-management/backups,readonly"
+      --mount "type=bind,src=$STATE_DIR/web-management/uploads,dst=/run/dsh-management/uploads"
     )
   fi
 
@@ -3574,9 +3578,11 @@ web_prepare() {
   install_self || { rm -f "$tmp"; return 1; }
   install -m 0700 "$tmp" "$STATE_DIR/web-manager.py" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
-  mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+  mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results" \
+    "$STATE_DIR/web-management/uploads" "$STATE_DIR/backups" "$STATE_DIR/web-management-private" || return 1
   chmod 700 "$STATE_DIR/web-management" "$STATE_DIR/web-management/requests" \
-    "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+    "$STATE_DIR/web-management/results" "$STATE_DIR/web-management/uploads" \
+    "$STATE_DIR/backups" "$STATE_DIR/web-management-private" || return 1
   python="$(command -v python3)"
   script="/usr/local/bin/dshd"
   service="$(web_service_name)"
