@@ -135,7 +135,7 @@ export class AcpRuntime {
   }
   status(session) {
     const {row,messages,config,tokenCount,nudge} = this.view(session)
-    const refs = messages.filter(m=>row.state.messageRefs.byRaw[m.id]?.startsWith('m'))
+    const refs = messages.filter(m=>!m.summaryOfBlockId && row.state.messageRefs.byRaw[m.id]?.startsWith('m'))
       .slice(-MAX_ITEMS).map(m=>({
         ref:row.state.messageRefs.byRaw[m.id],role:m.role,chars:m.text.length,
         // Deliberately omit prompt and tool-result content from a status report.
@@ -165,6 +165,8 @@ export class AcpRuntime {
     const first=position(startRef),last=position(endRef)
     if(first<0||last<0||first>=last)
       throw Error('range must be a current ordered visible span of at least two messages or two blocks')
+    if(plain&&(messages[first].summaryOfBlockId||messages[last].summaryOfBlockId))
+      throw Error('current compressed checkpoint must use bN boundary, not an m-ref')
     if(tiered && (!row.state.blocks.find(b=>b.active&&b.blockId===startRef)
       || !row.state.blocks.find(b=>b.active&&b.blockId===endRef)))
       throw Error('T2/T3 range must refer to active ACP blocks')
