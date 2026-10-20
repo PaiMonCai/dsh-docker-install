@@ -168,6 +168,77 @@ test('diagnostics shows nonsecret configuration and rejects unavailable dashboar
   assert.ok(start.props.disabled, 'dashboard start is disabled when host did not allow it')
 })
 
+test('sidebar separates status, single-instance scope, versions, network and diagnostics', async () => {
+  const f = harness()
+  f.data.status.instance.edition = 'standard'
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  const tabs = nodes(tree, n => n.props.role === 'tab')
+  assert.deepEqual(tabs.map(text), ['总览', '实例', '版本与更新', '网络与服务',
+    '配置与诊断', '任务记录', '运行日志'])
+  assert.equal(tabs[0].props['aria-selected'], true)
+  assert.match(text(tree), /当前 DSH 版本|健康检查/)
+  const instance = tabs[1]
+  instance.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /当前绑定实例/)
+  assert.match(text(tree), /跨实例统一管理尚未开放/)
+  assert.equal(nodes(tree, n => n.props.role === 'tab' && n.props['aria-selected']).length, 1)
+  let prevented = false
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '实例')[0].props.onKeyDown({
+    key: 'Home', preventDefault() { prevented = true },
+  })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(prevented, true)
+  assert.equal(nodes(tree, n => n.props.role === 'tab' && text(n) === '总览')[0].props['aria-selected'], true)
+})
+
+test('dangerous rollback cleanup requires matching current instance name and navigation cancels', async () => {
+  const f = harness()
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '版本与更新')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.type === 'button' && text(n) === '清理旧容器与镜像')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /目标实例：dsh-test/)
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n) === '确认清理旧容器与镜像')[0].props.disabled, true)
+  const input = nodes(tree, n => n.props['aria-label'] === '输入实例名称确认清理')[0]
+  input.props.onChange({ target: { value: 'different' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n) === '确认清理旧容器与镜像')[0].props.disabled, true)
+  nodes(tree, n => n.props['aria-label'] === '输入实例名称确认清理')[0].props.onChange({ target: { value: 'dsh-test' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n) === '确认清理旧容器与镜像')[0].props.disabled, false)
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '总览')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.doesNotMatch(text(tree), /确认操作 · 清理旧容器与镜像/)
+})
+
+test('background job access and searchable task history survive navigation', async () => {
+  const f = harness()
+  f.data.jobs = [
+    { id: '111', state: 'succeeded', action: 'update', startedAt: new Date().toISOString(), log: 'updated' },
+    { id: '222', state: 'failed', action: 'restart', startedAt: new Date().toISOString(), error: 'network error' },
+  ]
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /查看任务/)
+  nodes(tree, n => n.type === 'button' && text(n) === '查看任务')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /任务历史/)
+  const filter = nodes(tree, n => n.props['aria-label'] === '筛选任务状态')[0]
+  filter.props.onChange({ target: { value: 'failed' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.className === 'dm-task').length, 1)
+  nodes(tree, n => n.props['aria-label'] === '搜索任务')[0].props.onChange({ target: { value: 'nonexistent' } })
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /没有匹配条件的任务/)
+  nodes(tree, n => n.props.role === 'tab' && text(n) === '网络与服务')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /查看任务/)
+})
+
 test('fresh page loads stay quiet even when an image update is available', async () => {
   // Recreate the whole client to simulate refreshing, including empty browser storage.
   for (let load = 0; load < 2; load++) {
