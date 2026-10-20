@@ -114,7 +114,7 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 7)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 8)
   assert.equal(f.calls, 1)
 })
 
@@ -175,7 +175,7 @@ test('sidebar separates status, single-instance scope, versions, network and dia
   let tree = f.entry({ view: 'detail' })
   const tabs = nodes(tree, n => n.props.role === 'tab')
   assert.deepEqual(tabs.map(n => text(n).trim()), ['总览', '实例', '版本与更新', '网络与服务',
-    '配置与诊断', '任务记录', '运行日志'])
+    '配置与诊断', '备份与恢复', '任务记录', '运行日志'])
   assert.equal(tabs[0].props['aria-selected'], true)
   assert.match(text(tree), /当前 DSH 版本|健康检查/)
   const instance = tabs[1]
