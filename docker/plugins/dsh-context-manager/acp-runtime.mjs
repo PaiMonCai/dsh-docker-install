@@ -149,7 +149,9 @@ export class AcpRuntime {
   }
   propose(session,{startRef,endRef,summary,topic}) {
     if (this.pending.has(session)) throw Error('one ACP compression proposal is already queued')
-    if (!REF.test(startRef)||!REF.test(endRef)) throw Error('ACP native pilot accepts current mNNNNN message refs only')
+    const plain=REF.test(startRef)&&REF.test(endRef)
+    const tiered=BLOCK.test(startRef)&&BLOCK.test(endRef)
+    if(!plain&&!tiered)throw Error('ACP native requires matching mNNNNN or bN..bN boundaries')
     if (typeof summary!=='string'||summary.trim().length<80||summary.length>MAX_SUMMARY)
       throw Error('summary must be 80–12000 characters')
     if (topic!==undefined && (typeof topic!=='string'||topic.length>128))
@@ -157,14 +159,27 @@ export class AcpRuntime {
     const view = this.view(session)
     const {row,messages,config} = view
     const refMap=row.state.messageRefs.byRef
-    const first=messages.findIndex(m=>m.id===refMap[startRef])
-    const last=messages.findIndex(m=>m.id===refMap[endRef])
-    if(first<0||last<0||first>=last)throw Error('range must be a current ordered visible span of at least two messages')
+    const position=ref=>plain
+      ? messages.findIndex(m=>m.id===refMap[ref])
+      : messages.findIndex(m=>m.summaryOfBlockId===ref)
+    const first=position(startRef),last=position(endRef)
+    if(first<0||last<0||first>=last)
+      throw Error('range must be a current ordered visible span of at least two messages or two blocks')
+    if(tiered && (!row.state.blocks.find(b=>b.active&&b.blockId===startRef)
+      || !row.state.blocks.find(b=>b.active&&b.blockId===endRef)))
+      throw Error('T2/T3 range must refer to active ACP blocks')
+    const nativeSeq=message=>{
+      if(!message.summaryOfBlockId)return Number(message.id)
+      const original=Object.entries(row.checkpoints).find(([seq,id])=>
+        id===message.summaryOfBlockId&&session.surface.nodes.includes(Number(seq)))
+      if(!original)throw Error('active ACP block has no matching native checkpoint')
+      return Number(original[0])
+    }
     // Do not consume the trailing context. DSH's native boundary validator
     // independently protects unmatched tool call/result pairs at commit time.
     if(last>=messages.length-2)throw Error('preserve at least two recent surface messages')
     const proposal={startRef,endRef,summary:summary.trim(),topic:topic??null,
-      firstId:messages[first].id,lastId:messages[last].id,
+      firstId:String(nativeSeq(messages[first])),lastId:String(nativeSeq(messages[last])),
       surfaceGeneration:session.surface.replaceGeneration}
     const draft=this.core.applyCompression({ranges:[{
       startRef,endRef,summary:proposal.summary,
@@ -177,7 +192,8 @@ export class AcpRuntime {
     if(!proposal.newBlock)throw Error('ACP kernel produced no durable block')
     this.pending.set(session,proposal)
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
-      block:proposal.newBlock.blockId,advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
+      block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
+      advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
   }
   async processPending(agent,compaction,signal) {
     const session=agent.session
