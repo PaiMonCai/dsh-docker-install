@@ -302,24 +302,55 @@ async function downloadBackup(res, name) {
 async function uploadBackup(req, name) {
   if (!/^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak$/.test(name)) refuse(400, 'invalid-backup-file')
   await guardTransferDir(name)
-  const declared = Number(req.headers['content-length'])
-  if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_UPLOAD) refuse(413, 'backup-too-large')
-  const path = transferLocation(name)
-  const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+  const rawLength = req.headers['content-length']
+  const declared = rawLength === undefined ? null : Number(rawLength)
+  if (declared !== null && (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_UPLOAD))
+    refuse(413, 'backup-too-large')
+  const directory = join(process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management', 'uploads')
+  // Bound uploads in the shared spool; incomplete files are never selectable.
+  let bytesUsed = 0
+  for (const entry of await readdir(directory)) {
+    if (!/^upload-[0-9a-f-]{36}\.dshbak$/.test(entry)) continue
+    const meta = await lstat(join(directory, entry))
+    if (!meta.isSymbolicLink() && meta.isFile()) bytesUsed += meta.size
+  }
+  if (bytesUsed + (declared || MAX_UPLOAD) > 2 * MAX_UPLOAD) refuse(413, 'backup-storage-full')
+  const temporary = join(directory, '.uploading-' + name + '.part')
+  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
   let size = 0
   try {
     for await (const block of req) {
       size += block.length
-      if (size > MAX_UPLOAD || size > declared) refuse(413, 'backup-too-large')
-      await file.write(block)
+      if (size > MAX_UPLOAD || (declared !== null && size > declared)) refuse(413, 'backup-too-large')
+      let offset = 0
+      while (offset < block.length) {
+        const { bytesWritten } = await file.write(block, offset, block.length - offset)
+        if (!bytesWritten) throw Error('short archive write')
+        offset += bytesWritten
+      }
     }
-    if (size !== declared) refuse(400, 'incomplete-backup-upload')
+    if (!size || (declared !== null && size !== declared)) refuse(400, 'incomplete-backup-upload')
     await file.sync()
-    return { file: name, size }
   } catch (error) {
-    await unlink(path).catch(() => {})
+    await file.close()
+    await unlink(temporary).catch(() => {})
     throw error
-  } finally { await file.close() }
+  }
+  await file.close()
+  const destination = transferLocation(name)
+  try {
+    // The ID was a fresh UUID, but still refuse clobber if it already exists.
+    const existing = await lstat(destination).catch(error => {
+      if (error.code === 'ENOENT') return null
+      throw error
+    })
+    if (existing) refuse(409, 'duplicate-backup-file')
+    await import('node:fs/promises').then(fs => fs.rename(temporary, destination))
+  } catch (error) {
+    await unlink(temporary).catch(() => {})
+    throw error
+  }
+  return { file: name, size }
 }
 
 export function apply(ctx) {
