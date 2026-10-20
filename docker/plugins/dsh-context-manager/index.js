@@ -5,6 +5,7 @@ import { readSettings, writeSettings, settingsRevision } from './storage.mjs'
 import { indexCompactions, publicIndex, summaryDetail, originalPage } from './history-index.mjs'
 import { installReplaySmoke } from './ci-replay.mjs'
 import { auditOwnership } from './ownership-audit.mjs'
+import { createTakeoverPolicy, isPresetEntry, replacePresetCompactor, GATE } from './takeover.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
@@ -15,6 +16,8 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  * No policy is applied to a live compaction service until ownership is verified.
  */
 export function apply(ctx) {
+  const takeover = createTakeoverPolicy()
+  let takeoverEvidence = null
   const probe = makeProbe()
   // Inert unless a disposable CI container explicitly enables the replay
   // smoke; never writes real user sessions or enables live compaction.
@@ -29,10 +32,20 @@ export function apply(ctx) {
   catch { ctx.logger?.warn?.('Context Manager settings unavailable at boot; native compaction unchanged') }
   ctx.on('internal/config', function (_raw, next) {
     const resolved = next()
-    try { probe.observeConfig(this?.entry, resolved) }
+    const transformed = takeover.active && isPresetEntry(this?.entry)
+      ? replacePresetCompactor(resolved,takeover.settings,takeover.target) : {changed:false,config:resolved}
+    if(transformed.changed) takeoverEvidence=transformed.evidence
+    try { probe.observeConfig(this?.entry, transformed.config) }
     catch (error) { ctx.logger?.warn?.('context-manager preset probe failed: ' + String(error?.message || error)) }
-    return resolved
+    return transformed.config
   }, { global: true })
+  // Gate selected preset until this middleware is registered. No service
+  // exists in default deployment, and this does not insert a compactor.
+  if(takeover.active) {
+    if(typeof ctx.reflect?.provide!=='function')
+      throw Error('native preset gate unavailable; refusing tiered activation')
+    ctx.reflect.provide(GATE,true)
+  }
 
   ctx.on('session/event', (session, event) => {
     try { probe.observeEvent(session, event) }
@@ -134,7 +147,8 @@ export function apply(ctx) {
         if (method === 'status' && Object.keys(payload).length === 0) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
-            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction) } }
+            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
           const settings = readSettings()
@@ -143,8 +157,9 @@ export function apply(ctx) {
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'},
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: 'phase2-configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false },
@@ -156,7 +171,7 @@ export function apply(ctx) {
           const revision = settingsRevision(settings)
           return { ok: true, value: { settings, revision,
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: 'phase2-configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false } } }

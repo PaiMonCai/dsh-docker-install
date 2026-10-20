@@ -213,6 +213,7 @@ COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manage
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
+COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -262,6 +263,8 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/history-index.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/ci-replay.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/ownership-audit.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
+ && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \

@@ -60,14 +60,15 @@ export function replacePresetCompactor(preset,settings,target=ALLOWED_PRESET) {
   return {changed:true,config:{...preset,plugins},
     evidence:{preset:target,replaced:1,manual:1,external:0}}
 }
-export function createTakeoverPolicy(env=process.env,settings=readSettings()) {
+export function createTakeoverPolicy(env=process.env,settings) {
   const active=env.DSH_CONTEXT_MANAGER_TIERED_ACTIVE==='1'
   if(!active)return {active:false,reason:'disabled'}
   if(env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1'
     ||env.DSH_CONTEXT_MANAGER_NO_EXTERNAL_PROXY!=='1')
     throw Error('tiered pilot requires owner and external-proxy attestations')
-  if(settings.engine!=='tiered')throw Error('tiered pilot requires saved tiered policy')
-  return {active:true,settings,target:ALLOWED_PRESET,phase:'single-preset-lab-only'}
+  const saved=settings??readSettings()
+  if(saved.engine!=='tiered')throw Error('tiered pilot requires saved tiered policy')
+  return {active:true,settings:saved,target:ALLOWED_PRESET,phase:'single-preset-lab-only'}
 }
 export function isPresetEntry(entry) {
   return entry?.options?.name===PRESET_PACKAGE
