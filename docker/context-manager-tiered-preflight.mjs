@@ -2,7 +2,7 @@
 // Fail CLOSED before launching DSH. Never auto-detect away an external proxy.
 import {readFileSync,readdirSync} from 'node:fs'
 import {join} from 'node:path'
-import {createTakeoverPolicy} from '../docker/plugins/dsh-context-manager/takeover.mjs'
+import {createTakeoverPolicy} from '/opt/dsh/plugins/dsh-context-manager/takeover.mjs'
 const active=process.env.DSH_CONTEXT_MANAGER_TIERED_ACTIVE==='1'
 if(!active) process.exit(0)
 try {
