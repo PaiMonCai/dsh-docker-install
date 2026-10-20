@@ -627,11 +627,9 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         const entry = { id: 'dsh-docker.instance-manager', label: '实例管理', icon: 'settings', order: 90,
           onClick: () => open(true, 'overview') }
-        const logsEntry = { id: 'dsh-docker.runtime-logs', label: '运行日志', icon: 'terminal', order: 95,
-          onClick: () => open(true, 'logs') }
         const dock = window.__dshDockerIconDockV1
-        if (dock) { dock.register(entry); dock.register(logsEntry) }
-        else (window.__dshDockerIconDockPendingV1 ||= []).push(entry, logsEntry)
+        if (dock) dock.register(entry)
+        else (window.__dshDockerIconDockPendingV1 ||= []).push(entry)
         ctx.slots.inject('plugins.item', () => ctx.slots.register({
           name: 'plugins.item', id: 'dsh-docker-instance-manager', order: 79, label: () => '实例管理',
         }, (props = {}) => props.view === 'summary' ? '管理 DSH 更新、运行状态与网络出口' : h(Panel, { embedded: true })))
