@@ -5326,7 +5326,7 @@ EOF
 
 # Standalone, checksum-pinned portable backup helper. A normal installation
 # downloads only dshd; cache the verified Python helper on first use.
-DSHD_BACKUP_HELPER_SHA256="e2ee9ccf67158adebd79b07f8448ba75a40273b661eaa1860df9968452258245"
+DSHD_BACKUP_HELPER_SHA256="8df08664948900346e8c0337e19aad4adb3a0627095cbc629416956c3069d06a"
 
 portable_backup_helper() {
   local source="${BASH_SOURCE[0]}" localcopy="" helper="$STATE_DIR/.dsh-portable-backup.py" tmp=""
