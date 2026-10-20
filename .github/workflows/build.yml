@@ -103,6 +103,8 @@ jobs:
         run: |
           bash -n dshd
           bash -n install.sh
+          bash -n tests/test-install-bootstrap.sh
+          bash tests/test-install-bootstrap.sh
           bash tests/test-dshd-web-management.sh
           bash tests/test-dshd-web-switch.sh
           python3 tests/test-web-manager.py
