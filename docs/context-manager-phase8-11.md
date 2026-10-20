@@ -184,3 +184,14 @@ Tiered+ACP lab may report `experimentalRuntime.active=true` while
 `runtime.applied=false` and `productionApproved=false` remain unchanged.
 This is deliberate: no host-global proof or tenant authorization has yet
 been established.
+
+## Reproducible offline benchmark
+
+The Docker build executes `test-context-manager-acp-benchmark.mjs` against 36
+synthetic source messages, three native-event compaction transactions and a
+cold replay. It emits a JSON line containing model-visible token **estimates**,
+reduction percentage, Session projection P95, elapsed time and current heap.
+This does **not** measure API billing, LLM summary quality, real model context
+window adaptation, prefix-cache reuse, real model latency or user-visible
+multi-tenant memory bounds. Real-provider benchmarks require operator-supplied
+credentials and an explicit spending/privacy authorization before release.

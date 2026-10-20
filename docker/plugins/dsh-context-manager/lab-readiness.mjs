@@ -20,7 +20,7 @@ export function labReadiness(takeover,evidence,inventory) {
   scope:'standard-preset-lab-only',
   active:blockers.length===0,
   nativeAcp:!!takeover?.acp,
-  nativeCcr:!!takeover?.acp&&process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1',
+  nativeCcr:blockers.length===0&&!!takeover?.acp&&process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1',
   productionApproved:false,
   blockers,
  }

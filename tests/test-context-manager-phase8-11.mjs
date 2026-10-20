@@ -54,3 +54,9 @@ test('separate mounted-lab observation from production approval',async()=>{
  const conflict=mk(true);conflict.presets[0].external.active=1
  assert.equal(labReadiness(takeover,{preset:'standard'},conflict).active,false)
 })
+
+test('CCR compose flags do not enable a second engine or bypass the owner gate',()=>{
+ for(const path of ['docker-compose.yml','docker-compose.reverse.yml'])
+   assert.match(read(path),/DSH_CONTEXT_MANAGER_CCR_ACTIVE/)
+ assert.throws(()=>createTakeoverPolicy({DSH_CONTEXT_MANAGER_CCR_ACTIVE:'1'},defaults()),/requires/)
+})
