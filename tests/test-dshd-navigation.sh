@@ -11,7 +11,7 @@ mkdir -p "$HOME" "$DSHD_STATE_DIR"
 source "$ROOT/dshd"
 load_config
 
-menu_render_main > "$TMP/home.txt"
+menu_render_legacy_main > "$TMP/home.txt"
 for category in '实例管理' '运行管理' '版本与更新' '配置与安全' '网络与服务' '数据与维护'; do
   grep -Fq "$category" "$TMP/home.txt" || { echo "missing home category $category" >&2; exit 1; }
 done
@@ -57,13 +57,13 @@ for command in 'cmd_stop' 'cmd_logs' 'cmd_update' 'cmd_rollback status' \
 done
 
 # Invalid input redraws immediately and EOF exits both levels.
-printf 'bad\n1\n0\n0\n' | menu > "$TMP/navigation.txt" 2> "$TMP/navigation.err"
+printf 'bad\n1\n0\n0\n' | menu_legacy > "$TMP/navigation.txt" 2> "$TMP/navigation.err"
 grep -Fq '无效选项' "$TMP/navigation.err"
 [[ "$(grep -Fc '◆ DSH Manager' "$TMP/navigation.txt")" == 3 ]]
 timeout 5 bash -c '
   export DSHD_LIB_ONLY=1 DSHD_NO_SELF_UPDATE=1
   source "$1/dshd"
-  menu </dev/null
+  menu_legacy </dev/null
 ' bash "$ROOT" > "$TMP/eof.txt" 2>&1
 
 # Named-instance context must still discover the same shared registry.

@@ -118,6 +118,9 @@ fi
   DSH_WORKSPACE="$TMP/nonexistent-workspace"
   load_config() { :; }
   ensure_docker() { :; }
+  # The production uninstall now requires an actual interactive terminal;
+  # override only TTY detection in this isolated registry-preservation test.
+  is_tty() { return 0; }
   container_exists() { return 1; }
   dashboard_container_exists() { return 1; }
   search_remove_sidecar() { :; }

@@ -5604,11 +5604,32 @@ cmd_doctor() {
 cmd_uninstall() {
   load_config; ensure_docker
   heading "卸载 dsh"
+  # Destructive uninstall is a physical-terminal recovery operation, never
+  # an unattended web job or a yes-by-default pipe command.
+  if ! is_tty; then
+    err "卸载必须在交互终端逐项确认；Web 和非交互脚本不能卸载实例。"
+    return 1
+  fi
+  if ! confirm "即将卸载当前实例 $DSH_NAME，可能删除容器及数据，确认开始？" N; then
+    info "卸载已取消，未修改当前实例。"
+    return 0
+  fi
+  if container_exists; then
+    if ! confirm "删除容器 $DSH_NAME？拒绝则保留容器及其全部附属资源。" N; then
+      info "容器删除已取消，不处理 Dashboard、网络、数据或配置。"
+      return 0
+    fi
+    docker_cmd rm -f "$DSH_NAME" >/dev/null || return 1
+    if container_exists; then
+      err "容器仍然存在，已停止后续删除步骤。"
+      return 1
+    fi
+    ok "容器已删除"
+  fi
   if dashboard_container_exists 2>/dev/null; then
-    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || true
+    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || return 1
     ok "Research Dashboard sidecar 已删除"
   fi
-  if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
   if ! container_exists; then
     if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
       local web_service
@@ -5667,7 +5688,8 @@ print_help() {
 dshd - DeepSeek Harness Docker 管理器
 
 用法:
-  dshd                     打开交互式运维菜单
+  dshd                     打开安装 / Web 修复 / 救援终端菜单
+  dshd menu legacy         打开原六分类高级菜单（兼容旧操作）
   dshd install             首次交互安装
   dshd web enable          启用内置 Web 运维（宿主机 systemd 后台，无额外容器）
   dshd web status          查看 Web 管理后台状态
@@ -5798,7 +5820,7 @@ menu_option_line() {
 # Keep the home screen small: actions live in six focused categories.
 # All menu actions use the existing command implementations and remain available
 # via their historical CLI names, independent of this interface.
-menu_render_main() {
+menu_render_legacy_main() {
   local reset="" cyan="" muted="" green="" yellow="" red="" state="" health=""
   if menu_colors_enabled; then
     reset=$'\033[0m'
@@ -6038,7 +6060,7 @@ menu_category() {
   done
 }
 
-menu() {
+menu_legacy() {
   DSHD_MENU_ACTIVE=1
   export DSHD_MENU_ACTIVE
   menu_signal_guard
@@ -6049,7 +6071,7 @@ menu() {
   local choice="" rc=0 category=""
   while true; do
     clear 2>/dev/null || true
-    menu_render_main
+    menu_render_legacy_main
     rc=0
     if menu_colors_enabled; then
       menu_read choice $'\n\033[1;36m›\033[0m 请选择: ' || rc=$?
@@ -6071,6 +6093,177 @@ menu() {
     menu_category "$category"
     load_config_guarded || warn '当前配置存在问题，部分操作可能不可用。'
   done
+}
+
+# Default terminal interface: bootstrap, web repair, emergency recovery only.
+# Existing CLI commands and historical menu remain available independently.
+menu_render_main() {
+  local state="" health=""
+  state="$(container_state 2>/dev/null || printf unknown)"
+  health="$(health_state 2>/dev/null || printf unknown)"
+  printf '\n  ◆ DSH Rescue v%s\n' "$DSHD_VERSION"
+  printf '  ──────────────────────────────────────────\n'
+  printf '  实例 %s · 容器 %s · %s / %s\n\n' "${DSHD_INSTANCE_ID:-default}" "$DSH_NAME" "$state" "$health"
+  cat <<'OPTIONS'
+  [01] 安装与实例       安装 / 创建 / 选择
+  [02] Web 管理修复     查看 / 启用 / 重建
+  [03] 紧急救援         状态 / 启停 / 日志 / 回滚
+  [04] 数据保护         备份 / 恢复 / 存储
+  [05] 诊断与维护       环境 / 插件 / 更新管理脚本
+  [06] 卸载当前实例（危险）
+  [ 0] 退出
+OPTIONS
+  printf '\n  日常运维请使用 DSH Web → 插件 → 实例管理\n'
+  printf '  高级 CLI 入口：dshd menu legacy\n'
+}
+
+menu_render_rescue_category() {
+  local category="$1"
+  case "$category" in
+    install) cat <<'OPTIONS'
+  ◆ 安装与实例
+  [01] 安装 / 初始化当前实例
+  [02] 查看全部实例
+  [03] 创建新实例
+  [04] 选择 / 管理其他实例
+  [05] 返回默认实例
+OPTIONS
+    ;;
+    web) cat <<'OPTIONS'
+  ◆ Web 管理修复
+  [01] 检查 Web 执行器状态
+  [02] 启用 / 修复 Web 执行器（重建容器）
+  [03] 禁用 Web 管理（重建容器）
+OPTIONS
+    ;;
+    rescue) cat <<'OPTIONS'
+  ◆ 紧急救援
+  [01] 查看运行状态
+  [02] 启动容器
+  [03] 停止容器
+  [04] 重启容器
+  [05] 查看实时日志
+  [06] 查看可用回滚点
+  [07] 回滚旧版容器
+OPTIONS
+    ;;
+    backup) cat <<'OPTIONS'
+  ◆ 数据保护
+  [01] 备份持久化数据
+  [02] 从备份恢复数据（危险）
+  [03] 查看存储位置
+OPTIONS
+    ;;
+    doctor) cat <<'OPTIONS'
+  ◆ 诊断与维护
+  [01] 环境诊断
+  [02] 插件诊断
+  [03] 更新 dshd 脚本
+OPTIONS
+    ;;
+    uninstall) cat <<'OPTIONS'
+  ◆ 卸载当前实例
+  [01] 卸载当前实例（逐项确认，默认取消）
+OPTIONS
+    ;;
+    *) return 2 ;;
+  esac
+  printf '\n  [ 0] 返回\n'
+}
+
+# Return 10 for an interactive delegated menu or invalid entry.
+menu_rescue_action() {
+  local category="$1" choice="$2"
+  case "$category:$choice" in
+    install:1) run_action cmd_install ;;
+    install:2) run_action cmd_instances ;;
+    install:3) menu_instances_add ;;
+    install:4) menu_instances_select; return 10 ;;
+    install:5) run_action instance_exec default menu; return 10 ;;
+    web:1) run_action cmd_web status ;;
+    web:2)
+      if confirm 'Web 修复需重建容器、可能中断会话，确认？' N; then run_action cmd_web enable; fi
+      ;;
+    web:3)
+      if confirm '禁用 Web 后仅可从 CLI 恢复，确认？' N; then run_action cmd_web disable; fi
+      ;;
+    rescue:1) run_action cmd_status ;;
+    rescue:2) run_action cmd_start ;;
+    rescue:3)
+      if confirm '停机后 Web 无法用于重启，确认停止？' N; then run_action cmd_stop; fi
+      ;;
+    rescue:4) run_action cmd_restart ;;
+    rescue:5) run_action cmd_logs ;;
+    rescue:6) run_action cmd_rollback status ;;
+    rescue:7) run_action cmd_rollback apply ;;
+    backup:1) run_action cmd_backup ;;
+    backup:2)
+      if confirm '恢复会覆盖原有会话与凭据，确认进入恢复？' N; then run_action cmd_restore; fi
+      ;;
+    backup:3) run_action cmd_storage show ;;
+    doctor:1) run_action cmd_doctor ;;
+    doctor:2) run_action cmd_doctor_plugins ;;
+    doctor:3) run_action cmd_self_update ;;
+    uninstall:1) run_action cmd_uninstall ;;
+    *) warn '无效选项'; return 10 ;;
+  esac
+  return 0
+}
+
+menu_rescue_category() {
+  local category="$1" choice="" rc=0 action_rc=0
+  while true; do
+    clear 2>/dev/null || true
+    menu_render_rescue_category "$category"
+    rc=0
+    menu_read choice '请选择 (0 返回): ' || rc=$?
+    if (( rc == 2 )); then continue; fi
+    (( rc == 0 )) || return 0
+    case "$choice" in 0|'') return 0 ;; esac
+    action_rc=0
+    menu_rescue_action "$category" "$choice" || action_rc=$?
+    if (( action_rc != 10 )); then menu_pause; fi
+    load_config_guarded || warn '配置读取失败，部分操作可能不可用。'
+  done
+}
+
+menu_rescue() {
+  DSHD_MENU_ACTIVE=1
+  export DSHD_MENU_ACTIVE
+  menu_signal_guard
+  if ! load_config_guarded; then
+    err '无法加载 dshd 配置，菜单已退出。'
+    return 1
+  fi
+  local choice="" rc=0 category=""
+  while true; do
+    clear 2>/dev/null || true
+    menu_render_main
+    rc=0
+    menu_read choice $'\n请选择: ' || rc=$?
+    if (( rc == 2 )); then continue; fi
+    (( rc == 0 )) || return 0
+    case "$choice" in
+      1|01) category=install ;;
+      2|02) category=web ;;
+      3|03) category=rescue ;;
+      4|04) category=backup ;;
+      5|05) category=doctor ;;
+      6|06) category=uninstall ;;
+      0|'') return 0 ;;
+      *) warn '无效选项'; continue ;;
+    esac
+    menu_rescue_category "$category"
+    load_config_guarded || warn '当前配置存在问题，部分操作可能不可用。'
+  done
+}
+
+menu() {
+  case "${1:-rescue}" in
+    rescue) menu_rescue ;;
+    legacy) menu_legacy ;;
+    *) err '菜单模式仅支持 rescue / legacy'; return 2 ;;
+  esac
 }
 
 # Multi-instance registry. The original $STATE_DIR remains the default instance;
@@ -6269,7 +6462,7 @@ main() {
   esac
 
   case "$cmd" in
-    menu) menu ;;
+    menu) shift; menu "$@" ;;
     install) cmd_install ;;
     status) cmd_status ;;
     start) cmd_start ;;
