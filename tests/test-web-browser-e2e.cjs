@@ -234,13 +234,20 @@ async function run() {
   await settingsDialog.getByRole('button', { name: '保存目标策略', exact: true }).click()
   await settingsDialog.getByRole('status').filter({ hasText: '设置已持久化' }).waitFor({ timeout })
 
+  // Phase 4: the real Web owner must see the history tab, but raw retrieval
+  // is NOT exposed unless an operator explicitly opts into single-owner mode.
+  await settingsDialog.getByRole('button', { name: '压缩历史', exact: true }).click()
+  await settingsDialog.getByText('原文读取默认关闭。单用户管理部署可设置', { exact: false })
+    .waitFor({ state: 'visible', timeout })
+  assert.equal(await settingsDialog.getByRole('button', { name: '按需回取原文（前 5 条）' }).count(), 0)
+
   // A collapsed sidebar may show 2x2 with overflow. The exact UI control
   // varies upstream, but our own responsive dock can be checked after a
   // viewport resize without relying on internal DOM classes.
   assert.ok(clientErrors.filter(s => /dsh-docker-icon-dock|renderIcon|sidebar/i.test(s)).length === 0,
     'browser reported sidebar/plugin errors: ' + clientErrors.join('; '))
 
-  console.log('Browser E2E PASS: native dock, prompt + context settings, authenticated RPC and persistence')
+  console.log('Browser E2E PASS: native dock, context policy + locked-down history, authenticated RPC and persistence')
 }
 
 run().catch(async error => {
