@@ -8,12 +8,14 @@ import {pathToFileURL} from 'node:url'
 import {offloadCcr,retrieveCcr,CCR_EVENT} from '/opt/dsh/plugins/dsh-context-manager/acp-ccr.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const load=p=>import(pathToFileURL(rq.resolve(p)).href)
-const [sessions,cordis,system,tools,acp,llm,projection,agents,loop]=await Promise.all([
+const [sessions,cordis,system,tools,acp,llm,projection,agents,loop,meter,tiered]=await Promise.all([
   load('@deepseek-ai/dsh-session'),load('@deepseek-ai/cordis'),
   load('@deepseek-ai/dsh-system-prompt'),load('@deepseek-ai/dsh-tools'),
   import('/opt/dsh/plugins/dsh-context-manager/acp-native.js'),
   load('@deepseek-ai/dsh-llm'),load('@deepseek-ai/dsh-session-projection'),
   load('@deepseek-ai/dsh-agent'),load('@deepseek-ai/dsh-agent-loop'),
+  load('@deepseek-ai/dsh-token-meter'),
+  import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'),
 ])
 const session=sessions.Session.create(sessions.SessionId('ccr-durable-session'))
 const exact='SOURCE-LINE-'.repeat(3600)
@@ -47,7 +49,9 @@ const badTooLarge=await offloadCcr(exec,{isError:false,content:[{type:'text',tex
 assert.equal(badTooLarge,null)
 
 const prev=process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE
+const oldGate=process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
 process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE='1'
+process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED='1'
 const ctx=new cordis.Context(),mounted=[]
 const mount=async (p,cfg)=>{const fiber=ctx.plugin(p,cfg);await fiber;mounted.push(fiber)}
 try{
@@ -57,10 +61,14 @@ try{
  await mount(system.default,{})
  await mount(tools.default,{})
  await mount(agents.default)
+ await mount(meter.default)
+ await mount(tiered.default,{auto:true})
  await mount(loop.default,{agents:[]})
  // Native session persistence barrier, not an unmounted Session fixture.
  ctx.on('session/flush',()=>{})
  await mount(acp)
+ assert.ok(ctx.tools.schemas().some(t=>t.name==='acp_ccr_retrieve'))
+ assert.ok(ctx.get('compaction'))
  const live=await ctx.agentLoop.create(sessions.SessionId('ccr-attached-live'),{provider:'offline',model:'offline'})
  assert.equal(await ctx.sessions.flush(live.session),true)
  const tool=tools.defineTool({
@@ -78,19 +86,6 @@ try{
  const settled=await invocation()
  assert.equal(settled.isError,false)
  assert.equal(settled.value,exact)
- const diagOffload=await offloadCcr({name:'read_native_large',callId:'ccr-probe',agent},{
-   isError:false,content:[{type:'text',text:exact}]},{
-   appendRecord:sessions.appendPluginRecord,
-   flush:s=>ctx.sessions.flush(s),
-   logger:{warn:msg=>process.stdout.write('CCR_WARN '+String(msg)+'\\n')}
- })
- process.stdout.write('CCR_DIAGNOSTIC '+JSON.stringify({
-   settledLength:settled.content?.[0]?.text?.length,
-   firstContent:settled.content?.[0]?.text?.slice(0,100),
-   directOffload:diagOffload?.ref??null,
-   ccrEvents:live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT).length,
-   flush:await ctx.sessions.flush(live.session),
- })+'\\n')
  assert.ok(settled.content[0].text.length<600)
  assert.match(settled.content[0].text,/ccr:/)
  const events=live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT)
@@ -103,4 +98,6 @@ try{
  for(const fiber of mounted.reverse())await fiber.dispose()
  if(prev===undefined)delete process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE
  else process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE=prev
+ if(oldGate===undefined)delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
+ else process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED=oldGate
 }
