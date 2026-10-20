@@ -404,6 +404,7 @@ jobs:
             -e DSH_REVERSE_CI_VERIFY_PRESET=1 \
             -e DSH_CONTEXT_MANAGER_PROBE=true \
             -e DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=reverse-engineering,reverse-report-reader \
+            -e DSH_CONTEXT_MANAGER_CI_REQUIRE_MOUNTED=1 \
             -e DSH_SEARCH_ENABLED=true "${plugin_args[@]}" "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then

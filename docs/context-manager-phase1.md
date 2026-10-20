@@ -30,7 +30,8 @@ In CI, set `DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=standard` (Standard) or
 `reverse-engineering,reverse-report-reader` (Reverse). Once the live
 composition inventory includes the expected IDs, the plugin emits one
 `DSH_CONTEXT_MANAGER_CI_READY` marker. Reverse's separate session creation
-smoke verifies the agents actually mount. The marker deliberately does not
+smoke creates both sessions, and the Reverse probe CI additionally requires
+both presets to show an active mount (`DSH_CONTEXT_MANAGER_CI_REQUIRE_MOUNTED=1`). The marker deliberately does not
 claim the compaction backend is unique or functioning.
 
 The RPC command is `/dsh-docker-context-manager` / `status`; writes are rejected.

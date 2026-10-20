@@ -25,6 +25,7 @@ export function apply(ctx) {
 
   // CI-only real startup proof: this listener never creates sessions or
   // mounts agents. The Reverse runtime's own preset smoke handles mounting.
+  const requireMounted = process.env.DSH_CONTEXT_MANAGER_CI_REQUIRE_MOUNTED === '1'
   const expected = process.env.DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS
     ?.split(',').filter(x => /^[A-Za-z0-9_.:-]{1,100}$/.test(x)) ?? []
   if (expected.length && typeof ctx.effect === 'function') {
@@ -37,15 +38,16 @@ export function apply(ctx) {
         checking = true
         try {
           const inventory = await inspectRuntimePresets(ctx)
-          if (inventory.available && expected.every(p => inventory.presets.some(row => row.id === p))) {
+          if (inventory.available && expected.every(p => inventory.presets.some(row =>
+            row.id === p && (!requireMounted || row.mounted)))) {
             const result = expected.map(p => {
               const row = inventory.presets.find(item => item.id === p)
               return p + ':' + (row.mounted ? 'mounted' : 'declared')
             }).join(',')
-            process.stdout.write('DSH_CONTEXT_MANAGER_CI_READY ' + result + '\\n')
+            process.stdout.write('DSH_CONTEXT_MANAGER_CI_READY ' + result + '\n')
             stopped = true; clearInterval(timer)
           } else if (++checks >= 80) {
-            process.stderr.write('DSH_CONTEXT_MANAGER_CI_FAILED missing runtime preset inventory\\n')
+            process.stderr.write('DSH_CONTEXT_MANAGER_CI_FAILED missing runtime preset inventory\n')
             stopped = true; clearInterval(timer)
           }
         } finally { checking = false }
