@@ -212,6 +212,7 @@ COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
+COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -250,9 +251,28 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/core.mjs \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/permissions.mjs \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/client.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/index.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/native-inventory.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/policy.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/storage.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-backend.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-native.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/history-index.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/ci-replay.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/ownership-audit.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+
+# Import native summary candidate without mounting another compression owner.
+RUN node --input-type=module -e "const m = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof m.default !== 'function') throw Error('tiered backend export missing')"
+RUN set -eu; home="$(mktemp -d)"; \
+    DSH_HOME="$home" dsh --profile web --patch /opt/dsh/plugins/dsh-context-manager/cordis.patch.yml --dump-config > /tmp/dsh-context-manager-config.yml; \
+    grep -q 'id: dsh-docker-context-manager' /tmp/dsh-context-manager-config.yml; \
+    rm -rf "$home" /tmp/dsh-context-manager-config.yml
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium
