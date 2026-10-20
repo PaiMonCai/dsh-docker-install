@@ -30,8 +30,6 @@ services:
       # 可选：具体容器内网卡 IP；留空由入口自动选择。不可使用 0.0.0.0/::。
       DSH_BIND_HOST: "${DSH_BIND_HOST:-}"
       DSH_TRUSTED_HOSTS: "${DSH_TRUSTED_HOSTS:-}"
-      # billion-context：通过既有 DSH 域名和登录状态访问设置页，不暴露本地 18787。
-      DSH_BILI_UI_BRIDGE: "${DSH_BILI_UI_BRIDGE:-true}"
       # dsh-whale-widget 的非回环写权限。与 Trusted Hosts、浏览器认证是独立门禁，默认必须留空。
       # 仅在确需通过域名/局域网修改 Whale 配置时显式填写，例如 "dsh.example.com"。
       DSHW_ADMIN_HOSTS: "${DSHW_ADMIN_HOSTS:-}"
