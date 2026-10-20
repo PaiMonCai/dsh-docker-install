@@ -282,6 +282,8 @@ COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-man
 RUN node /opt/dsh/test-context-manager-native-transaction.mjs
 COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp-native.mjs
 RUN node /opt/dsh/test-context-manager-acp-native.mjs
+COPY tests/test-context-manager-acp-real-region.mjs /opt/dsh/test-context-manager-acp-real-region.mjs
+RUN node /opt/dsh/test-context-manager-acp-real-region.mjs
 COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
 RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 
