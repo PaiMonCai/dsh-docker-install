@@ -6462,7 +6462,12 @@ main() {
   esac
 
   case "$cmd" in
-    menu) shift; menu "$@" ;;
+    menu)
+      # With no arguments, cmd defaults to "menu" but $# is still zero.
+      # An unconditional shift exits silently under set -e before drawing UI.
+      if (( $# > 0 )); then shift; fi
+      menu "$@"
+      ;;
     install) cmd_install ;;
     status) cmd_status ;;
     start) cmd_start ;;
