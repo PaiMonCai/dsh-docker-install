@@ -14,6 +14,14 @@ const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'c
   'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
   'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
   'dashboard-start', 'dashboard-stop'])
+// Legacy workers do not advertise capabilities. Keep Phase 1 actions
+// backward-compatible, but never send newly introduced mutations to a host
+// whose executor version cannot be identified.
+const REQUIRES_HOST_CAPABILITIES = new Set([
+  'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+  'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
+  'dashboard-start', 'dashboard-stop',
+])
 export const OPERATION_CONTRACT_VERSION = 1
 export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe'].sort())
 const busy = job => ['queued', 'running'].includes(job.state)
@@ -116,6 +124,7 @@ export class HostBridge {
     // behavior. New workers advertise capabilities so Web cannot submit an
     // operation the running host executable does not understand.
     const management = snapshot.status?.management
+    if (!management && REQUIRES_HOST_CAPABILITIES.has(data.action)) refuse(503, 'host-operation-unavailable')
     if (management && (management.schema !== OPERATION_CONTRACT_VERSION
       || !Array.isArray(management.operations) || !management.operations.includes(data.action))) {
       refuse(503, 'host-operation-unavailable')
