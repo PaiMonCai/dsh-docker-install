@@ -8,10 +8,12 @@ import {pathToFileURL} from 'node:url'
 import {offloadCcr,retrieveCcr,CCR_EVENT} from '/opt/dsh/plugins/dsh-context-manager/acp-ccr.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const load=p=>import(pathToFileURL(rq.resolve(p)).href)
-const [sessions,cordis,system,tools,acp]=await Promise.all([
+const [sessions,cordis,system,tools,acp,llm,projection,agents,loop]=await Promise.all([
   load('@deepseek-ai/dsh-session'),load('@deepseek-ai/cordis'),
   load('@deepseek-ai/dsh-system-prompt'),load('@deepseek-ai/dsh-tools'),
   import('/opt/dsh/plugins/dsh-context-manager/acp-native.js'),
+  load('@deepseek-ai/dsh-llm'),load('@deepseek-ai/dsh-session-projection'),
+  load('@deepseek-ai/dsh-agent'),load('@deepseek-ai/dsh-agent-loop'),
 ])
 const session=sessions.Session.create(sessions.SessionId('ccr-durable-session'))
 const exact='SOURCE-LINE-'.repeat(3600)
@@ -49,12 +51,18 @@ process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE='1'
 const ctx=new cordis.Context(),mounted=[]
 const mount=async (p,cfg)=>{const fiber=ctx.plugin(p,cfg);await fiber;mounted.push(fiber)}
 try{
+ await mount(llm.default)
+ await mount(sessions.default)
+ await mount(projection.default)
  await mount(system.default,{})
  await mount(tools.default,{})
- await mount(sessions.default)
- // DSH returns true if there is an attached session/flush listener.
+ await mount(agents.default)
+ await mount(loop.default,{agents:[]})
+ // Native session persistence barrier, not an unmounted Session fixture.
  ctx.on('session/flush',()=>{})
  await mount(acp)
+ const live=await ctx.agentLoop.create(sessions.SessionId('ccr-attached-live'),{provider:'offline',model:'offline'})
+ assert.equal(await ctx.sessions.flush(live.session),true)
  const tool=tools.defineTool({
    name:'read_native_large',description:'Synthetic tool returning large text',
    parameters:{},
@@ -62,9 +70,9 @@ try{
    async execute(){return exact},
  })
  ctx.tools.register(tool)
- const agent={id:'ccr-owner-agent',session}
+ const agent=live
  const invocation=async()=>ctx.tools.execute({
-   callId:'ccr-tool-'+String(session.snapshotEvents().length),
+   callId:'ccr-tool-'+String(live.session.snapshotEvents().length),
    name:'read_native_large',arguments:{},agent,signal:new AbortController().signal,
  })
  const settled=await invocation()
@@ -72,10 +80,11 @@ try{
  assert.equal(settled.value,exact)
  assert.ok(settled.content[0].text.length<600)
  assert.match(settled.content[0].text,/ccr:/)
- const events=session.snapshotEvents().filter(e=>e.type===CCR_EVENT)
- assert.equal(events.length,3)
+ const events=live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT)
+ assert.equal(events.length,1)
  const ref=/ccr:\d+/.exec(settled.content[0].text)[0]
- assert.equal(retrieveCcr(session,{ref,offset:0,limit:4096}).content,exact.slice(0,4096))
+ assert.equal(retrieveCcr(live.session,{ref,offset:0,limit:4096}).content,exact.slice(0,4096))
+ assert.throws(()=>retrieveCcr(other,{ref}),/unavailable/)
  process.stdout.write('DSH_CONTEXT_MANAGER_CCR_PASS native=true durable=true lossless=true pipeline=true\n')
 }finally{
  for(const fiber of mounted.reverse())await fiber.dispose()
