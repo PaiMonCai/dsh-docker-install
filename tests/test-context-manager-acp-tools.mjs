@@ -13,7 +13,7 @@ const [cordis,system,tools,sessions,acpPlugin]=await Promise.all([
  import('/opt/dsh/plugins/dsh-context-manager/acp-native.js'),
 ])
 const ctx=new cordis.Context()
-new system.default(ctx)
+new system.default(ctx,{})
 new tools.default(ctx)
 new sessions.default(ctx)
 acpPlugin.apply(ctx)
