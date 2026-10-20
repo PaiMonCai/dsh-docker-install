@@ -16,9 +16,28 @@ if [[ "${1:-}" == reverse || "${1:-}" == reverse-install ]]; then
   shift
   set -- install "$@"
 fi
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+# Only reuse a sibling manager when this installer was executed from a real
+# file. When piped to "bash", BASH_SOURCE may be "main"; treating the current
+# directory as the script directory can accidentally launch an unrelated or
+# outdated ./dshd instead of downloading the current release.
+SCRIPT_DIR=""
+SOURCE="${BASH_SOURCE[0]:-}"
+case "$SOURCE" in
+  ''|main|/dev/fd/*|/proc/self/fd/*) ;;
+  *)
+    if [[ -f "$SOURCE" ]]; then
+      SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" 2>/dev/null && pwd || true)"
+    fi
+    ;;
+esac
+
+# A readable /dev/tty device does not imply this process has a controlling
+# terminal. In CI, container consoles and noninteractive SSH sessions, -r may
+# return true even when redirecting stdin from /dev/tty fails with ENXIO.
+has_controlling_tty() { ( : </dev/tty ) 2>/dev/null; }
+
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/dshd" ]]; then
-  if [[ -r /dev/tty ]]; then
+  if has_controlling_tty; then
     exec bash "$SCRIPT_DIR/dshd" "$INSTALL_ACTION" "$@" </dev/tty
   else
     exec bash "$SCRIPT_DIR/dshd" "$INSTALL_ACTION" "$@"
@@ -51,7 +70,7 @@ fi
 
 [[ -s "$TMP" ]] || die "下载到的 dshd 文件为空。"
 chmod +x "$TMP"
-if [[ -r /dev/tty ]]; then
+if has_controlling_tty; then
   exec bash "$TMP" "$INSTALL_ACTION" "$@" </dev/tty
 else
   exec bash "$TMP" "$INSTALL_ACTION" "$@"
