@@ -273,13 +273,90 @@ export async function serveLogStream(req, res, bridge, logger = () => {}) {
   void poll()
 }
 
+// Only authenticated DSH owners can use these handlers. Archives contain
+// plaintext tokens: never expose the underlying directories with static HTTP.
+function transferLocation(name) {
+  if (typeof name !== 'string' || !ARCHIVE.test(name)) refuse(400, 'invalid-backup-file')
+  const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
+  return join(root, name.startsWith('upload-') ? 'uploads' : 'backups', name)
+}
+async function guardTransferDir(name) {
+  const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
+  const directory = join(root, name.startsWith('upload-') ? 'uploads' : 'backups')
+  const info = await lstat(directory)
+  if (!info.isDirectory() || info.isSymbolicLink()) refuse(503, 'backup-storage-unavailable')
+}
+async function downloadBackup(res, name) {
+  await guardTransferDir(name)
+  const descriptor = await open(transferLocation(name), constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await descriptor.stat()
+    if (!info.isFile() || !info.size) refuse(404, 'backup-file-missing')
+    res.writeHead(200, { 'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment; filename="' + name + '"',
+      'content-length': info.size, 'cache-control': 'no-store, private',
+      'x-content-type-options': 'nosniff' })
+    await pipeline(descriptor.createReadStream({ autoClose: false }), res)
+  } finally { await descriptor.close() }
+}
+async function uploadBackup(req, name) {
+  if (!/^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak$/.test(name)) refuse(400, 'invalid-backup-file')
+  await guardTransferDir(name)
+  const declared = Number(req.headers['content-length'])
+  if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_UPLOAD) refuse(413, 'backup-too-large')
+  const path = transferLocation(name)
+  const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+  let size = 0
+  try {
+    for await (const block of req) {
+      size += block.length
+      if (size > MAX_UPLOAD || size > declared) refuse(413, 'backup-too-large')
+      await file.write(block)
+    }
+    if (size !== declared) refuse(400, 'incomplete-backup-upload')
+    await file.sync()
+    return { file: name, size }
+  } catch (error) {
+    await unlink(path).catch(() => {})
+    throw error
+  } finally { await file.close() }
+}
+
 export function apply(ctx) {
   const bridge = new HostBridge()
   let tail = Promise.resolve()
   // connection/request is downstream of DSH's normal browser authentication.
   ctx.on('connection/request', async (req, res, next) => {
     const pathname = new URL(req.url || '/', 'http://localhost').pathname
-    if (pathname !== ENDPOINT && pathname !== LOGS_ENDPOINT) return next()
+    const backupPath = pathname.startsWith(ENDPOINT + '/backups/')
+      ? pathname.slice((ENDPOINT + '/backups/').length) : null
+    const uploadPath = pathname.startsWith(ENDPOINT + '/uploads/')
+      ? pathname.slice((ENDPOINT + '/uploads/').length) : null
+    if (pathname !== ENDPOINT && pathname !== LOGS_ENDPOINT
+      && backupPath === null && uploadPath === null) return next()
+    if (backupPath !== null || uploadPath !== null) {
+      if ((backupPath !== null && req.method !== 'GET') ||
+          (uploadPath !== null && req.method !== 'POST')) return send(res, 405, { error: 'method-not-allowed' })
+      if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site']))
+        return send(res, 403, { error: 'same-origin-request-required' })
+      if (uploadPath !== null && (req.headers['x-dsh-management'] !== '1' ||
+          req.headers['content-type'] !== 'application/octet-stream' ||
+          req.headers['sec-fetch-site'] === 'none'))
+        return send(res, 403, { error: 'same-origin-request-required' })
+      try {
+        if (backupPath !== null) {
+          if (!ARCHIVE.test(backupPath)) return send(res, 400, { error: 'invalid-backup-file' })
+          return await downloadBackup(res, backupPath)
+        }
+        return send(res, 201, await uploadBackup(req, uploadPath))
+      } catch (error) {
+        ctx.logger?.warn?.('dsh backup transfer: ' + (error instanceof Refusal ? error.message : 'transfer unavailable'))
+        if (!res.headersSent) return send(res, error instanceof Refusal ? error.status
+          : error?.code === 'EEXIST' ? 409 : error?.code === 'ENOENT' ? 404 : 503,
+          { error: error instanceof Refusal ? error.message : 'backup-transfer-unavailable' })
+      }
+      return
+    }
     if (pathname === LOGS_ENDPOINT) {
       if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' })
       if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site']))
