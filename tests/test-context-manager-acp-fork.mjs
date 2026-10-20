@@ -78,4 +78,19 @@ assert.equal(failing.snapshotEvents().filter(e=>e.type===STATE_EVENT).length,0)
 assert.equal(failing.snapshotEvents().filter(e=>e.type===INTENT_EVENT).length,1)
 const repaired=Session.create(failing.id,failing.snapshotEvents(),failing.header)
 assert.equal(new AcpRuntime({appendRecord:appendPluginRecord}).status(repaired).blocks.length,0)
+// Never allow plain message refs to span a compressed checkpoint.
+const mixed=Session.create(SessionId('acp-cross-block-denial'))
+for(let i=0;i<11;i++)mixed.append('user/message',{
+ id:'mixed-'+i,role:'user',source:{kind:'user'},content:[{type:'text',text:source+' mixed '+i}],
+},{surfaceOp:'append'})
+const strict=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+const startRefs=strict.status(mixed).refs
+strict.propose(mixed,{startRef:startRefs[3].ref,endRef:startRefs[5].ref,
+ summary:'Three middle messages are compressed while surrounding older and newer source messages remain visible. '.repeat(2)})
+await strict.processPending({session:mixed},{compactRegion:(a,b)=>commit(mixed,a,b)})
+const current=strict.status(mixed).refs
+assert.throws(()=>strict.propose(mixed,{
+ startRef:current[1].ref,endRef:current[5].ref,
+ summary:'This plain range crosses an active block and must be rejected rather than swallowing its checkpoint. '.repeat(2),
+}),/crosses an active compressed checkpoint/)
 process.stdout.write('DSH_CONTEXT_MANAGER_ACP_FORK_PASS seeded=true isolated=true concurrency=true failedFlushClosed=true\n')
