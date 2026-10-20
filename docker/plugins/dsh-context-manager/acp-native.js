@@ -39,8 +39,9 @@ export function apply(ctx) {
     }))
   }
   tool('acp_status',
-    'List current ACP message refs, active compression blocks, pressure and pending compression. Call before acp_compress. Do not invent refs.',
-    {},(_args,exec)=>runtime.status(exec.agent.session))
+    'Page native Session message and block references in current surface order (earliest first). Call before acp_compress. Use nextRefOffset or nextBlockOffset to fetch subsequent pages. Do not invent refs.',
+    {offset:{type:'integer'},limit:{type:'integer'},blockOffset:{type:'integer'},blockLimit:{type:'integer'}},
+    (args,exec)=>runtime.status(exec.agent.session,args))
   tool('acp_compress',
     'Queue a user/assistant-written summary for a current m-ref range; it is committed at the next safe DSH agent/pre-step. Confirm with acp_status. Preserve tool pairs.',
     {startRef:{type:'string',required:true},endRef:{type:'string',required:true},

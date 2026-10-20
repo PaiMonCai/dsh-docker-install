@@ -195,3 +195,12 @@ This does **not** measure API billing, LLM summary quality, real model context
 window adaptation, prefix-cache reuse, real model latency or user-visible
 multi-tenant memory bounds. Real-provider benchmarks require operator-supplied
 credentials and an explicit spending/privacy authorization before release.
+
+## Long-session status paging
+
+`acp_status` no longer silently discards early uncompressed refs when there
+are more than 24. It now pages both message refs and active blocks in
+**current DSH Surface order, earliest first**. Callers receive `refTotal`,
+`nextRefOffset`, `blockTotal` and `nextBlockOffset` to fetch additional
+pages. This prevents accidentally selecting a non-contiguous range that
+swallows earlier ACP checkpoints when aiming to compress the oldest text.

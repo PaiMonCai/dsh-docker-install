@@ -165,18 +165,27 @@ export class AcpRuntime {
     this.nudgeCache.set(session,{generation,text})
     return text
   }
-  status(session) {
+  status(session,{offset=0,limit=MAX_ITEMS,blockOffset=0,blockLimit=MAX_ITEMS}={}) {
+    for(const [name,value] of Object.entries({offset,blockOffset}))
+      if(!Number.isSafeInteger(value)||value<0)throw Error('invalid ACP '+name)
+    for(const [name,value] of Object.entries({limit,blockLimit}))
+      if(!Number.isSafeInteger(value)||value<1||value>MAX_ITEMS)throw Error('invalid ACP '+name)
     const {row,messages,config,tokenCount,nudge} = this.view(session)
-    const refs = messages.filter(m=>!m.summaryOfBlockId && row.state.messageRefs.byRaw[m.id]?.startsWith('m'))
-      .slice(-MAX_ITEMS).map(m=>({
+    const refMessages = messages.filter(m=>!m.summaryOfBlockId && row.state.messageRefs.byRaw[m.id]?.startsWith('m'))
+    const refs = refMessages.slice(offset,offset+limit).map(m=>({
         ref:row.state.messageRefs.byRaw[m.id],role:m.role,chars:m.text.length,
         // Deliberately omit prompt and tool-result content from a status report.
       }))
+    const allBlocks=row.state.blocks.filter(b=>b.active)
     return {kernel:'acp-kernel',surface:'dsh-native',owner:'agent-preset',
+      refTotal:refMessages.length,refOffset:offset,
+      nextRefOffset:offset+limit<refMessages.length?offset+limit:null,
+      blockTotal:allBlocks.length,blockOffset,
+      nextBlockOffset:blockOffset+blockLimit<allBlocks.length?blockOffset+blockLimit:null,
       tokenEstimate:tokenCount,window:config.modelContextLimit,
       pending:!!this.pending.get(session),recoveredFromNativeLog:row.recovered,
       nudgeRecommended:!!nudge?.shouldInject,
-      blocks:row.state.blocks.filter(b=>b.active).slice(-MAX_ITEMS).map(fullSummaryBlock),
+      blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),
       refs,latest:row.settled}
   }
   propose(session,{startRef,endRef,summary,topic}) {

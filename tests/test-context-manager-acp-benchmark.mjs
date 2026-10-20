@@ -20,6 +20,9 @@ for(let i=0;i<36;i++){
 }
 const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
 const before=runtime.status(session)
+assert.equal(before.refTotal,36)
+assert.equal(before.refs.length,24)
+assert.equal(runtime.status(session,{offset:24,limit:12}).refs.length,12)
 let done=0
 const backend={async compactRegion(start,end){
  const seqs=session.surface.nodes.slice(session.surface.nodes.indexOf(start),session.surface.nodes.indexOf(end)+1)
@@ -48,17 +51,6 @@ for(let i=0;i<3;i++){
 const after=runtime.status(session)
 const cold=Session.create(session.id,session.snapshotEvents(),session.header)
 const restored=new AcpRuntime({appendRecord:appendPluginRecord}).status(cold)
-process.stdout.write('DSH_CONTEXT_MANAGER_ACP_BENCH_DIAG '+JSON.stringify({
-  activeLive:after.blocks.map(b=>b.id),
-  activeCold:restored.blocks.map(b=>b.id),
-  checkpointCount:session.snapshotEvents().filter(e=>e.type==='user/message'&&e.data?.source?.kind==='compact-checkpoint').length,
-  currentSurface:session.surface.nodes.map(seq=>({
-    seq,kind:session.eventAt(seq)?.data?.source?.kind??session.eventAt(seq)?.type,
-  })),
-  recordedStates:session.snapshotEvents().filter(e=>e.type==='plugin:dsh-docker-context-manager/acp-state')
-   .map(e=>({seq:e.seq,active:e.data.state.blocks.filter(b=>b.active).map(b=>b.blockId),
-     checkpoints:Object.values(e.data.checkpoints)}))
-})+'\\n')
 assert.equal(restored.blocks.length,3)
 assert.ok(after.tokenEstimate<before.tokenEstimate)
 const timings=[]
