@@ -382,3 +382,51 @@ test('SSE subscription receives snapshots and appends, deduplicates and reconnec
   assert.equal(f.sources.length, 2)
   assert.equal(source.closed, true)
 })
+
+
+test('backup page supports archive selection, upload and typed new-instance confirmation', async () => {
+  const f = harness()
+  const file = 'dsh-full-20261020-120000.dshbak'
+  f.data.status.backup = { files: [{ file, kind: 'saved', size: 5120,
+    createdAt: new Date().toISOString() }], schedule: { enabled: false, cadence: 'daily', keep: 7 } }
+  f.data.status.management = { schema: 1, operations: [
+    'backup-export', 'backup-verify', 'backup-import', 'backup-auto-on', 'backup-auto-off',
+  ] }
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '备份与恢复')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /导出完整备份/)
+  assert.match(text(tree), /上传到服务器/)
+  assert.match(text(tree), /自动备份计划/)
+  assert.match(text(tree), /dsh-full-20261020-120000.dshbak/)
+  assert.ok(nodes(tree, n => n.type === 'a' && n.props.download === file).length)
+  nodes(tree, n => n.props['aria-label'] === '待恢复归档')[0].props.onChange({ target: { value: file } })
+  nodes(tree, n => n.props['aria-label'] === '新实例 ID')[0].props.onChange({ target: { value: 'restored' } })
+  tree = f.entry({ view: 'detail' })
+  const start = nodes(tree, n => n.type === 'button' && text(n).trim() === '导入并创建新实例')[0]
+  assert.equal(start.props.disabled, false)
+  start.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /确认操作 · 导入新实例/)
+  const confirm = nodes(tree, n => n.type === 'button' && text(n).includes('确认导入新实例'))[0]
+  assert.equal(confirm.props.disabled, true, 'must type exact target ID')
+  nodes(tree, n => n.props['aria-label'] === '输入新实例 ID 确认导入')[0]
+    .props.onChange({ target: { value: 'restored' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n).includes('确认导入新实例'))[0].props.disabled, false)
+})
+
+test('backup page fails closed for old host executors', async () => {
+  const f = harness()
+  f.data.status.backup = { files: [], schedule: { enabled: false, cadence: 'daily', keep: 7 } }
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '备份与恢复')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  for (const label of ['导出完整备份', '上传到服务器', '保存并开启自动备份']) {
+    const control = nodes(tree, n => n.type === 'button' && text(n).trim() === label)[0]
+    assert.ok(control, 'missing button ' + label)
+    assert.equal(control.props.disabled, true, 'old host must not allow ' + label)
+  }
+})
