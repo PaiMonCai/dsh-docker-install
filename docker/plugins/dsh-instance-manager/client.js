@@ -59,6 +59,7 @@ window.__ModuleLoader__.load({
       .dm-tabs button[aria-selected=true]{background:var(--dm-soft);color:var(--dm-accent);font-weight:650}
       .dm-tabs button:focus-visible{outline-offset:-2px}
       .dm-nav-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;width:22px;height:22px;border-radius:6px;background:var(--dm-soft);font-size:14px}
+      .dm-nav-icon::before{content:attr(data-icon)}
       .dm-main{display:flex;flex-direction:column;min-height:0;min-width:0}
       .dm-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px}
       .dm-page-head h3{margin:0;font-size:18px}.dm-page-head p{margin:5px 0 0}
@@ -373,8 +374,7 @@ window.__ModuleLoader__.load({
           !embedded && h('button', { type: 'button', onClick: () => open(false),
             'aria-label': '关闭实例管理' }, '关闭')),
         h('div', { className: 'dm-workspace' },
-          h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '管理中心导航',
-            'aria-orientation': 'vertical' },
+          h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '管理中心导航' },
             ...pages.map((item, index) => h('button', { key: item.id, id: 'dm-nav-' + item.id,
               type: 'button', role: 'tab', 'aria-selected': tab === item.id,
               'aria-controls': 'dm-page-panel', tabIndex: tab === item.id ? 0 : -1,
@@ -552,19 +552,37 @@ window.__ModuleLoader__.load({
               h('p', { className: 'dm-muted' }, '可以切换到通用科研包或经济学计量工具链。操作需要下载镜像并重建容器。'),
               h('div', { className: 'dm-actions' }, actionButton('pack-none'), actionButton('pack-economics')))),
           tab === 'tasks' && h(React.Fragment, null,
-            selectedJob && section('当前任务',
-              h('div', { className: 'dm-task-head' }, h('strong', null, labels[selectedJob.action] || selectedJob.action),
-                h('span', null, states[selectedJob.state] || selectedJob.state)),
-              h('p', { className: 'dm-muted' }, formatTime(selectedJob.startedAt), ' · ', selectedJob.id),
+            selectedJob && section('任务详情',
+              h('div', { className: 'dm-task-head' },
+                h('strong', null, labels[selectedJob.action] || selectedJob.action),
+                h('span', { role: 'status', 'data-state': selectedJob.state },
+                  states[selectedJob.state] || selectedJob.state)),
+              h('p', { className: 'dm-muted' },
+                formatTime(selectedJob.startedAt || selectedJob.finishedAt), ' · ', selectedJob.id),
+              selectedJob.state === 'interrupted' && h('div', { className: 'dm-banner', 'data-error': true },
+                '后台执行器曾中断，此任务不会自动重试。请先确认容器状态，再决定是否重新提交。'),
               selectedJob.error && h('div', { className: 'dm-banner', 'data-error': true }, selectedJob.error),
               h('pre', { className: 'dm-log', 'aria-label': '任务日志' }, selectedJob.log
-                || (['queued', 'running'].includes(selectedJob.state) ? '任务已记录，正在等待后台结果…' : '本任务没有额外执行日志。'))),
-            section('最近任务', ...jobs.map(job => h('div', { className: 'dm-task', key: job.id },
-              h('div', { className: 'dm-task-head' },
-                h('button', { type: 'button', onClick: () => setSelected(job.id) }, labels[job.action] || job.action),
-                h('span', null, states[job.state] || job.state)),
-              h('time', null, formatTime(job.startedAt || job.finishedAt))))),
-            !jobs.length && h('p', { className: 'dm-muted' }, '暂无管理任务。更新、重启及代理操作的执行结果会保存在这里。')),
+                || (['queued', 'running'].includes(selectedJob.state)
+                  ? '任务已记录，正在等待后台结果…' : '本任务没有额外执行日志。'))),
+            section('任务历史',
+              h('div', { className: 'dm-task-filter' },
+                h('input', { value: taskQuery, 'aria-label': '搜索任务', type: 'search',
+                  placeholder: '搜索操作名称或任务 ID', onChange: event => setTaskQuery(event.target.value) }),
+                h('select', { value: taskFilter, 'aria-label': '筛选任务状态',
+                  onChange: event => setTaskFilter(event.target.value) },
+                  ...[['all', '全部状态'], ...Object.entries(states)].map(([value, label]) =>
+                    h('option', { value, key: value }, label)))),
+              ...completedJobs.map(job => h('div', { className: 'dm-task', key: job.id },
+                h('div', { className: 'dm-task-head' },
+                  h('button', { type: 'button', 'aria-current': selectedJob?.id === job.id ? 'true' : undefined,
+                    onClick: () => setSelected(job.id) },
+                    labels[job.action] || job.action),
+                  h('span', { 'data-state': job.state }, states[job.state] || job.state)),
+                h('time', null, formatTime(job.startedAt || job.finishedAt)))),
+              !completedJobs.length && h('div', { className: 'dm-empty' },
+                jobs.length ? '没有匹配条件的任务。试试调整筛选。'
+                  : '暂无管理任务，新的执行记录会自动显示在这里。'))),
           tab === 'logs' && h(LogConsole, { logs: status?.logs, updatedAt: status?.logsUpdatedAt
             || status?.heartbeat, online: Boolean(data?.online) && !disconnected,
             refresh: refreshStatus })))))
