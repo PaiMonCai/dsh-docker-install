@@ -29,7 +29,7 @@ test('the inventory has unique names and an explicit versioned shape', () => {
 test('both Web and host allow only the exact inventoried operations and argument shapes', () => {
   for (const item of manifest.operations) {
     assert.doesNotThrow(() => validate(item.id, item.exampleArguments), item.id)
-    assert.throws(() => validate(item.id, { ...item.exampleArguments, instance: 'other' }), item.id)
+    assert.throws(() => validate(item.id, { ...item.exampleArguments, unexpected: 'other' }), item.id)
   }
   for (const action of ['shell', 'uninstall', 'install', 'instance-add', 'docker-socket']) {
     assert.throws(() => validate(action, {}), action)
@@ -49,7 +49,7 @@ for item in contract["operations"]:
         worker.Manager.validate_settings(args)
     else:
         worker.command_for(item["id"], args)
-    extra = dict(args, instance="other")
+    extra = dict(args, unexpected="other")
     try:
         if item["id"] == "settings":
             worker.Manager.validate_settings(extra)

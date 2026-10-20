@@ -1,4 +1,5 @@
 import { open, readdir, link, unlink, lstat } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -8,22 +9,26 @@ export const inject = []
 export const ENDPOINT = '/api/dsh-docker-instance-manager'
 export const LOGS_ENDPOINT = ENDPOINT + '/logs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const UPLOADED = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak$/
+const ARCHIVE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak$/
+const INSTANCE_ID = /^[a-z][a-z0-9-]{0,31}$/
+const MAX_UPLOAD = 1024 * 1024 * 1024
 const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'cleanup',
   'proxy-start', 'proxy-stop', 'proxy-restart', 'proxy-test', 'proxy-test-all', 'proxy-refresh',
   'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
   'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
-  'dashboard-start', 'dashboard-stop'])
+  'dashboard-start', 'dashboard-stop', 'backup-export', 'backup-auto-off'])
 // Legacy workers do not advertise capabilities. Keep Phase 1 actions
 // backward-compatible, but never send newly introduced mutations to a host
 // whose executor version cannot be identified.
 const REQUIRES_HOST_CAPABILITIES = new Set([
   'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
   'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
-  'dashboard-start', 'dashboard-stop',
+  'dashboard-start', 'dashboard-stop', 'backup-export', 'backup-verify', 'backup-import', 'backup-auto-on', 'backup-auto-off',
 ])
 export const OPERATION_CONTRACT_VERSION = 1
-export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe'].sort())
+export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe', 'backup-verify', 'backup-import', 'backup-auto-on'].sort())
 const busy = job => ['queued', 'running'].includes(job.state)
 const offline = status => {
   const age = Date.now() - Date.parse(status?.heartbeat)
@@ -47,6 +52,14 @@ export function validate(action, args) {
     && typeof args.name === 'string' && NODE_NAME.test(args.name)
     && typeof args.url === 'string' && args.url.length <= 8192 && !/[\x00-\x20\x7f]/.test(args.url)
     && (action === 'proxy-subscribe' ? /^https?:\/\// : /^(https?|socks5?|vless|trojan|hysteria2|ss):\/\//).test(args.url)) return
+  if (action === 'backup-verify' && keys === 'file' && typeof args.file === 'string'
+    && ARCHIVE.test(args.file)) return
+  if (action === 'backup-import' && keys === 'file,instance' && typeof args.file === 'string'
+    && ARCHIVE.test(args.file) && typeof args.instance === 'string'
+    && INSTANCE_ID.test(args.instance) && args.instance !== 'default') return
+  if (action === 'backup-auto-on' && keys === 'cadence,keep'
+    && ['daily', 'weekly'].includes(args.cadence) && Number.isInteger(args.keep)
+    && args.keep >= 1 && args.keep <= 90) return
   refuse(400, 'unsupported-operation')
 }
 
@@ -261,13 +274,111 @@ export async function serveLogStream(req, res, bridge, logger = () => {}) {
   void poll()
 }
 
+// Only authenticated DSH owners can use these handlers. Archives contain
+// plaintext tokens: never expose the underlying directories with static HTTP.
+function transferLocation(name) {
+  if (typeof name !== 'string' || !ARCHIVE.test(name)) refuse(400, 'invalid-backup-file')
+  const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
+  return join(root, UPLOADED.test(name) ? 'uploads' : 'backups', name)
+}
+async function guardTransferDir(name) {
+  const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
+  const directory = join(root, name.startsWith('upload-') ? 'uploads' : 'backups')
+  const info = await lstat(directory)
+  if (!info.isDirectory() || info.isSymbolicLink()) refuse(503, 'backup-storage-unavailable')
+}
+async function downloadBackup(res, name) {
+  await guardTransferDir(name)
+  const descriptor = await open(transferLocation(name), constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await descriptor.stat()
+    if (!info.isFile() || !info.size) refuse(404, 'backup-file-missing')
+    res.writeHead(200, { 'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment; filename="' + name + '"',
+      'content-length': info.size, 'cache-control': 'no-store, private',
+      'x-content-type-options': 'nosniff' })
+    await pipeline(descriptor.createReadStream({ autoClose: false }), res)
+  } finally { await descriptor.close() }
+}
+async function uploadBackup(req, name) {
+  if (!/^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak$/.test(name)) refuse(400, 'invalid-backup-file')
+  await guardTransferDir(name)
+  const rawLength = req.headers['content-length']
+  const declared = rawLength === undefined ? null : Number(rawLength)
+  if (declared !== null && (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_UPLOAD))
+    refuse(413, 'backup-too-large')
+  const directory = join(process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management', 'uploads')
+  // Bound uploads in the shared spool; incomplete files are never selectable.
+  let bytesUsed = 0
+  for (const entry of await readdir(directory)) {
+    if (!/^upload-[0-9a-f-]{36}\.dshbak$/.test(entry)) continue
+    const meta = await lstat(join(directory, entry))
+    if (!meta.isSymbolicLink() && meta.isFile()) bytesUsed += meta.size
+  }
+  if (bytesUsed + (declared || MAX_UPLOAD) > 2 * MAX_UPLOAD) refuse(413, 'backup-storage-full')
+  const temporary = join(directory, '.uploading-' + name + '.part')
+  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+  let size = 0
+  try {
+    for await (const block of req) {
+      size += block.length
+      if (size > MAX_UPLOAD || (declared !== null && size > declared)) refuse(413, 'backup-too-large')
+      let offset = 0
+      while (offset < block.length) {
+        const { bytesWritten } = await file.write(block, offset, block.length - offset)
+        if (!bytesWritten) throw Error('short archive write')
+        offset += bytesWritten
+      }
+    }
+    if (!size || (declared !== null && size !== declared)) refuse(400, 'incomplete-backup-upload')
+    await file.sync()
+  } catch (error) {
+    await file.close()
+    await unlink(temporary).catch(() => {})
+    throw error
+  }
+  await file.close()
+  // Hard link publishes atomically without overwriting an existing file.
+  try { await link(temporary, transferLocation(name)) }
+  finally { await unlink(temporary).catch(() => {}) }
+  return { file: name, size }
+}
+
 export function apply(ctx) {
   const bridge = new HostBridge()
   let tail = Promise.resolve()
   // connection/request is downstream of DSH's normal browser authentication.
   ctx.on('connection/request', async (req, res, next) => {
     const pathname = new URL(req.url || '/', 'http://localhost').pathname
-    if (pathname !== ENDPOINT && pathname !== LOGS_ENDPOINT) return next()
+    const backupPath = pathname.startsWith(ENDPOINT + '/backups/')
+      ? pathname.slice((ENDPOINT + '/backups/').length) : null
+    const uploadPath = pathname.startsWith(ENDPOINT + '/uploads/')
+      ? pathname.slice((ENDPOINT + '/uploads/').length) : null
+    if (pathname !== ENDPOINT && pathname !== LOGS_ENDPOINT
+      && backupPath === null && uploadPath === null) return next()
+    if (backupPath !== null || uploadPath !== null) {
+      if ((backupPath !== null && req.method !== 'GET') ||
+          (uploadPath !== null && req.method !== 'POST')) return send(res, 405, { error: 'method-not-allowed' })
+      if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site']))
+        return send(res, 403, { error: 'same-origin-request-required' })
+      if (uploadPath !== null && (req.headers['x-dsh-management'] !== '1' ||
+          req.headers['content-type'] !== 'application/octet-stream' ||
+          req.headers['sec-fetch-site'] === 'none'))
+        return send(res, 403, { error: 'same-origin-request-required' })
+      try {
+        if (backupPath !== null) {
+          if (!ARCHIVE.test(backupPath)) return send(res, 400, { error: 'invalid-backup-file' })
+          return await downloadBackup(res, backupPath)
+        }
+        return send(res, 201, await uploadBackup(req, uploadPath))
+      } catch (error) {
+        ctx.logger?.warn?.('dsh backup transfer: ' + (error instanceof Refusal ? error.message : 'transfer unavailable'))
+        if (!res.headersSent) return send(res, error instanceof Refusal ? error.status
+          : error?.code === 'EEXIST' ? 409 : error?.code === 'ENOENT' ? 404 : 503,
+          { error: error instanceof Refusal ? error.message : 'backup-transfer-unavailable' })
+      }
+      return
+    }
     if (pathname === LOGS_ENDPOINT) {
       if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' })
       if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site']))

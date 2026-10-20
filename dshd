@@ -3,8 +3,8 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.12.2"
-WEB_WORKER_SHA256="4714ac2aa7cad75e29249642a705cdd83a6a5197721f7d60b701271a9e0251c7"
+DSHD_VERSION="0.12.3"
+WEB_WORKER_SHA256="5e54b2c95b5ec026a68aea178a86324a7795f8739e9ebc0b4f9c2aacd6c15d79"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
 DSH_SEARCH_BRAVE_ENABLED="${DSH_SEARCH_BRAVE_ENABLED:-false}"
@@ -2800,9 +2800,13 @@ create_container() {
   )
 
   if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
+    mkdir -p "$STATE_DIR/backups" "$STATE_DIR/web-management/uploads" || return 1
+    chmod 700 "$STATE_DIR/backups" "$STATE_DIR/web-management/uploads" || return 1
     args+=(
       --mount "type=bind,src=$STATE_DIR/web-management/requests,dst=/run/dsh-management/requests"
       --mount "type=bind,src=$STATE_DIR/web-management/results,dst=/run/dsh-management/results,readonly"
+      --mount "type=bind,src=$STATE_DIR/backups,dst=/run/dsh-management/backups,readonly"
+      --mount "type=bind,src=$STATE_DIR/web-management/uploads,dst=/run/dsh-management/uploads"
     )
   fi
 
@@ -3574,9 +3578,11 @@ web_prepare() {
   install_self || { rm -f "$tmp"; return 1; }
   install -m 0700 "$tmp" "$STATE_DIR/web-manager.py" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
-  mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+  mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results" \
+    "$STATE_DIR/web-management/uploads" "$STATE_DIR/backups" "$STATE_DIR/web-management-private" || return 1
   chmod 700 "$STATE_DIR/web-management" "$STATE_DIR/web-management/requests" \
-    "$STATE_DIR/web-management/results" "$STATE_DIR/web-management-private" || return 1
+    "$STATE_DIR/web-management/results" "$STATE_DIR/web-management/uploads" \
+    "$STATE_DIR/backups" "$STATE_DIR/web-management-private" || return 1
   python="$(command -v python3)"
   script="/usr/local/bin/dshd"
   service="$(web_service_name)"

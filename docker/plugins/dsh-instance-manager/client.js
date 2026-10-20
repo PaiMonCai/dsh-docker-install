@@ -24,7 +24,9 @@ window.__ModuleLoader__.load({
       'pack-none': '切换 Research Core', 'pack-economics': '启用 Economics Pack',
       'diagnose-environment': '检查开发环境', 'diagnose-storage': '检查持久化存储',
       'diagnose-plugins': '诊断内置插件', 'dashboard-start': '启动 Dashboard',
-      'dashboard-stop': '停止 Dashboard', pending: '等待执行',
+      'dashboard-stop': '停止 Dashboard',
+      'backup-export': '导出完整备份', 'backup-verify': '校验备份', 'backup-import': '导入新实例',
+      'backup-auto-on': '启用自动备份', 'backup-auto-off': '关闭自动备份', pending: '等待执行',
     }
     // One navigation model for overlay, Plugin Hub embed and task deep-links.
     const pages = [
@@ -33,6 +35,7 @@ window.__ModuleLoader__.load({
       { id: 'versions', label: '版本与更新', description: '镜像检查、升级、回滚和 Edition', icon: '↻' },
       { id: 'network', label: '网络与服务', description: 'sing-box、节点订阅与 Research Dashboard', icon: '◎' },
       { id: 'diagnostics', label: '配置与诊断', description: '只读设置摘要与环境健康检查', icon: '⚙' },
+      { id: 'backups', label: '备份与恢复', description: '完整导入导出、校验及自动备份', icon: '▤' },
       { id: 'tasks', label: '任务记录', description: '执行进度、结果和历史任务', icon: '☷' },
       { id: 'logs', label: '运行日志', description: '实时事件、级别过滤与自动重连', icon: '≡' },
     ]
@@ -45,6 +48,8 @@ window.__ModuleLoader__.load({
       'unsupported-operation': '此操作暂未被管理器授权。',
       'invalid-arguments': '操作参数有误，请检查输入。',
       'same-origin-request-required': '安全校验失败，请从当前 DSH 页面重新操作。',
+      'backup-too-large': '文件超过 1 GiB 的网页上传限制，请改用宿主机传输。',
+      'invalid-backup-file': '备份文件名不合法。', 'backup-storage-unavailable': '备份文件目录尚未挂载，请更新 dshd 并执行 dshd web enable。',
     }
     const css = `
       .dsh-manage{--dm-line:var(--dsw-alias-separator-primary,rgba(128,128,128,.23));--dm-muted:var(--dsw-alias-label-secondary,#787e86);--dm-accent:var(--dsw-alias-brand-primary,#168577);--dm-soft:rgba(128,128,128,.075);color:inherit;font:inherit}
@@ -96,6 +101,10 @@ window.__ModuleLoader__.load({
       .dm-log-toolbar input[type=checkbox]{accent-color:var(--dm-accent)}
       .dm-log-stream{height:min(54dvh,540px);min-height:230px;max-height:none;white-space:pre;overflow:auto}
       .dm-log-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--dm-muted);font-size:12px}
+      .dm-backup-list{display:flex;flex-direction:column;gap:0}
+      .dm-backup-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 0;border-bottom:1px solid var(--dm-line)}
+      .dm-backup-row strong{font-size:12px;overflow-wrap:anywhere}.dm-backup-row .dm-actions button,.dm-backup-row .dm-actions a{font-size:12px;padding:6px 9px}
+      .dm-backup-row a{display:inline-flex;align-items:center;text-decoration:none;border:1px solid var(--dm-line);border-radius:7px;color:inherit;line-height:1.5}
       .dm-dialog{width:min(1040px,100%);height:min(840px,94dvh);display:flex;flex-direction:column;border:1px solid var(--dsw-alias-separator-primary,rgba(128,128,128,.25));border-radius:14px;background:var(--dsw-alias-bg-primary,var(--surface-primary,#fff));box-shadow:0 25px 85px rgba(0,0,0,.23)}
       .dm-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(7,13,24,.5);backdrop-filter:blur(4px)}
       @media(max-width:780px){.dm-workspace{display:flex;flex-direction:column}.dm-tabs{flex-direction:row;overflow-x:auto;gap:4px;padding:8px 12px;border-right:0;border-bottom:1px solid var(--dm-line);flex-shrink:0}.dm-tabs button{width:auto;flex:0 0 auto;padding:9px 11px}.dm-main{flex:1}.dm-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -254,6 +263,10 @@ window.__ModuleLoader__.load({
       'pack-economics': '将切换到 Economics Pack，拉取镜像并重建容器；数据卷不回滚。',
       'dashboard-start': '将为当前 Research 实例启动只读 Dashboard Sidecar。默认仅绑定宿主机回环地址。',
       'dashboard-stop': '将停止并删除当前 Research Dashboard Sidecar，不删除工作区。',
+      'backup-export': '将临时暂停当前 DSH 容器以导出完整快照（包含 API Key 与会话凭据）；任务完成后可下载。',
+      'backup-import': '将把选定备份导入到全新的实例 ID 并尝试启动。请确认原镜像可拉取，不会覆盖已有实例。',
+      'backup-auto-on': '将为当前实例启用宿主机定时完整备份，自动清理超出保留份数的历史自动快照。',
+      'backup-auto-off': '将关闭自动备份定时任务，原有备份文件不会删除。',
 
     }
     function Panel({ embedded = false }) {
@@ -274,6 +287,13 @@ window.__ModuleLoader__.load({
       const [importName, setImportName] = React.useState('')
       const [importURL, setImportURL] = React.useState('')
       const [importKind, setImportKind] = React.useState('proxy-add')
+      const [backupFile, setBackupFile] = React.useState('')
+      const [backupInstance, setBackupInstance] = React.useState('')
+      const [backupCadence, setBackupCadence] = React.useState('daily')
+      const [backupKeep, setBackupKeep] = React.useState(7)
+      const [upload, setUpload] = React.useState(null)
+      const [uploading, setUploading] = React.useState(false)
+      const [uploadMessage, setUploadMessage] = React.useState('')
       React.useEffect(() => {
         let alive = true
         let timer
@@ -320,7 +340,8 @@ window.__ModuleLoader__.load({
       // A newer Web image may briefly talk to an older host manager. The host
       // remains authoritative; absent metadata preserves existing deployments.
       const phaseTwoActions = new Set(['edition-standard', 'edition-research', 'pack-none', 'pack-economics',
-        'diagnose-environment', 'diagnose-storage', 'diagnose-plugins', 'dashboard-start', 'dashboard-stop'])
+        'diagnose-environment', 'diagnose-storage', 'diagnose-plugins', 'dashboard-start', 'dashboard-stop',
+        'backup-export', 'backup-verify', 'backup-import', 'backup-auto-on', 'backup-auto-off'])
       const supports = action => status?.management
         ? (status.management.schema === 1 && Array.isArray(status.management.operations)
           && status.management.operations.includes(action))
@@ -345,6 +366,35 @@ window.__ModuleLoader__.load({
           setError(failure.message + '。如连接中断，请先查看任务记录再重试。')
         } finally { submitting.current = false; setSending(false) }
       }
+      async function uploadArchive() {
+        if (!upload || uploading || !enabled) return
+        if (!upload.name.toLowerCase().endsWith('.dshbak') || upload.size <= 0 || upload.size > 1024 * 1024 * 1024) {
+          setUploadMessage('仅支持不超过 1 GiB 的 .dshbak 文件。'); return
+        }
+        setUploading(true); setUploadMessage('正在上传备份文件，请勿关闭页面…')
+        const file = 'upload-' + taskId() + '.dshbak'
+        try {
+          const res = await fetch(ENDPOINT + '/uploads/' + file, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'x-dsh-management': '1', 'content-type': 'application/octet-stream' },
+            body: upload,
+          })
+          const result = await res.json()
+          if (!res.ok) throw Error(errors[result.error] || result.error || '上传失败')
+          setBackupFile(file)
+          setUpload(null)
+          setUploadMessage('已上传：' + file + '。请先点击“校验选中备份”，确认无误后导入。')
+          setData(current => current?.status ? {
+            ...current, status: { ...current.status, backup: {
+              ...(current.status.backup || {}),
+              files: [{ file, kind: 'uploaded', size: result.size,
+                createdAt: new Date().toISOString() }, ...(current.status.backup?.files || [])],
+            } },
+          } : current)
+        } catch (failure) {
+          setUploadMessage('上传失败：' + failure.message)
+        } finally { setUploading(false) }
+      }
       function actionButton(action, args = {}, primary = false) {
         const unavailable = !supports(action)
         return h('button', { type: 'button', disabled: !enabled || unavailable,
@@ -359,8 +409,9 @@ window.__ModuleLoader__.load({
       const stateText = status?.container?.state === 'running' ? '运行中' : status?.container?.state || '不可用'
       const instanceName = status?.instance?.name || '未连接'
       const selectedTaskState = activeJob || lastJob
-      const confirmationNeedsName = confirmation?.action === 'cleanup'
-      const confirmationReady = !confirmationNeedsName || confirmationInput === instanceName
+      const confirmationNeedsName = ['cleanup', 'backup-import'].includes(confirmation?.action)
+      const confirmedTarget = confirmation?.action === 'backup-import' ? confirmation.args.instance : instanceName
+      const confirmationReady = !confirmationNeedsName || confirmationInput === confirmedTarget
       const section = (title, ...children) => h('section', { className: 'dm-section' }, h('h3', null, title), ...children)
       const details = entries => h('dl', { className: 'dm-grid' }, ...entries.flatMap(([key, value]) => [
         h('dt', { key: key + '-label' }, key), h('dd', { key }, value || '—'),
@@ -419,11 +470,12 @@ window.__ModuleLoader__.load({
                 h('h4', null, '确认操作 · ', labels[confirmation.action]),
                 h('p', null, confirmations[confirmation.action]),
                 h('p', { className: 'dm-muted' }, '目标实例：', instanceName,
+                  confirmation.action === 'backup-import' ? ' → 新实例 ' + confirmation.args.instance : '',
                   '。任务提交到宿主机后即使页面断开，仍会在后台继续执行。'),
                 confirmationNeedsName && h('label', null,
-                  '请输入实例名称以确认清理：',
+                  confirmation.action === 'backup-import' ? '请输入新实例 ID 以确认导入：' : '请输入实例名称以确认清理：',
                   h('input', { value: confirmationInput, autoComplete: 'off',
-                    'aria-label': '输入实例名称确认清理', placeholder: instanceName,
+                    'aria-label': confirmation.action === 'backup-import' ? '输入新实例 ID 确认导入' : '输入实例名称确认清理', placeholder: confirmedTarget,
                     onChange: event => setConfirmationInput(event.target.value) })),
                 h('div', { className: 'dm-actions', style: { marginTop: 12 } },
                   h('button', { type: 'button', className: 'dm-primary', disabled: !enabled
@@ -551,6 +603,90 @@ window.__ModuleLoader__.load({
             status.instance.edition === 'research' && section('Research Pack',
               h('p', { className: 'dm-muted' }, '可以切换到通用科研包或经济学计量工具链。操作需要下载镜像并重建容器。'),
               h('div', { className: 'dm-actions' }, actionButton('pack-none'), actionButton('pack-economics')))),
+          tab === 'backups' && status && h(React.Fragment, null,
+            section('完整实例备份',
+              h('p', { className: 'dm-muted' },
+                '包含持久化配置、会话、工作区和自定义挂载。导出时会短暂停用当前容器的写操作；' +
+                '归档含 API Key、Token 等敏感数据，请只保存到可信设备。'),
+              h('div', { className: 'dm-actions' }, actionButton('backup-export', {}, true))),
+            section('备份文件',
+              h('p', { className: 'dm-muted' },
+                '列出当前实例宿主机已保存或通过 Web 上传的完整归档。下载需要管理员登录；' +
+                '请先校验再恢复。'),
+              !(status.backup?.files || []).length
+                ? h('div', { className: 'dm-empty' }, '暂无完整备份；可先点击“导出完整备份”。')
+                : h('div', { className: 'dm-backup-list' },
+                  ...(status.backup?.files || []).map(item => h('div', {
+                    key: item.kind + item.file, className: 'dm-backup-row',
+                  },
+                  h('div', null,
+                    h('strong', null, item.file),
+                    h('div', { className: 'dm-muted' },
+                      (item.kind === 'uploaded' ? '已上传' : '宿主机备份') + ' · ' +
+                      (item.size / 1024 / 1024).toFixed(1) + ' MiB · ' + formatTime(item.createdAt))),
+                  h('div', { className: 'dm-actions' },
+                    h('button', { type: 'button', disabled: !enabled || !supports('backup-verify'),
+                      onClick: () => { setBackupFile(item.file); void submit('backup-verify', { file: item.file }) },
+                    }, '校验'),
+                    h('button', { type: 'button', onClick: () => setBackupFile(item.file) }, '选择'),
+                    h('a', { href: ENDPOINT + '/backups/' + encodeURIComponent(item.file),
+                      download: item.file, title: '下载含密钥和会话的敏感归档' }, '下载')))))),
+            section('上传与导入新实例',
+              h('p', { className: 'dm-muted' },
+                '将本地 .dshbak 上传至当前服务器（最大 1 GiB），也可选择上方已有归档。' +
+                '仅创建全新实例；不会覆盖现有容器。'),
+              h('div', { className: 'dm-inputs' },
+                h('label', null, '选择本地备份',
+                  h('input', { type: 'file', accept: '.dshbak', 'aria-label': '选择本地完整备份文件',
+                    onChange: event => { setUpload(event.target.files?.[0] || null); setUploadMessage('') } })),
+                h('div', { className: 'dm-actions', style: { alignItems: 'end' } },
+                  h('button', { type: 'button', disabled: !enabled || !supports('backup-import') || uploading || !upload,
+                    onClick: () => void uploadArchive() }, uploading ? '上传中…' : '上传到服务器')),
+                uploadMessage && h('p', { className: 'dm-muted dm-wide', role: 'status' }, uploadMessage),
+                h('label', null, '待恢复归档',
+                  h('select', { value: backupFile, 'aria-label': '待恢复归档',
+                    onChange: event => setBackupFile(event.target.value) },
+                    h('option', { value: '' }, '请选择备份文件'),
+                    ...(status.backup?.files || []).map(item => h('option',
+                      { key: item.kind + item.file, value: item.file }, item.file)))),
+                h('label', null, '新实例 ID（非 default）',
+                  h('input', { value: backupInstance, 'aria-label': '新实例 ID', placeholder: 'restored',
+                    autoComplete: 'off', onChange: event => setBackupInstance(event.target.value) })),
+                h('div', { className: 'dm-actions dm-wide' },
+                  h('button', { type: 'button', disabled: !enabled || !backupFile || !supports('backup-verify'),
+                    onClick: () => void submit('backup-verify', { file: backupFile }) }, '校验选中备份'),
+                  h('button', { type: 'button', className: 'dm-primary',
+                    disabled: !enabled || !supports('backup-import') || !backupFile ||
+                      !/^[a-z][a-z0-9-]{0,31}$/.test(backupInstance) || backupInstance === 'default',
+                    onClick: () => { setConfirmation({ action: 'backup-import',
+                      args: { file: backupFile, instance: backupInstance } }); setConfirmationInput('') },
+                  }, '导入并创建新实例')))),
+            section('自动备份计划',
+              details([['当前状态', status.backup?.schedule?.enabled ? '已开启' : '未开启'],
+                ['计划', status.backup?.schedule?.enabled
+                  ? ((status.backup.schedule.cadence === 'weekly' ? '每周' : '每天') +
+                    ' · 保留 ' + status.backup.schedule.keep + ' 份') : '无定时任务']]),
+              h('div', { className: 'dm-inputs' },
+                h('label', null, '执行周期',
+                  h('select', { value: backupCadence, 'aria-label': '自动备份周期',
+                    onChange: event => setBackupCadence(event.target.value) },
+                    h('option', { value: 'daily' }, '每天'),
+                    h('option', { value: 'weekly' }, '每周'))),
+                h('label', null, '保留最近份数（1–90）',
+                  h('input', { type: 'number', min: 1, max: 90, step: 1, value: backupKeep,
+                    'aria-label': '自动备份保留份数',
+                    onChange: event => setBackupKeep(Number(event.target.value)) })),
+                h('div', { className: 'dm-actions dm-wide' },
+                  h('button', { type: 'button', className: 'dm-primary',
+                    disabled: !enabled || !supports('backup-auto-on') ||
+                      !Number.isInteger(backupKeep) || backupKeep < 1 || backupKeep > 90,
+                    onClick: () => { setConfirmation({ action: 'backup-auto-on',
+                      args: { cadence: backupCadence, keep: backupKeep } }); setConfirmationInput('') },
+                  }, '保存并开启自动备份'),
+                  actionButton('backup-auto-off'))),
+              h('p', { className: 'dm-muted' },
+                '计划在宿主机 systemd 中执行，即使 Web 页面关闭也会继续；' +
+                '关闭自动备份不会删除已有归档。大于 1 GiB 的文件仍可通过宿主机导入。'))),
           tab === 'tasks' && h(React.Fragment, null,
             selectedJob && section('任务详情',
               h('div', { className: 'dm-task-head' },

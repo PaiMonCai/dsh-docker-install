@@ -348,5 +348,43 @@ class Tests(unittest.TestCase):
         self.assertIn("step two", job["log"])
 
 
+    def test_portable_backup_web_contract_and_archive_scoping(self):
+        archive = self.manager.backups / "dsh-full-20261020-120000.dshbak"
+        archive.write_bytes(b"safe test archive")
+        uploaded = self.manager.uploads / ("upload-" + str(uuid.uuid4()) + ".dshbak")
+        uploaded.write_bytes(b"uploaded bytes")
+        names = [item["file"] for item in self.manager.list_backups()]
+        self.assertIn(archive.name, names)
+        self.assertIn(uploaded.name, names)
+        self.assertEqual(self.manager.archive_path(archive.name), archive)
+        self.assertEqual(self.manager.archive_path(uploaded.name), uploaded)
+        self.assertEqual(MODULE.command_for("backup-export", {}), ["backup", "export"])
+        self.assertEqual(MODULE.command_for("backup-verify", {"file": uploaded.name}),
+                         ["backup", "verify", uploaded.name])
+        self.assertEqual(MODULE.command_for("backup-import",
+                         {"file": archive.name, "instance": "restored"}),
+                         ["backup", "import", archive.name, "restored"])
+        self.assertEqual(MODULE.command_for("backup-auto-on",
+                         {"cadence": "weekly", "keep": 4}), ["backup", "auto", "on", "weekly", "4"])
+        self.assertEqual(MODULE.command_for("backup-auto-off", {}), ["backup", "auto", "off"])
+        for action, args in [
+            ("backup-import", {"file": "../secrets.dshbak", "instance": "restored"}),
+            ("backup-import", {"file": archive.name, "instance": "default"}),
+            ("backup-import", {"file": archive.name, "instance": "../etc"}),
+            ("backup-verify", {"file": "config.env"}),
+            ("backup-auto-on", {"cadence": "daily", "keep": True}),
+            ("backup-auto-on", {"cadence": "hourly", "keep": 2}),
+        ]:
+            with self.assertRaises(ValueError):
+                MODULE.command_for(action, args)
+        leak = self.manager.backups / "leak.dshbak"
+        leak.symlink_to(archive)
+        self.assertNotIn(leak.name, [x["file"] for x in self.manager.list_backups()])
+        with self.assertRaises(ValueError):
+            self.manager.archive_path("../secret.dshbak")
+        uploaded.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.manager.archive_path(uploaded.name)
+
 if __name__ == "__main__":
     unittest.main()

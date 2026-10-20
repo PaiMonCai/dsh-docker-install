@@ -110,7 +110,7 @@ async function run() {
   const manager = page.getByRole('dialog', { name: 'DSH 管理中心', exact: true })
   await manager.waitFor({ state: 'visible', timeout })
   const managerPages = ['总览', '实例', '版本与更新', '网络与服务',
-    '配置与诊断', '任务记录', '运行日志']
+    '配置与诊断', '备份与恢复', '任务记录', '运行日志']
   for (const title of managerPages) {
     assert.equal(await manager.getByRole('tab', { name: title, exact: true }).count(), 1,
       'management console is missing page: ' + title)
