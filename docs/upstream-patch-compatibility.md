@@ -10,7 +10,6 @@ A green syntax check does not prove upstream compatibility. Keep `check-update.y
 | `workspace-picker-home` | docker-build | medium | workspace picker homedir() |
 | `plugin-hub-origin` | runtime-profile | high | dsh-plugin profile routes |
 | `dsh-market-container-restart` | runtime-profile | high | dshmarket profile restart/origin |
-| `billion-context-domain-ui` | runtime-profile | medium | optional third-party billion-context dsh-native-client.js |
 
 The authoritative inventory is [ci/upstream-patches.json](../ci/upstream-patches.json).
 These compatibility rewrites are separate from the native `cordis.patch.yml`
@@ -32,4 +31,3 @@ configuration layers used to load [built-in plugins](builtin-plugin-contract.md)
 - **workspace-picker-home**: Upstream workspace root setting. Validation: Docker build and workspace smoke.
 - **plugin-hub-origin**: Upstream trusted proxy configuration. Validation: plugin patch self-test and reverse proxy smoke.
 - **dsh-market-container-restart**: Upstream container-aware restart support. Validation: market patch self-test and restart smoke.
-- **billion-context-domain-ui**: Third-party native client supports same-origin embedded UI. Validation: browser bridge tests and authenticated reverse-proxy smoke; see [the bridge guide](billion-context-domain-ui.md).

@@ -298,10 +298,10 @@ test('failed registry checks remain visible in details', async () => {
   assert.match(text(f.entry({ view: 'detail' })), /更新检查失败：registry unavailable/)
 })
 
-test('live runtime logs are reachable from manager and the dedicated shortcut is registered', async () => {
+test('live runtime logs remain inside instance manager without an independent shortcut', async () => {
   const f = harness()
-  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'
-    && entry.label === '运行日志' && entry.icon === 'terminal'))
+  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.instance-manager'))
+  assert.equal(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'), false)
   f.data.status.logs = '[INFO] DSH booted\n[WARN] retry network\n[ERROR] failed request'
   f.data.status.logsUpdatedAt = new Date().toISOString()
   f.entry({ view: 'detail' })

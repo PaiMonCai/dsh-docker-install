@@ -68,22 +68,22 @@ test('dynamic launcher parser rejects unsupported switches and duplicate patches
   assert.throws(() => declaredPatches(item + item), /duplicate native Web patch declaration/)
 })
 
-test('explicit server-only bundled extension is audited without a fake browser client',t=>{
+test('server-only future extension is audited without a fake browser client',t=>{
  const f=fixture(t)
  f.add('alpha')
- const dir=path.join(f.pluginRoot,'bili-ui-bridge')
+ const dir=path.join(f.pluginRoot,'server-only-adapter')
  fs.mkdirSync(dir)
  fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({
-   name:'dsh-docker-bili-ui-bridge',dshDockerServerOnly:true
+   name:'dsh-docker-server-only-adapter',dshDockerServerOnly:true
  }))
- for(const name of ['index.js','cordis.patch.yml'])fs.writeFileSync(path.join(dir,name),'// bridge\n')
+ for(const name of ['index.js','cordis.patch.yml'])fs.writeFileSync(path.join(dir,name),'// server-only\n')
  fs.appendFileSync(f.launcher,
-   'append_native_web_patch "/opt/dsh/plugins/bili-ui-bridge/cordis.patch.yml" "true" "Bili Bridge"\n')
+   'append_native_web_patch "/opt/dsh/plugins/server-only-adapter/cordis.patch.yml" "true" "Server Only"\n')
  const before=f.take()
- const bridge=before.plugins.find(p=>p.directory==='bili-ui-bridge')
- assert.equal(bridge.web,false)
- assert.equal(bridge.serverOnly,true)
- assert.ok(bridge.files.every(x=>x.path!=='client.js'))
+ const adapter=before.plugins.find(p=>p.directory==='server-only-adapter')
+ assert.equal(adapter.web,false)
+ assert.equal(adapter.serverOnly,true)
+ assert.ok(adapter.files.every(x=>x.path!=='client.js'))
  compare(before,f.take())
  fs.writeFileSync(path.join(dir,'index.js'),'tampered')
  assert.throws(()=>compare(before,f.take()),/changed inherited Standard plugin files/)

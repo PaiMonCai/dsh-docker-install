@@ -146,7 +146,6 @@ jobs:
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs
           node tests/test-connection-rpc-routes.js
-          node --test tests/test-bili-domain-ui.cjs
           node --test tests/test-remote-settings-patch.cjs
           node --test tests/test-upstream-patches.cjs
           node --test tests/test-reverse-plugin-parity.cjs
@@ -182,17 +181,6 @@ jobs:
           bash tests/test-dshd-reverse-install.sh
           node --test tests/test-reverse-edition.cjs
           node tests/test-semver-max.mjs
-
-      - name: Verify published billion-context domain UI adapter
-        run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
-          archive="$(npm pack 'billion-context@0.1.197' --ignore-scripts --silent --pack-destination "$tmp")"
-          tar -xzf "$tmp/$archive" -C "$tmp"
-          DSH_BILI_PACKAGE_ROOT="$tmp/package" node --test tests/test-bili-published-client.cjs
-          npm install --prefix "$tmp/router" --ignore-scripts --no-audit --no-fund '@deepseek-ai/dsh-host-webserver@0.2.1-alpha.4'
-          DSH_WEBSERVER_PACKAGE_ROOT="$tmp/router/node_modules/@deepseek-ai/dsh-host-webserver" node --test tests/test-bili-published-router.cjs
 
       # Regression for upstream 0.2.1-alpha.3, where Host persistence is native.
       # Test the published bundle rather than assuming source and bundle match.
