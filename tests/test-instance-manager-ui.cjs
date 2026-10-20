@@ -201,7 +201,7 @@ test('dangerous rollback cleanup requires matching current instance name and nav
   tree = f.entry({ view: 'detail' })
   nodes(tree, n => n.type === 'button' && text(n).trim() === '清理旧容器与镜像')[0].props.onClick()
   tree = f.entry({ view: 'detail' })
-  assert.match(text(tree), /目标实例：dsh-test/)
+  assert.match(text(tree), /目标实例：\s*dsh-test/)
   assert.equal(nodes(tree, n => n.type === 'button' && text(n).trim() === '确认清理旧容器与镜像')[0].props.disabled, true)
   const input = nodes(tree, n => n.props['aria-label'] === '输入实例名称确认清理')[0]
   input.props.onChange({ target: { value: 'different' } })
