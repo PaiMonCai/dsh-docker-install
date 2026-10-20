@@ -1,4 +1,5 @@
 import { open, readdir, link, unlink, lstat } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -8,22 +9,25 @@ export const inject = []
 export const ENDPOINT = '/api/dsh-docker-instance-manager'
 export const LOGS_ENDPOINT = ENDPOINT + '/logs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const ARCHIVE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak$/
+const INSTANCE_ID = /^[a-z][a-z0-9-]{0,31}$/
+const MAX_UPLOAD = 1024 * 1024 * 1024
 const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 const SIMPLE = new Set(['check', 'update', 'restart', 'recreate', 'rollback', 'cleanup',
   'proxy-start', 'proxy-stop', 'proxy-restart', 'proxy-test', 'proxy-test-all', 'proxy-refresh',
   'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
   'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
-  'dashboard-start', 'dashboard-stop'])
+  'dashboard-start', 'dashboard-stop', 'backup-export', 'backup-auto-off'])
 // Legacy workers do not advertise capabilities. Keep Phase 1 actions
 // backward-compatible, but never send newly introduced mutations to a host
 // whose executor version cannot be identified.
 const REQUIRES_HOST_CAPABILITIES = new Set([
   'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
   'diagnose-environment', 'diagnose-storage', 'diagnose-plugins',
-  'dashboard-start', 'dashboard-stop',
+  'dashboard-start', 'dashboard-stop', 'backup-export', 'backup-verify', 'backup-import', 'backup-auto-on', 'backup-auto-off',
 ])
 export const OPERATION_CONTRACT_VERSION = 1
-export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe'].sort())
+export const SUPPORTED_OPERATIONS = Object.freeze([...SIMPLE, 'settings', 'proxy-use', 'proxy-add', 'proxy-subscribe', 'backup-verify', 'backup-import', 'backup-auto-on'].sort())
 const busy = job => ['queued', 'running'].includes(job.state)
 const offline = status => {
   const age = Date.now() - Date.parse(status?.heartbeat)
@@ -47,6 +51,14 @@ export function validate(action, args) {
     && typeof args.name === 'string' && NODE_NAME.test(args.name)
     && typeof args.url === 'string' && args.url.length <= 8192 && !/[\x00-\x20\x7f]/.test(args.url)
     && (action === 'proxy-subscribe' ? /^https?:\/\// : /^(https?|socks5?|vless|trojan|hysteria2|ss):\/\//).test(args.url)) return
+  if (action === 'backup-verify' && keys === 'file' && typeof args.file === 'string'
+    && ARCHIVE.test(args.file)) return
+  if (action === 'backup-import' && keys === 'file,instance' && typeof args.file === 'string'
+    && ARCHIVE.test(args.file) && typeof args.instance === 'string'
+    && INSTANCE_ID.test(args.instance) && args.instance !== 'default') return
+  if (action === 'backup-auto-on' && keys === 'cadence,keep'
+    && ['daily', 'weekly'].includes(args.cadence) && Number.isInteger(args.keep)
+    && args.keep >= 1 && args.keep <= 90) return
   refuse(400, 'unsupported-operation')
 }
 
