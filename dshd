@@ -5604,11 +5604,32 @@ cmd_doctor() {
 cmd_uninstall() {
   load_config; ensure_docker
   heading "卸载 dsh"
+  # Destructive uninstall is a physical-terminal recovery operation, never
+  # an unattended web job or a yes-by-default pipe command.
+  if ! is_tty; then
+    err "卸载必须在交互终端逐项确认；Web 和非交互脚本不能卸载实例。"
+    return 1
+  fi
+  if ! confirm "即将卸载当前实例 $DSH_NAME，可能删除容器及数据，确认开始？" N; then
+    info "卸载已取消，未修改当前实例。"
+    return 0
+  fi
+  if container_exists; then
+    if ! confirm "删除容器 $DSH_NAME？拒绝则保留容器及其全部附属资源。" N; then
+      info "容器删除已取消，不处理 Dashboard、网络、数据或配置。"
+      return 0
+    fi
+    docker_cmd rm -f "$DSH_NAME" >/dev/null || return 1
+    if container_exists; then
+      err "容器仍然存在，已停止后续删除步骤。"
+      return 1
+    fi
+    ok "容器已删除"
+  fi
   if dashboard_container_exists 2>/dev/null; then
-    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || true
+    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null || return 1
     ok "Research Dashboard sidecar 已删除"
   fi
-  if container_exists && confirm "删除容器 $DSH_NAME？" Y; then docker_cmd rm -f "$DSH_NAME" >/dev/null; ok "容器已删除"; fi
   if ! container_exists; then
     if [[ -f "$STATE_DIR/web-management.enabled" ]]; then
       local web_service
