@@ -114,7 +114,7 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 5)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 7)
   assert.equal(f.calls, 1)
 })
 
@@ -124,6 +124,8 @@ test('edition selector is confirmed and disabled when an older worker lacks capa
   f.data.status.instance.researchPack = 'none'
   f.entry({ view: 'detail' }); await f.settle()
   let tree = f.entry({ view: 'detail' })
+  nodes(tree, node => node.props.role === 'tab' && text(node) === '版本与更新')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
   const legacy = nodes(tree, node => node.type === 'button' && text(node) === '切换 Standard')[0]
   assert.ok(legacy?.props.disabled, 'new Web operations must be disabled against legacy workers')
 
@@ -159,7 +161,7 @@ test('diagnostics shows nonsecret configuration and rejects unavailable dashboar
   const diagnose = nodes(tree, n => n.type === 'button' && text(n) === '诊断内置插件')[0]
   assert.equal(diagnose.props.disabled, false)
   assert.ok(!text(tree).includes('sk-secret-value'))
-  const network = nodes(tree, n => n.props.role === 'tab' && text(n) === '国际网络')[0]
+  const network = nodes(tree, n => n.props.role === 'tab' && text(n) === '网络与服务')[0]
   network.props.onClick()
   tree = f.entry({ view: 'detail' })
   const start = nodes(tree, n => n.type === 'button' && text(n) === '启动 Dashboard')[0]
@@ -175,7 +177,9 @@ test('fresh page loads stay quiet even when an image update is available', async
     assert.equal(f.calls, 0)
     assert.deepEqual(f.overlays(), [null])
     f.entry({ view: 'detail' }); await f.settle()
-    const detail = f.entry({ view: 'detail' })
+    let detail = f.entry({ view: 'detail' })
+    nodes(detail, n => n.props.role === 'tab' && text(n) === '版本与更新')[0].props.onClick()
+    detail = f.entry({ view: 'detail' })
     assert.match(text(detail), /检测到可用更新/)
     assert.match(text(detail), /关闭页面后继续/)
     assert.match(text(detail), /不弹窗/)
@@ -207,9 +211,11 @@ test('panel rejects update results for a different image source', async () => {
 test('panel connection loss disables management until status recovers', async () => {
   const f = harness()
   f.entry({ view: 'detail' }); await f.settle()
+  let detail = f.entry({ view: 'detail' })
+  nodes(detail, n => n.props.role === 'tab' && text(n) === '版本与更新')[0].props.onClick()
   f.fail = true
   await f.poll(3000)
-  const detail = f.entry({ view: 'detail' })
+  detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /连接暂时断开/)
   assert.ok(nodes(detail, node => node.type === 'button' && text(node) === '更新镜像')[0].props.disabled)
 })
