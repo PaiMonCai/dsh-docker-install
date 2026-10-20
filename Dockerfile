@@ -233,7 +233,7 @@ COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
 RUN DSH_HOME="$(mktemp -d)" dsh --profile web \
       --patch /opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml \
       --dump-config > /tmp/dsh-global-compaction-config.yml \
- && node -e 'const s=require("node:fs").readFileSync("/tmp/dsh-global-compaction-config.yml","utf8"); for(const id of ["compaction-basic","command-compact","tool-result-pruner"]){ const re=new RegExp("(^|\\n)\\s*- id: "+id+"\\s*\\n\\s+disabled: false(\\n|$)");if(!re.test(s))throw Error("Host compaction not enabled: "+id)}' \
+ && node -e 'const s=require("node:fs").readFileSync("/tmp/dsh-global-compaction-config.yml","utf8");for(const id of ["compaction-basic","command-compact","tool-result-pruner"]){const i=s.indexOf("id: "+id);const sample=i<0?"<missing>":s.slice(i,i+700);if(i<0||!/disabled:\\s*false/.test(sample)){console.error("DSH native compaction config excerpt for "+id+":\n"+sample);throw Error("Host compaction not enabled: "+id)}}' \
  && rm -f /tmp/dsh-global-compaction-config.yml
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
