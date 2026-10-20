@@ -367,25 +367,73 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dsh-manage', style: { display: 'flex', flexDirection: 'column', minHeight: 0, height: embedded ? undefined : '100%' } },
         h('style', null, css),
         h('header', { className: 'dm-head' },
-          h('div', { style: { flex: 1 } }, h('h2', { id: embedded ? undefined : 'dsh-management-title' }, '实例管理'),
-            h('p', null, '管理 DSH 更新、运行状态与网络出口')),
-          !embedded && h('button', { type: 'button', onClick: () => open(false), 'aria-label': '关闭实例管理' }, '关闭')),
-        h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '实例管理页面' },
-          ...[['overview', '运行与更新'], ['network', '国际网络'], ['diagnostics', '配置与诊断'], ['tasks', '任务记录'], ['logs', '运行日志']].map(([id, title]) =>
-            h('button', { key: id, type: 'button', role: 'tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, title))),
-        h('div', { className: 'dm-content', role: 'tabpanel', 'aria-live': 'polite' },
-          disconnected && h('div', { className: 'dm-banner' }, '连接暂时断开，正在自动重连。后台已接收的任务会继续执行。'),
-          data && !data.configured && h('div', { className: 'dm-banner' }, '此实例尚未启用 Web 管理。请在宿主机执行 dshd web enable；命名实例使用 dshd -i 实例ID web enable。'),
-          data?.configured && !data.online && h('div', { className: 'dm-banner', 'data-error': true },
-            '宿主机后台未连接。请运行 dshd web status 检查；必要时用 dshd web enable 修复。'),
-          error && h('div', { className: 'dm-banner', 'data-error': true, role: 'alert' }, error),
-          confirmation && h('div', { className: 'dm-banner' },
-            h('p', null, confirmations[confirmation.action]),
-            h('div', { className: 'dm-actions' },
-              h('button', { type: 'button', className: 'dm-primary', disabled: !enabled || !supports(confirmation.action),
-                onClick: () => void submit(confirmation.action, confirmation.args) }, '确认' + labels[confirmation.action]),
-              h('button', { type: 'button', onClick: () => setConfirmation(null) }, '取消'))),
-          !data && !disconnected && h('p', { className: 'dm-muted' }, '正在读取实例状态…'),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('h2', { id: embedded ? undefined : 'dsh-management-title' }, 'DSH 管理中心'),
+            h('p', null, '当前实例的运行、版本、网络和维护操作')),
+          !embedded && h('button', { type: 'button', onClick: () => open(false),
+            'aria-label': '关闭实例管理' }, '关闭')),
+        h('div', { className: 'dm-workspace' },
+          h('nav', { className: 'dm-tabs', role: 'tablist', 'aria-label': '管理中心导航',
+            'aria-orientation': 'vertical' },
+            ...pages.map((item, index) => h('button', { key: item.id, id: 'dm-nav-' + item.id,
+              type: 'button', role: 'tab', 'aria-selected': tab === item.id,
+              'aria-controls': 'dm-page-panel', tabIndex: tab === item.id ? 0 : -1,
+              onClick: () => navigate(item.id),
+              onKeyDown: event => {
+                const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1
+                  : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0
+                if (!step && event.key !== 'Home' && event.key !== 'End') return
+                event.preventDefault()
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? pages.length - 1
+                  : (index + step + pages.length) % pages.length
+                navigate(pages[next].id)
+                event.currentTarget?.parentElement?.querySelectorAll('[role="tab"]')?.[next]?.focus?.()
+              } },
+              h('span', { className: 'dm-nav-icon', 'data-icon': item.icon, 'aria-hidden': true }),
+              item.label))),
+          h('div', { className: 'dm-main' },
+            h('div', { className: 'dm-content', id: 'dm-page-panel', role: 'tabpanel',
+              'aria-labelledby': 'dm-nav-' + tab, tabIndex: 0, 'aria-live': 'polite' },
+              h('div', { className: 'dm-page-head' },
+                h('div', null, h('h3', null, page.label),
+                  h('p', { className: 'dm-muted' }, page.description))),
+              status && h('div', { className: 'dm-statusbar', 'aria-label': '当前实例状态' },
+                h('span', { className: 'dm-statusitem' },
+                  h('span', { className: 'dm-dot', 'data-online': data.online && !disconnected }),
+                  h('strong', null, instanceName), ' · ', stateText),
+                h('span', { className: 'dm-statusitem' }, '健康：', h('strong', null, healthText)),
+                h('span', { className: 'dm-statusitem' }, 'Edition：', h('strong', null, status.instance.edition)),
+                h('span', { className: 'dm-statusitem' }, '执行器：', data.online && !disconnected ? '在线' : '离线')),
+              selectedTaskState && tab !== 'tasks' && h('div', { className: 'dm-task-jump', role: 'status' },
+                h('span', null, labels[selectedTaskState.action] || selectedTaskState.action, ' · ',
+                  states[selectedTaskState.state] || selectedTaskState.state),
+                h('button', { type: 'button', onClick: () => navigate('tasks') }, '查看任务')),
+              disconnected && h('div', { className: 'dm-banner', role: 'status' },
+                '连接暂时断开，正在自动重连。后台已接收的任务会继续执行。'),
+              data && !data.configured && h('div', { className: 'dm-banner' },
+                '此实例尚未启用 Web 管理。请在宿主机执行 dshd web enable；命名实例使用 dshd -i 实例ID web enable。'),
+              data?.configured && !data.online && h('div', { className: 'dm-banner', 'data-error': true },
+                '宿主机后台未连接。请运行 dshd web status 检查；必要时用 dshd web enable 修复。'),
+              error && h('div', { className: 'dm-banner', 'data-error': true, role: 'alert' }, error),
+              confirmation && h('div', { className: 'dm-confirm', role: 'group', 'aria-label': '确认管理操作' },
+                h('h4', null, '确认操作 · ', labels[confirmation.action]),
+                h('p', null, confirmations[confirmation.action]),
+                h('p', { className: 'dm-muted' }, '目标实例：', instanceName,
+                  '。任务提交到宿主机后即使页面断开，仍会在后台继续执行。'),
+                confirmationNeedsName && h('label', null,
+                  '请输入实例名称以确认清理：',
+                  h('input', { value: confirmationInput, autoComplete: 'off',
+                    'aria-label': '输入实例名称确认清理', placeholder: instanceName,
+                    onChange: event => setConfirmationInput(event.target.value) })),
+                h('div', { className: 'dm-actions', style: { marginTop: 12 } },
+                  h('button', { type: 'button', className: 'dm-primary', disabled: !enabled
+                      || !supports(confirmation.action) || !confirmationReady,
+                    onClick: () => void submit(confirmation.action, confirmation.args) },
+                    '确认' + labels[confirmation.action]),
+                  h('button', { type: 'button', onClick: () => {
+                    setConfirmation(null); setConfirmationInput('')
+                  } }, '取消'))),
+              !data && !disconnected && h('p', { className: 'dm-muted' }, '正在读取实例状态…'),
           tab === 'overview' && status && h(React.Fragment, null,
             h('div', { className: 'dm-summary' },
               h('div', null, h('div', { className: 'dm-state' },
@@ -481,7 +529,7 @@ window.__ModuleLoader__.load({
             !jobs.length && h('p', { className: 'dm-muted' }, '暂无管理任务。更新、重启及代理操作的执行结果会保存在这里。')),
           tab === 'logs' && h(LogConsole, { logs: status?.logs, updatedAt: status?.logsUpdatedAt
             || status?.heartbeat, online: Boolean(data?.online) && !disconnected,
-            refresh: refreshStatus })))
+            refresh: refreshStatus })))))
     }
     function Overlay() {
       const active = React.useSyncExternalStore(subscribe, () => opened)
