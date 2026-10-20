@@ -9,6 +9,7 @@ export const inject = []
 export const ENDPOINT = '/api/dsh-docker-instance-manager'
 export const LOGS_ENDPOINT = ENDPOINT + '/logs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const UPLOADED = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak$/
 const ARCHIVE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak$/
 const INSTANCE_ID = /^[a-z][a-z0-9-]{0,31}$/
 const MAX_UPLOAD = 1024 * 1024 * 1024
@@ -278,7 +279,7 @@ export async function serveLogStream(req, res, bridge, logger = () => {}) {
 function transferLocation(name) {
   if (typeof name !== 'string' || !ARCHIVE.test(name)) refuse(400, 'invalid-backup-file')
   const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
-  return join(root, name.startsWith('upload-') ? 'uploads' : 'backups', name)
+  return join(root, UPLOADED.test(name) ? 'uploads' : 'backups', name)
 }
 async function guardTransferDir(name) {
   const root = process.env.DSH_MANAGEMENT_BRIDGE || '/run/dsh-management'
