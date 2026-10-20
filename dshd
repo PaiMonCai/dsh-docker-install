@@ -3676,8 +3676,10 @@ cmd_web_switch() {
       DSH_EDITION=research; DSH_RESEARCH_PACK=economics; DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE" ;;
   esac
 
-  if [[ "$DSH_EDITION" == "$old_edition" && "$DSH_RESEARCH_PACK" == "$old_pack" ]]; then
-    info "已是目标 Edition / Research Pack，无需重建。"
+  # The same edition may still use a custom or rollback-pinned image.
+  # Selecting an official edition must be able to leave that image behind.
+  if [[ "$DSH_EDITION" == "$old_edition" && "$DSH_RESEARCH_PACK" == "$old_pack" && "$DSH_IMAGE" == "$old_image" ]]; then
+    info "已是目标 Edition / Research Pack 的正式镜像，无需重建。"
     return 0
   fi
   if ! pull_best_image; then
@@ -3698,6 +3700,12 @@ cmd_web_switch() {
     fi
     DSH_EDITION="$old_edition"; DSH_RESEARCH_PACK="$old_pack"; DSH_IMAGE="$old_image"
     return 1
+  fi
+  # Switching away from Research must not leave the old dashboard alive.
+  # Clean it up only AFTER the new Standard container is healthy and saved.
+  if [[ "$target" == standard ]] && dashboard_container_exists 2>/dev/null; then
+    docker_cmd rm -f "$(dashboard_container_name)" >/dev/null ||
+      warn "无法清理旧 Research Dashboard；请从宿主机检查该 Sidecar。"
   fi
   finish_safe_upgrade
   ok "Web 版本切换完成：$DSH_EDITION / $DSH_RESEARCH_PACK"
