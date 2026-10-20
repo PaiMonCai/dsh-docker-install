@@ -39,6 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 
 安装后输入 `dshd` 打开六分类菜单，或直接执行：
 
+完整实例备份与迁移：`dshd backup export [FILE]` 导出数据、工作区、配置及自定义挂载，`dshd backup import FILE NEW_ID` 在新实例中恢复；支持 `dshd backup auto on daily 7` 设置每日保留 7 份。详见 [完整实例备份与恢复](docs/portable-backup.md)。
+
 ```bash
 dshd status
 dshd logs
