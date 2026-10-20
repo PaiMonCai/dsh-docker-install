@@ -1,8 +1,0 @@
-{
-  "name": "dsh-docker-bili-ui-bridge",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "description": "Authenticated server-only same-origin Web UI bridge for optional billion-context",
-  "dshDockerServerOnly": true
-}
