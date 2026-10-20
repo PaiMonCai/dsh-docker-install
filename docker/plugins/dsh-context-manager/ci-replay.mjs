@@ -38,7 +38,7 @@ export function installReplaySmoke(ctx) {
             if(!isSafeId(sessionId))throw Error('invalid created native session id')
             const session=c.sessions.get(sessionId)
             if(!session)throw Error('created session is not attached')
-            const origin=session.append('user/message',{role:'user',
+            const origin=session.append('user/message',{id:randomUUID(),role:'user',
               source:{kind:'user'},content:[{type:'text',text:EVIDENCE}]},
             {surfaceOp:'append'})
             const compactionId=randomUUID()
@@ -51,7 +51,7 @@ export function installReplaySmoke(ctx) {
               provider:'ci-offline',model:'synthetic-fixture',
             })
             session.append('user/message',{
-              role:'user',
+              id:randomUUID(),role:'user',
               source:{kind:'compact-checkpoint',compactionId},
               content:[{type:'text',text:'<compacted-summary>\n'+summaryText+'\n</compacted-summary>'}],
             },{
