@@ -432,8 +432,8 @@ jobs:
           }
           trap cleanup EXIT
           docker volume create "$token_volume" >/dev/null
-          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 \\
-            -e DSH_CONTEXT_MANAGER_PROBE=true \\
+          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 \
+            -e DSH_CONTEXT_MANAGER_PROBE=true \
             -e DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=standard dsh-ci:pr
           mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
           mapped_port="${mapped_port##*:}"
