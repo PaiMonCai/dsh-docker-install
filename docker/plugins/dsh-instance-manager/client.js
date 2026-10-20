@@ -265,8 +265,12 @@ window.__ModuleLoader__.load({
       const enabled = Boolean(data?.online) && !busy && !disconnected
       // A newer Web image may briefly talk to an older host manager. The host
       // remains authoritative; absent metadata preserves existing deployments.
-      const supports = action => !status?.management || (status.management.schema === 1
-        && Array.isArray(status.management.operations) && status.management.operations.includes(action))
+      const phaseTwoActions = new Set(['edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+        'diagnose-environment', 'diagnose-storage', 'diagnose-plugins', 'dashboard-start', 'dashboard-stop'])
+      const supports = action => status?.management
+        ? (status.management.schema === 1 && Array.isArray(status.management.operations)
+          && status.management.operations.includes(action))
+        : !phaseTwoActions.has(action)
       async function submit(action, args = {}) {
         if (submitting.current) return
         if (!supports(action)) { setError('宿主机管理器尚不支持此操作，请更新 dshd 并执行 dshd web enable。'); return }
