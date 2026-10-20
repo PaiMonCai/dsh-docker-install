@@ -88,6 +88,35 @@ export function apply(ctx) {
     }, 'CI read-only context-manager runtime inventory check')
   }
 
+  // Explicit LAB boot proof: verify the loaded Standard preset has exactly
+  // one Tiered provider and its original /compact sibling, not just an
+  // overlay that ran and never reached the instantiated Agent composition.
+  if(takeover.active && typeof ctx.effect === 'function') {
+    ctx.effect(()=>{
+      let done=false,busy=false,tries=0
+      async function check(){
+        if(done||busy)return
+        busy=true
+        try{
+          const state=await inspectRuntimePresets(ctx)
+          const row=state.presets?.find(p=>p.id==='standard')
+          if(takeoverEvidence && row?.tiered?.configured===1 && row?.basic?.configured===0
+            && row?.manual?.configured===1 && row?.external?.configured===0){
+            process.stdout.write('DSH_CONTEXT_MANAGER_TIERED_LAB_READY standard:single-provider\\n')
+            done=true;clearInterval(timer)
+          }else if(++tries>=80){
+            process.stderr.write('DSH_CONTEXT_MANAGER_TIERED_LAB_FAILED standard owner composition unavailable\\n')
+            done=true;clearInterval(timer)
+          }
+        }finally{busy=false}
+      }
+      const timer=setInterval(()=>void check(),500)
+      timer.unref?.()
+      void check()
+      return ()=>{done=true;clearInterval(timer)}
+    },'isolated tiered compaction candidate inventory verification')
+  }
+
   ctx.inject(['connection'], c => {
     c.connection.rpc.handle(ENDPOINT, async (method, payload = {}) => {
       try {

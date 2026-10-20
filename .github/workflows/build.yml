@@ -642,6 +642,11 @@ jobs:
         shell: bash
         run: bash tests/test-context-manager-native-replay.sh dsh-ci:pr standard
 
+      - name: Verify isolated single-owner Tiered Standard preset
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-tiered-lab.sh dsh-ci:pr
+
       - name: Report image footprint
         if: github.event_name == 'pull_request'
         shell: bash
