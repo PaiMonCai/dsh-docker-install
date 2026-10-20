@@ -234,7 +234,17 @@ export class AcpRuntime {
     if(typeof query!=='string'||query.length<2||query.length>160)
       throw Error('query must be 2–160 characters')
     const {row}=this.view(session)
-    return this.core.search(query,row.state).slice(0,10).map(fullSummaryBlock)
+    const ranked=this.core.search(query,row.state)
+    // Kernel's weighted relevance gate deliberately needs >0.1 score;
+    // short blocks with one or two exact term matches can score 0.04–0.08.
+    // Preserve exact-match findability without weakening the kernel's ranking
+    // logic or returning unrelated/hidden content.
+    const seen=new Set(ranked.map(b=>b.blockId))
+    const needle=query.toLocaleLowerCase()
+    const exact=row.state.blocks.filter(b=>b.active&&!seen.has(b.blockId)
+      && ((b.summary??'').toLocaleLowerCase().includes(needle)
+        || (b.topic??'').toLocaleLowerCase().includes(needle)))
+    return [...ranked,...exact].slice(0,10).map(fullSummaryBlock)
   }
   decompress(session,blockId) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
