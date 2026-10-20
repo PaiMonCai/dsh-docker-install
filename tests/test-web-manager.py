@@ -55,6 +55,14 @@ class Tests(unittest.TestCase):
         self.manager.process(path)
         return MODULE.read_json(self.manager.results / (identifier + ".json"))
 
+    def test_snapshot_advertises_actual_host_capabilities(self):
+        self.manager.snapshot()
+        status = MODULE.read_json(self.manager.results / "status.json")
+        self.assertEqual(status["management"]["schema"], MODULE.OPERATION_CONTRACT_VERSION)
+        self.assertEqual(status["management"]["operations"], list(MODULE.SUPPORTED_OPERATIONS))
+        self.assertIn("restart", status["management"]["operations"])
+        self.assertNotIn("shell", status["management"]["operations"])
+
     def test_task_survives_restart_and_is_not_replayed(self):
         job = self.submit()
         self.assertEqual(job["state"], "succeeded")
