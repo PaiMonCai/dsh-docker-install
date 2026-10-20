@@ -108,6 +108,7 @@ jobs:
           bash tests/test-dshd-web-management.sh
           bash tests/test-dshd-web-switch.sh
           python3 tests/test-web-manager.py
+          python3 tests/test-portable-backup.py
           node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
@@ -283,6 +284,9 @@ jobs:
           tags: dsh-ci:pr
           cache-from: type=gha
           # Keep the previous ARM64 cache until the multi-platform export.
+
+      - name: Round-trip portable full-instance backup in real Docker
+        run: sudo env "PATH=$PATH" bash tests/test-portable-backup-docker.sh
 
       - name: Exercise Web managed restart and transactional replacement
         run: sudo env "PATH=$PATH" bash tests/test-instance-manager-runtime.sh dsh-ci:pr

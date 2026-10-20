@@ -15,6 +15,8 @@ on:
       - tests/test-dshd-web-switch.sh
       - tests/test-dshd-rescue-menu.sh
       - tests/test-dshd-interactive.sh
+      - docker/dsh-portable-backup.py
+      - tests/test-portable-backup.py
       - tests/test-install-bootstrap.sh
       - install.sh
       - .github/workflows/instance-manager-tests.yml
@@ -33,6 +35,8 @@ on:
       - tests/test-dshd-web-switch.sh
       - tests/test-dshd-rescue-menu.sh
       - tests/test-dshd-interactive.sh
+      - docker/dsh-portable-backup.py
+      - tests/test-portable-backup.py
       - tests/test-install-bootstrap.sh
       - install.sh
       - .github/workflows/instance-manager-tests.yml
@@ -59,6 +63,7 @@ jobs:
           bash tests/test-dshd-rescue-menu.sh
           bash tests/test-dshd-interactive.sh
           python3 tests/test-web-manager.py
+          python3 tests/test-portable-backup.py
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
       - name: Exercise existing lifecycle and proxy behavior
