@@ -13,6 +13,8 @@ on:
       - tests/test-web-manager.py
       - tests/test-dshd-web-management.sh
       - tests/test-dshd-web-switch.sh
+      - tests/test-dshd-rescue-menu.sh
+      - tests/test-dshd-interactive.sh
       - .github/workflows/instance-manager-tests.yml
   push:
     branches: [main]
@@ -27,6 +29,8 @@ on:
       - tests/test-web-manager.py
       - tests/test-dshd-web-management.sh
       - tests/test-dshd-web-switch.sh
+      - tests/test-dshd-rescue-menu.sh
+      - tests/test-dshd-interactive.sh
       - .github/workflows/instance-manager-tests.yml
   workflow_dispatch:
 
@@ -46,6 +50,8 @@ jobs:
           bash -n dshd
           bash tests/test-dshd-web-management.sh
           bash tests/test-dshd-web-switch.sh
+          bash tests/test-dshd-rescue-menu.sh
+          bash tests/test-dshd-interactive.sh
           python3 tests/test-web-manager.py
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
