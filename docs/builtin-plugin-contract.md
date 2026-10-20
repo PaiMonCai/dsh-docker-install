@@ -11,8 +11,8 @@
 - `client.js`：通过 `window.__ModuleLoader__.load({id, factory})` 注册的浏览器客户端。
 - `cordis.patch.yml`：仅包含该功能的官方 DSH 配置补丁，`name: ./index.js` 从补丁位置解析。
 
-仅服务端的桥接插件无需 `client.js`，并通过 `package.json` 的 `dshDockerServerOnly`
-标记供诊断工具识别，例如 `dsh-bili-ui-bridge`。Reverse、Research 专用扩展留在各自目录。
+仅服务端的扩展无需 `client.js`，可通过 `package.json` 的 `dshDockerServerOnly`
+标记供诊断工具识别。当前 Standard 镜像不预装此类桥接插件；Reverse、Research 专用扩展留在各自目录。
 
 **新增插件不是直接向用户 Profile 执行 `dsh plugin add`。** 由镜像 Dockerfile 打包，经容器启动脚本的 `append_native_web_patch` 使用官方 `dsh web --patch` 机制装载；全部启动器 `--patch` 参数必须放在 Web 应用的 `--no-open`、`--port` 等选项之前。新插件需有明确环境开关与默认值，且在 CI 中验证启用/禁用行为。
 
