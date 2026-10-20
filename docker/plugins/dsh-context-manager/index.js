@@ -1,10 +1,12 @@
 import { makeProbe } from './core.mjs'
 import { inspectRuntimePresets } from './native-inventory.mjs'
+import { labReadiness } from './lab-readiness.mjs'
 import { defaults, normalizeSettings, resolvePolicy, previewNative } from './policy.mjs'
 import { readSettings, writeSettings, settingsRevision } from './storage.mjs'
 import { indexCompactions, publicIndex, summaryDetail, originalPage } from './history-index.mjs'
 import { installReplaySmoke } from './ci-replay.mjs'
 import { auditOwnership } from './ownership-audit.mjs'
+import { createTakeoverPolicy, isPresetEntry, replacePresetCompactor, GATE } from './takeover.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
@@ -15,6 +17,8 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  * No policy is applied to a live compaction service until ownership is verified.
  */
 export function apply(ctx) {
+  const takeover = createTakeoverPolicy()
+  let takeoverEvidence = null
   const probe = makeProbe()
   // Inert unless a disposable CI container explicitly enables the replay
   // smoke; never writes real user sessions or enables live compaction.
@@ -29,10 +33,20 @@ export function apply(ctx) {
   catch { ctx.logger?.warn?.('Context Manager settings unavailable at boot; native compaction unchanged') }
   ctx.on('internal/config', function (_raw, next) {
     const resolved = next()
-    try { probe.observeConfig(this?.entry, resolved) }
+    const transformed = takeover.active && isPresetEntry(this?.entry)
+      ? replacePresetCompactor(resolved,takeover.settings,takeover.target,{acp:takeover.acp}) : {changed:false,config:resolved}
+    if(transformed.changed) takeoverEvidence=transformed.evidence
+    try { probe.observeConfig(this?.entry, transformed.config) }
     catch (error) { ctx.logger?.warn?.('context-manager preset probe failed: ' + String(error?.message || error)) }
-    return resolved
+    return transformed.config
   }, { global: true })
+  // Gate selected preset until this middleware is registered. No service
+  // exists in default deployment, and this does not insert a compactor.
+  if(takeover.active) {
+    if(typeof ctx.reflect?.provide!=='function')
+      throw Error('native preset gate unavailable; refusing tiered activation')
+    ctx.reflect.provide(GATE,true)
+  }
 
   ctx.on('session/event', (session, event) => {
     try { probe.observeEvent(session, event) }
@@ -73,6 +87,36 @@ export function apply(ctx) {
       void check()
       return () => { stopped = true; clearInterval(timer) }
     }, 'CI read-only context-manager runtime inventory check')
+  }
+
+  // Explicit LAB boot proof: verify the loaded Standard preset has exactly
+  // one Tiered provider and its original /compact sibling, not just an
+  // overlay that ran and never reached the instantiated Agent composition.
+  if(takeover.active && typeof ctx.effect === 'function') {
+    ctx.effect(()=>{
+      let done=false,busy=false,tries=0
+      async function check(){
+        if(done||busy)return
+        busy=true
+        try{
+          const state=await inspectRuntimePresets(ctx)
+          const row=state.presets?.find(p=>p.id==='standard')
+          if(takeoverEvidence && row?.tiered?.configured===1 && row?.basic?.configured===0
+            && row?.manual?.configured===1 && row?.external?.configured===0
+            && (!takeover.acp || (row?.acp?.active===1 && row?.tiered?.active===1 && row?.mounted))){
+            process.stdout.write('DSH_CONTEXT_MANAGER_TIERED_LAB_READY standard:single-provider\\n')
+            done=true;clearInterval(timer)
+          }else if(++tries>=80){
+            process.stderr.write('DSH_CONTEXT_MANAGER_TIERED_LAB_FAILED standard owner composition unavailable\\n')
+            done=true;clearInterval(timer)
+          }
+        }finally{busy=false}
+      }
+      const timer=setInterval(()=>void check(),500)
+      timer.unref?.()
+      void check()
+      return ()=>{done=true;clearInterval(timer)}
+    },'isolated tiered compaction candidate inventory verification')
   }
 
   ctx.inject(['connection'], c => {
@@ -134,7 +178,9 @@ export function apply(ctx) {
         if (method === 'status' && Object.keys(payload).length === 0) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
-            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction) } }
+            ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
+            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard', acp:takeover.acp} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
           const settings = readSettings()
@@ -143,8 +189,10 @@ export function apply(ctx) {
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
+            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'},
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: 'phase2-configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false },
@@ -156,7 +204,7 @@ export function apply(ctx) {
           const revision = settingsRevision(settings)
           return { ok: true, value: { settings, revision,
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: 'phase2-configuration-only',
+              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
               restartPending: bootRevision !== null && revision !== bootRevision,
               bootRevisionObserved: bootRevision !== null,
               globalHostOwnershipVerified: false } } }

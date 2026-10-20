@@ -213,6 +213,8 @@ COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manage
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
+RUN npm install --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --no-audit --no-fund
+COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -262,10 +264,42 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/history-index.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/ci-replay.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/ownership-audit.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-pending.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-runtime.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-ccr.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/lab-readiness.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-recovery.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-native.js \
+ && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+
+# Verify the real upstream /compact command dispatches to the unique service.
+COPY tests/test-context-manager-native-compact.mjs /opt/dsh/test-context-manager-native-compact.mjs
+RUN node /opt/dsh/test-context-manager-native-compact.mjs
+COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-manager-native-transaction.mjs
+RUN node /opt/dsh/test-context-manager-native-transaction.mjs
+COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp-native.mjs
+RUN node /opt/dsh/test-context-manager-acp-native.mjs
+COPY tests/test-context-manager-acp-real-region.mjs /opt/dsh/test-context-manager-acp-real-region.mjs
+RUN node /opt/dsh/test-context-manager-acp-real-region.mjs
+COPY tests/test-context-manager-acp-t3.mjs /opt/dsh/test-context-manager-acp-t3.mjs
+RUN node /opt/dsh/test-context-manager-acp-t3.mjs
+COPY tests/test-context-manager-acp-tools.mjs /opt/dsh/test-context-manager-acp-tools.mjs
+RUN node /opt/dsh/test-context-manager-acp-tools.mjs
+COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
+COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
+RUN node /opt/dsh/test-context-manager-ccr.mjs
+COPY tests/test-context-manager-acp-fork.mjs /opt/dsh/test-context-manager-acp-fork.mjs
+RUN node /opt/dsh/test-context-manager-acp-fork.mjs
+COPY tests/test-context-manager-acp-benchmark.mjs /opt/dsh/test-context-manager-acp-benchmark.mjs
+RUN node /opt/dsh/test-context-manager-acp-benchmark.mjs
+COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
+RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 
 # Import native summary candidate without mounting another compression owner.
 RUN node --input-type=module -e "const m = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof m.default !== 'function') throw Error('tiered backend export missing')"

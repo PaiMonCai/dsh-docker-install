@@ -112,7 +112,7 @@ jobs:
           node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-web-backup-transfer.mjs
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
-          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs
+          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
           bash -n tests/test-context-manager-native-replay.sh
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
@@ -641,6 +641,16 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: bash tests/test-context-manager-native-replay.sh dsh-ci:pr standard
+
+      - name: Verify isolated single-owner Tiered Standard preset
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-tiered-lab.sh dsh-ci:pr
+
+      - name: Verify active Tiered + ACP Standard preset in disposable CI Web
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-acp-lab.sh dsh-ci:pr
 
       - name: Report image footprint
         if: github.event_name == 'pull_request'

@@ -216,7 +216,7 @@ jobs:
           node --test tests/test-reverse-edition.cjs
           node --test tests/test-plugin-doctor.cjs
           node --test tests/test-reverse-plugin-parity.cjs
-          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs
+          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
           bash -n tests/test-context-manager-native-replay.sh
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs

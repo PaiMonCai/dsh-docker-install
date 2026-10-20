@@ -1,0 +1,7 @@
+# LAB-ONLY single-provider gate. This patch is NEVER loaded unless explicit
+# tiered boot preflight passes. The active compactor is replaced by an
+# internal/config overlay before preset activation; no second service is added.
+# Do not apply alongside billion-context. This inject list is REPLACED (not
+# merged), so the pinned build's preset inject list must be verified in CI.
+- id: preset-standard
+  inject: [dshContextTieredPolicy]

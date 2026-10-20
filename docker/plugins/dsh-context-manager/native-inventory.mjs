@@ -7,6 +7,8 @@
  * configuration payloads, prompts, session IDs, or raw error messages.
  */
 const NATIVE_BASIC = '@deepseek-ai/dsh-compaction-basic'
+const NATIVE_TIERED = '/opt/dsh/plugins/dsh-context-manager/tiered-native.js'
+const NATIVE_ACP = '/opt/dsh/plugins/dsh-context-manager/acp-native.js'
 const NATIVE_MANUAL = '@deepseek-ai/dsh-command-compact'
 const NATIVE_PRUNER = '@deepseek-ai/dsh-compaction-tool-result-pruner'
 const EXTERNAL = new Set(['billion-context', 'bili-native'])
@@ -19,12 +21,14 @@ function cleanId(id) {
 }
 function metric() { return { configured: 0, active: 0, conditional: 0 } }
 function resultRow(id, rows, broken) {
-  const categories = { basic: metric(), manual: metric(), pruner: metric(), external: metric() }
+  const categories = { basic: metric(), tiered: metric(), acp: metric(), manual: metric(), pruner: metric(), external: metric() }
   const list = Array.isArray(rows) ? rows.slice(0, LIMIT_ROWS) : []
   let mounted = false
   for (const row of list) {
     if (!row || typeof row !== 'object') continue
     const key = row.moduleName === NATIVE_BASIC ? 'basic'
+      : row.moduleName === NATIVE_TIERED ? 'tiered'
+      : row.moduleName === NATIVE_ACP ? 'acp'
       : row.moduleName === NATIVE_MANUAL ? 'manual'
       : row.moduleName === NATIVE_PRUNER ? 'pruner'
       : EXTERNAL.has(row.moduleName) ? 'external' : null
@@ -38,11 +42,14 @@ function resultRow(id, rows, broken) {
   }
   const native = categories.basic
   const external = categories.external
-  const unknown = native.conditional > 0 || external.conditional > 0
+  const unknown = native.conditional > 0 || external.conditional > 0 || categories.tiered.conditional > 0
   // This is a preset-local statement only: an independent host-plane
   // compactor or remote bili interception is NOT observable in this source.
   const ownership = broken ? 'preset-broken'
     : unknown ? 'unverified-conditional'
+    : categories.tiered.configured && (native.configured || external.configured) ? 'conflict-risk'
+    : categories.tiered.configured > 1 ? 'duplicate-tiered-risk'
+    : categories.tiered.active===1 ? 'preset-tiered-lab-active'
     : native.configured && external.configured ? 'conflict-risk'
     : native.configured > 1 ? 'duplicate-native-risk'
     : native.active === 1 ? 'preset-native-active'
@@ -53,7 +60,7 @@ function resultRow(id, rows, broken) {
   return {
     id: cleanId(id), mounted, ownership,
     basic: { ...native }, manual: { ...categories.manual },
-    pruner: { ...categories.pruner }, external: { ...external },
+    pruner: { ...categories.pruner }, tiered: { ...categories.tiered }, acp: { ...categories.acp }, external: { ...external },
     rowLimitReached: Array.isArray(rows) && rows.length > LIMIT_ROWS,
     broken: !!broken,
   }

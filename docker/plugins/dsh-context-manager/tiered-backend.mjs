@@ -10,6 +10,7 @@
 import { buildTierPrompt, chooseTier, getSummaryText, verifyTierSummary } from './tiered-core.mjs'
 import { readSettings } from './storage.mjs'
 import { resolvePolicy } from './policy.mjs'
+import { currentAcpSummary, hasQueuedAcpSummary } from './acp-pending.mjs'
 
 function targetFrom(agent) {
   const routed=agent?.session?.requestHeader?.()?.config
@@ -44,12 +45,27 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
         throw Error('tiered backend requires explicit owner verification; not enabled')
       super(ctx,config)
     }
+    // Preserve the upstream pressure and context-overflow recovery state
+    // machine. A model-authored ACP proposal owns the NEXT safe step; skip
+    // only the automatic pressure branch while that proposal is queued.
+    // Never suppress context-overflow recovery (it may rescue a failed model
+    // response independently). No second CompactionEngine is registered.
+    async compactIfNeeded(agent,trigger,signal) {
+      if(trigger==='pressure' && hasQueuedAcpSummary(agent?.session))return null
+      return super.compactIfNeeded(agent,trigger,signal)
+    }
     async summarize(input, agent, signal) {
       signal?.throwIfAborted?.()
       const target=targetFrom(agent)
+      const proposal=currentAcpSummary(agent.session)
+      if(proposal) return { summary:[{type:'text',text:proposal.summary}],
+        provider:target.provider,model:target.model }
       const policy=resolvePolicy(readSettings(),scopeFrom(agent,target))
-      if (policy.engine!=='tiered') throw Error('tiered compaction not selected for routed Agent')
-      const stage=chooseTier(input?.messages)
+      if (policy.engine!=='tiered') return super.summarize(input,agent,signal)
+      const checkpointRows=agent.session?.surface?.nodes
+        ?.map(seq=>agent.session.eventAt(seq)?.data)
+        .filter(row=>row?.source?.kind==='compact-checkpoint') ?? []
+      const stage=chooseTier(agent.session?.surface?.nodes ? checkpointRows : input?.messages)
       const route=stageTarget(this.config,target)
       const options={
         provider:route.provider,model:route.model,
