@@ -259,6 +259,7 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/policy.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/storage.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/tiered-core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/history-index.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/tiered-backend.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/tiered-native.js \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \

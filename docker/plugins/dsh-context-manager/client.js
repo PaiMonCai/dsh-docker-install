@@ -39,6 +39,112 @@ window.__ModuleLoader__.load({
     }
     const MODES = [['basic','DSH 原生'],['tiered','分层压缩（预留）'],['off','关闭压缩（预留）']]
     const INHERIT = [['inherit','继承全局'], ...MODES]
+    function HistoryPanel({ call }) {
+      const [enabled, setEnabled] = useState(null)
+      const [sessions, setSessions] = useState([])
+      const [sessionId, setSessionId] = useState('')
+      const [query, setQuery] = useState('')
+      const [page, setPage] = useState(null)
+      const [detail, setDetail] = useState(null)
+      const [sources, setSources] = useState(null)
+      const [error, setError] = useState('')
+      const [busy, setBusy] = useState(false)
+      async function rpc(method, payload) {
+        const result = await call(method, payload)
+        if (!result?.ok) throw Error(result?.error?.message || '历史读取失败')
+        return result.value
+      }
+      async function initialize() {
+        setError('')
+        try {
+          const capabilities = await rpc('history-capabilities', {})
+          setEnabled(capabilities.enabled)
+          if (!capabilities.enabled) return
+          const result = await rpc('history-sessions', {})
+          setSessions(result?.items || [])
+        } catch (e) { setError(String(e?.message || e)) }
+      }
+      useEffect(() => { void initialize() }, [])
+      async function browse(offset = 0) {
+        if (!sessionId.trim() || busy) return
+        setBusy(true); setError('')
+        try {
+          const value = await rpc('history-index', {
+            sessionId: sessionId.trim(), query, offset, limit: 15,
+          })
+          setPage(value); setDetail(null); setSources(null)
+        } catch (e) { setError(String(e?.message || e)) }
+        finally { setBusy(false) }
+      }
+      async function openSummary(seq) {
+        setError('')
+        try {
+          setDetail(await rpc('history-summary',{ sessionId, summarySeq: seq }))
+          setSources(null)
+        } catch(e) { setError(String(e?.message || e)) }
+      }
+      async function originals(offset = 0) {
+        if (!detail) return
+        setError('')
+        try {
+          const data = await rpc('history-originals',{
+            sessionId, summarySeq: detail.summarySeq,
+            revision: detail.revision, offset, limit: 5,
+          })
+          setSources(data)
+        } catch(e) { setError(String(e?.message || e)) }
+      }
+      return h('div',{style:styles.section},
+        h('h3',{style:styles.h3},'压缩历史与原文回取'),
+        h('p',{style:styles.muted},'读取 DSH 原生 Session 事件日志，不复制保存整份对话。原文仅在主动点击后分批回取。'),
+        error ? h('p',{role:'alert',style:{color:'#c64242'}},error) : null,
+        enabled===null ? h('p',null,'检查历史读取权限…') : null,
+        enabled===false ? h('p',{role:'status',style:styles.muted},
+          '原文读取默认关闭。单用户管理部署可设置 DSH_CONTEXT_MANAGER_HISTORY_READ=owner-only 并重启后使用；共享部署不应开启。')
+          : null,
+        enabled===true ? h(React.Fragment,null,
+          h('div',{style:styles.row},
+            h(Field,{label:'会话（或输入 Session ID）'},
+              h('select',{style:styles.input,value:sessionId,
+                onChange:e=>{setSessionId(e.target.value);setPage(null);setDetail(null);setSources(null)}},
+                h('option',{value:''},'选择会话'),
+                ...sessions.map(s=>h('option',{key:s.sessionId,value:s.sessionId},s.sessionId+' · '+(s.agentPreset||'Agent'))))),
+            h(Button,{onClick:()=>void initialize()},'刷新会话列表')),
+          h(Field,{label:'Session ID'},
+            h(Input,{value:sessionId,onChange:v=>{setSessionId(v);setPage(null);setDetail(null);setSources(null)},
+              placeholder:'输入持久化 Session ID'})),
+          h('div',{style:styles.row},
+            h(Field,{label:'摘要关键词（仅本地日志检索）'},
+              h(Input,{value:query,onChange:setQuery,placeholder:'文件、决策、问题等'})),
+            h(Button,{onClick:()=>void browse(),disabled:!sessionId||busy},busy?'查询中…':'查询摘要')),
+          page ? h('div',{style:{display:'grid',gap:9}},
+            h('p',{style:styles.muted},
+              '找到 '+page.total+' 个摘要 · 未完成或不一致事务 '+page.incomplete+' 个 · 日志版本 '+page.revision),
+            ...page.items.map(row=>h('div',{key:row.summarySeq,
+              style:{padding:'9px 0',borderBottom:'1px solid '+border,display:'grid',gap:4}},
+              h('div',{style:styles.row},
+                h('strong',null,row.tier+' · #'+row.summarySeq),
+                h('span',{style:styles.muted},row.sourceCount+' 条原始事件 · 约 '+row.tokens+' Tokens')),
+              h('p',{style:{...styles.muted,whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},row.preview),
+              h(Button,{onClick:()=>void openSummary(row.summarySeq)},'查看摘要与引用'))),
+            page.nextOffset!==null?h(Button,{onClick:()=>void browse(page.nextOffset)},'下一页'):null)
+            : null,
+          detail ? h('div',{style:{display:'grid',gap:9,padding:'10px 0',borderTop:'1px solid '+border}},
+            h('strong',null,'摘要 #'+detail.summarySeq+' · '+detail.tier),
+            h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere',fontSize:12,
+              maxHeight:320,overflow:'auto',padding:10,background:bg,borderRadius:8}},detail.summary),
+            h('p',{style:styles.muted},'引用 '+detail.sourceCount+' 条原始事件；回取操作只读取，不改变当前上下文。'),
+            h(Button,{onClick:()=>void originals(0)},'按需回取原文（前 5 条）')) : null,
+          sources ? h('div',{style:{display:'grid',gap:8}},
+            ...sources.items.map(item=>h('div',{key:item.seq,
+              style:{padding:9,background:bg,borderRadius:8}},
+              h('strong',null,'#'+item.seq+' · '+item.type),
+              h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere',fontSize:12,margin:'6px 0'}},item.text))),
+            sources.nextOffset!==null
+              ? h(Button,{onClick:()=>void originals(sources.nextOffset)},'下一批原始事件')
+              : null) : null,
+        ):null)
+    }
     function Panel({ call }) {
       const [remote, setRemote] = useState(null)
       const [draft, setDraft] = useState(null)
@@ -164,7 +270,7 @@ window.__ModuleLoader__.load({
             h('p', { style: styles.muted }, '配置中心 · DSH 原生压缩 · 分层策略预留')),
           h(Button, { onClick: () => void load() }, '刷新')),
         h('div', { style: styles.row },
-          tabButton('config', '压缩策略'), tabButton('runtime', '运行状态'), tabButton('rules', '高级规则')),
+          tabButton('config', '压缩策略'), tabButton('runtime', '运行状态'), tabButton('rules', '高级规则'), tabButton('history', '压缩历史')),
         error ? h('div', { role: 'alert', style: { color: '#c64242', fontSize: 12 } }, error) : null,
         notice ? h('div', { role: 'status', style: styles.muted }, notice) : null,
         !draft ? h('p', null, '正在读取设置…') : null,
@@ -253,6 +359,7 @@ window.__ModuleLoader__.load({
           h('p', { style: styles.muted },
             '应用优先级：全局 → Agent ID → Provider/Model。策略已保存不等于实际 Agent 已加载。'))
           : null,
+        tab === 'history' ? h(HistoryPanel, { call }) : null,
         draft && tab === 'runtime' ? h('div', { style: styles.section },
           h('h3', { style: styles.h3 }, '实际压缩状态'),
           h('p', { role: 'status', style: { ...styles.muted, color: '#b27920' } },
@@ -275,7 +382,7 @@ window.__ModuleLoader__.load({
           h('p', { style: styles.muted },
             '此处仅显示预设级插件的 Fiber 状态。host 全局服务、模型网关代理与手动压缩链路的唯一所有权尚需独立验收。'))
           : null,
-        draft ? h('div', { style: { ...styles.row, position: 'sticky', bottom: 0, zIndex: 1,
+        draft && tab !== 'history' ? h('div', { style: { ...styles.row, position: 'sticky', bottom: 0, zIndex: 1,
           background: 'var(--dsw-alias-bg-primary, white)', borderTop: '1px solid ' + border, padding: '10px 0' } },
           h(Button, { onClick: () => void save(), primary: true, disabled: saving },
             saving ? '保存中…' : '保存目标策略'),
