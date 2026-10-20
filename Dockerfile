@@ -229,6 +229,12 @@ COPY tests/web-browser-onboarding.cjs /usr/local/bin/web-browser-onboarding.cjs
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
+# Verify overlay compatibility against the DSH version actually baked in the image.
+RUN DSH_HOME="$(mktemp -d)" dsh --profile web \
+      --patch /opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml \
+      --dump-config > /tmp/dsh-global-compaction-config.yml \
+ && node -e 'const s=require("node:fs").readFileSync("/tmp/dsh-global-compaction-config.yml","utf8"); for(const id of ["compaction-basic","command-compact","tool-result-pruner"]){ const re=new RegExp("(^|\\n)\\s*- id: "+id+"\\s*\\n\\s+disabled: false(\\n|$)");if(!re.test(s))throw Error("Host compaction not enabled: "+id)}' \
+ && rm -f /tmp/dsh-global-compaction-config.yml
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
  && node --check /usr/local/bin/test-dsh-core-routes.js \
