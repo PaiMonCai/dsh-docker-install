@@ -104,7 +104,6 @@ def export_bundle(args):
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         fail("备份文件已存在，拒绝覆盖: " + str(output))
-    os.chmod(output.parent, os.stat(output.parent).st_mode & 0o777)
     state = pathlib.Path(args.state)
     if not (state / "config.env").is_file():
         fail("未找到有效的实例配置文件: " + str(state / "config.env"))
@@ -322,6 +321,8 @@ def restore_bundle(args):
         created = []
         prepared = {}
         try:
+            root.mkdir(parents=True, exist_ok=False)
+            created.append(root)
             for name, final in (("state.tar", state), ("data.tar", data),
                                 ("workspace.tar", workspace)):
                 final.parent.mkdir(parents=True, exist_ok=True)
@@ -330,8 +331,6 @@ def restore_bundle(args):
                 temp.rmdir()
                 extract_verified(stage / name, temp)
                 prepared[name] = (temp, final)
-            root.mkdir(parents=True, exist_ok=False)
-            created.append(root)
             lines = []
             for index, mount in enumerate(manifest["mounts"]):
                 mountdir = root / "mounts" / ("%03d" % index)
