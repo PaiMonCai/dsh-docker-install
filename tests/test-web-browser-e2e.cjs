@@ -104,10 +104,19 @@ async function run() {
     if (!entry) throw Error('instance manager shortcut missing')
     entry.onClick()
   })
-  const manager = page.getByRole('dialog', { name: '实例管理' })
+  // Keep the real-browser contract aligned with the Phase 3 unified console.
+  // The shortcut remains "实例管理", but the dialog's accessible heading was
+  // changed to "DSH 管理中心"; these two labels serve different UI roles.
+  const manager = page.getByRole('dialog', { name: 'DSH 管理中心', exact: true })
   await manager.waitFor({ state: 'visible', timeout })
+  const managerPages = ['总览', '实例', '版本与更新', '网络与服务',
+    '配置与诊断', '任务记录', '运行日志']
+  for (const title of managerPages) {
+    assert.equal(await manager.getByRole('tab', { name: title, exact: true }).count(), 1,
+      'management console is missing page: ' + title)
+  }
   await manager.getByText(/此实例尚未启用 Web 管理/).waitFor({ timeout })
-  await manager.getByRole('tab', { name: '任务记录' }).click()
+  await manager.getByRole('tab', { name: '任务记录', exact: true }).click()
   await manager.getByText(/暂无管理任务/).waitFor({ timeout })
   await page.keyboard.press('Escape')
   await manager.waitFor({ state: 'detached', timeout })
@@ -182,8 +191,8 @@ async function run() {
   // The editor must be reachable through the original Plugins page.
   await dock.getByRole('button', { name: '插件' }).click()
   await page.getByText('管理 DSH 更新、运行状态与网络出口', { exact: true }).waitFor({ timeout })
-  assert.equal(await page.getByRole('tab', { name: '运行与更新', exact: true }).count(), 0,
-    'instance manager must not expand its controls in the plugin list')
+  assert.equal(await page.getByRole('tab', { name: '总览', exact: true }).count(), 0,
+    'the unified instance manager must not expand its controls in the plugin list')
   const editorLink = page.getByText('快捷入口管理', { exact: true }).first()
   await editorLink.waitFor({ state: 'visible', timeout })
   await editorLink.click()
