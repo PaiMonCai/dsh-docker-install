@@ -40,6 +40,8 @@ DSHD_LIB_ONLY=1 bash -c '
   save_config
 '
 
+mkdir -p "$DSHD_STATE_DIR/backups"
+printf 'must-not-recurse\\n' > "$DSHD_STATE_DIR/backups/do-not-copy.dshbak"
 archive="$tmp/portable.dshbak"
 bash ./dshd backup export "$archive"
 bash ./dshd backup verify "$archive"
@@ -53,7 +55,9 @@ grep -Fq '|/root/.config/portable-test|ro' "$DSHD_STATE_DIR/instances/$id/mounts
 mount_src="$(cut -d'|' -f1 "$DSHD_STATE_DIR/instances/$id/mounts.conf")"
 test "$(cat "$mount_src/tool.conf")" = "mount-example"
 docker inspect "$container" >/dev/null
-[[ ! -e "$DSHD_STATE_DIR/instances/$id/backups" ]]
+# ensure_state_dir creates an empty backups directory during recreated startup,
+# but old archives must not be recursively included in the portable snapshot.
+[[ ! -e "$DSHD_STATE_DIR/instances/$id/backups/do-not-copy.dshbak" ]]
 # Reject a second import to the same ID; existing restored state stays intact.
 if bash ./dshd backup import "$archive" "$id" >/dev/null 2>&1; then
   echo "Existing instance was overwritten by import" >&2
