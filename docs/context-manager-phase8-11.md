@@ -121,3 +121,12 @@ layer commits through the session event-log transaction double, then
 replays from a cold Session and checks that deep source retrieval still
 reaches the original text. The real DSH compaction engine is separately
 exercised in `test-context-manager-acp-real-region.mjs`.
+
+## Actual DSH model-tool execution pipeline
+
+`test-context-manager-acp-tools.mjs` runs the installed DSH ToolRuntime's
+schema, parameter validation, call dispatch and canonical output stages
+for the four ACP tools. It checks safe queuing, invalid-ref rejection,
+single-proposal ownership and no early Session Surface mutation. The
+upstream full AgentLoop transport across tool results and model streams
+is a separate production acceptance item.
