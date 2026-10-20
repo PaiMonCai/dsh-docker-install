@@ -366,6 +366,35 @@ window.__ModuleLoader__.load({
           setError(failure.message + '。如连接中断，请先查看任务记录再重试。')
         } finally { submitting.current = false; setSending(false) }
       }
+      async function uploadArchive() {
+        if (!upload || uploading || !enabled) return
+        if (!upload.name.toLowerCase().endsWith('.dshbak') || upload.size <= 0 || upload.size > 1024 * 1024 * 1024) {
+          setUploadMessage('仅支持不超过 1 GiB 的 .dshbak 文件。'); return
+        }
+        setUploading(true); setUploadMessage('正在上传备份文件，请勿关闭页面…')
+        const file = 'upload-' + taskId() + '.dshbak'
+        try {
+          const res = await fetch(ENDPOINT + '/uploads/' + file, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'x-dsh-management': '1', 'content-type': 'application/octet-stream' },
+            body: upload,
+          })
+          const result = await res.json()
+          if (!res.ok) throw Error(errors[result.error] || result.error || '上传失败')
+          setBackupFile(file)
+          setUpload(null)
+          setUploadMessage('已上传：' + file + '。请先点击“校验选中备份”，确认无误后导入。')
+          setData(current => current?.status ? {
+            ...current, status: { ...current.status, backup: {
+              ...(current.status.backup || {}),
+              files: [{ file, kind: 'uploaded', size: result.size,
+                createdAt: new Date().toISOString() }, ...(current.status.backup?.files || [])],
+            } },
+          } : current)
+        } catch (failure) {
+          setUploadMessage('上传失败：' + failure.message)
+        } finally { setUploading(false) }
+      }
       function actionButton(action, args = {}, primary = false) {
         const unavailable = !supports(action)
         return h('button', { type: 'button', disabled: !enabled || unavailable,
@@ -574,6 +603,90 @@ window.__ModuleLoader__.load({
             status.instance.edition === 'research' && section('Research Pack',
               h('p', { className: 'dm-muted' }, '可以切换到通用科研包或经济学计量工具链。操作需要下载镜像并重建容器。'),
               h('div', { className: 'dm-actions' }, actionButton('pack-none'), actionButton('pack-economics')))),
+          tab === 'backups' && status && h(React.Fragment, null,
+            section('完整实例备份',
+              h('p', { className: 'dm-muted' },
+                '包含持久化配置、会话、工作区和自定义挂载。导出时会短暂停用当前容器的写操作；' +
+                '归档含 API Key、Token 等敏感数据，请只保存到可信设备。'),
+              h('div', { className: 'dm-actions' }, actionButton('backup-export', {}, true))),
+            section('备份文件',
+              h('p', { className: 'dm-muted' },
+                '列出当前实例宿主机已保存或通过 Web 上传的完整归档。下载需要管理员登录；' +
+                '请先校验再恢复。'),
+              !(status.backup?.files || []).length
+                ? h('div', { className: 'dm-empty' }, '暂无完整备份；可先点击“导出完整备份”。')
+                : h('div', { className: 'dm-backup-list' },
+                  ...(status.backup?.files || []).map(item => h('div', {
+                    key: item.kind + item.file, className: 'dm-backup-row',
+                  },
+                  h('div', null,
+                    h('strong', null, item.file),
+                    h('div', { className: 'dm-muted' },
+                      (item.kind === 'uploaded' ? '已上传' : '宿主机备份') + ' · ' +
+                      (item.size / 1024 / 1024).toFixed(1) + ' MiB · ' + formatTime(item.createdAt))),
+                  h('div', { className: 'dm-actions' },
+                    h('button', { type: 'button', disabled: !enabled || !supports('backup-verify'),
+                      onClick: () => { setBackupFile(item.file); void submit('backup-verify', { file: item.file }) },
+                    }, '校验'),
+                    h('button', { type: 'button', onClick: () => setBackupFile(item.file) }, '选择'),
+                    h('a', { href: ENDPOINT + '/backups/' + encodeURIComponent(item.file),
+                      download: item.file, title: '下载含密钥和会话的敏感归档' }, '下载')))))),
+            section('上传与导入新实例',
+              h('p', { className: 'dm-muted' },
+                '将本地 .dshbak 上传至当前服务器（最大 1 GiB），也可选择上方已有归档。' +
+                '仅创建全新实例；不会覆盖现有容器。'),
+              h('div', { className: 'dm-inputs' },
+                h('label', null, '选择本地备份',
+                  h('input', { type: 'file', accept: '.dshbak', 'aria-label': '选择本地完整备份文件',
+                    onChange: event => { setUpload(event.target.files?.[0] || null); setUploadMessage('') } })),
+                h('div', { className: 'dm-actions', style: { alignItems: 'end' } },
+                  h('button', { type: 'button', disabled: !enabled || uploading || !upload,
+                    onClick: () => void uploadArchive() }, uploading ? '上传中…' : '上传到服务器')),
+                uploadMessage && h('p', { className: 'dm-muted dm-wide', role: 'status' }, uploadMessage),
+                h('label', null, '待恢复归档',
+                  h('select', { value: backupFile, 'aria-label': '待恢复归档',
+                    onChange: event => setBackupFile(event.target.value) },
+                    h('option', { value: '' }, '请选择备份文件'),
+                    ...(status.backup?.files || []).map(item => h('option',
+                      { key: item.kind + item.file, value: item.file }, item.file)))),
+                h('label', null, '新实例 ID（非 default）',
+                  h('input', { value: backupInstance, 'aria-label': '新实例 ID', placeholder: 'restored',
+                    autoComplete: 'off', onChange: event => setBackupInstance(event.target.value) })),
+                h('div', { className: 'dm-actions dm-wide' },
+                  h('button', { type: 'button', disabled: !enabled || !backupFile || !supports('backup-verify'),
+                    onClick: () => void submit('backup-verify', { file: backupFile }) }, '校验选中备份'),
+                  h('button', { type: 'button', className: 'dm-primary',
+                    disabled: !enabled || !supports('backup-import') || !backupFile ||
+                      !/^[a-z][a-z0-9-]{0,31}$/.test(backupInstance) || backupInstance === 'default',
+                    onClick: () => { setConfirmation({ action: 'backup-import',
+                      args: { file: backupFile, instance: backupInstance } }); setConfirmationInput('') },
+                  }, '导入并创建新实例')))),
+            section('自动备份计划',
+              details([['当前状态', status.backup?.schedule?.enabled ? '已开启' : '未开启'],
+                ['计划', status.backup?.schedule?.enabled
+                  ? ((status.backup.schedule.cadence === 'weekly' ? '每周' : '每天') +
+                    ' · 保留 ' + status.backup.schedule.keep + ' 份') : '无定时任务']]),
+              h('div', { className: 'dm-inputs' },
+                h('label', null, '执行周期',
+                  h('select', { value: backupCadence, 'aria-label': '自动备份周期',
+                    onChange: event => setBackupCadence(event.target.value) },
+                    h('option', { value: 'daily' }, '每天'),
+                    h('option', { value: 'weekly' }, '每周'))),
+                h('label', null, '保留最近份数（1–90）',
+                  h('input', { type: 'number', min: 1, max: 90, step: 1, value: backupKeep,
+                    'aria-label': '自动备份保留份数',
+                    onChange: event => setBackupKeep(Number(event.target.value)) })),
+                h('div', { className: 'dm-actions dm-wide' },
+                  h('button', { type: 'button', className: 'dm-primary',
+                    disabled: !enabled || !supports('backup-auto-on') ||
+                      !Number.isInteger(backupKeep) || backupKeep < 1 || backupKeep > 90,
+                    onClick: () => { setConfirmation({ action: 'backup-auto-on',
+                      args: { cadence: backupCadence, keep: backupKeep } }); setConfirmationInput('') },
+                  }, '保存并开启自动备份'),
+                  actionButton('backup-auto-off'))),
+              h('p', { className: 'dm-muted' },
+                '计划在宿主机 systemd 中执行，即使 Web 页面关闭也会继续；' +
+                '关闭自动备份不会删除已有归档。大于 1 GiB 的文件仍可通过宿主机导入。'))),
           tab === 'tasks' && h(React.Fragment, null,
             selectedJob && section('任务详情',
               h('div', { className: 'dm-task-head' },
