@@ -151,6 +151,10 @@ run_web() {
         append_native_web_patch "${DSH_REVERSE_AGENT_PATCH}" "true" "Reverse Edition Agent"
     fi
 
+    # Last launcher overlay: restore host-level native compaction for every Web preset.
+    # The switch provides an escape hatch if upstream preset-scoped listeners conflict.
+    append_native_web_patch "/opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml" "${DSH_GLOBAL_COMPACTION:-true}" "全局原生上下文压缩"
+
     # Migrate only legacy bundled plugin selections; dependencies, third-party
     # selection and pnpm-lock.yaml stay untouched, with a manifest backup.
     prepare_native_web_plugins
