@@ -297,6 +297,9 @@ jobs:
           cache-from: type=gha
           # Keep the previous ARM64 cache until the multi-platform export.
 
+      - name: Round-trip portable full-instance backup in real Docker
+        run: sudo env "PATH=$PATH" bash tests/test-portable-backup-docker.sh
+
       - name: Exercise Web managed restart and transactional replacement
         run: sudo env "PATH=$PATH" bash tests/test-instance-manager-runtime.sh dsh-ci:pr
 
