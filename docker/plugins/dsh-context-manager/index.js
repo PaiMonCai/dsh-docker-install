@@ -33,7 +33,7 @@ export function apply(ctx) {
   ctx.on('internal/config', function (_raw, next) {
     const resolved = next()
     const transformed = takeover.active && isPresetEntry(this?.entry)
-      ? replacePresetCompactor(resolved,takeover.settings,takeover.target) : {changed:false,config:resolved}
+      ? replacePresetCompactor(resolved,takeover.settings,takeover.target,{acp:takeover.acp}) : {changed:false,config:resolved}
     if(transformed.changed) takeoverEvidence=transformed.evidence
     try { probe.observeConfig(this?.entry, transformed.config) }
     catch (error) { ctx.logger?.warn?.('context-manager preset probe failed: ' + String(error?.message || error)) }
@@ -177,7 +177,7 @@ export function apply(ctx) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
-            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'} } }
+            tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard', acp:takeover.acp} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
           const settings = readSettings()

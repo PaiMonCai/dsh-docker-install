@@ -10,6 +10,7 @@
 import { buildTierPrompt, chooseTier, getSummaryText, verifyTierSummary } from './tiered-core.mjs'
 import { readSettings } from './storage.mjs'
 import { resolvePolicy } from './policy.mjs'
+import { currentAcpSummary } from './acp-pending.mjs'
 
 function targetFrom(agent) {
   const routed=agent?.session?.requestHeader?.()?.config
@@ -47,6 +48,9 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
     async summarize(input, agent, signal) {
       signal?.throwIfAborted?.()
       const target=targetFrom(agent)
+      const proposal=currentAcpSummary(agent.session)
+      if(proposal) return { summary:[{type:'text',text:proposal.summary}],
+        provider:target.provider,model:target.model }
       const policy=resolvePolicy(readSettings(),scopeFrom(agent,target))
       if (policy.engine!=='tiered') return super.summarize(input,agent,signal)
       const checkpointRows=agent.session?.surface?.nodes

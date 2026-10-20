@@ -213,6 +213,7 @@ COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manage
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
+RUN npm install --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --no-audit --no-fund
 COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
@@ -264,6 +265,9 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-context-manager/ci-replay.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/ownership-audit.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-pending.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-runtime.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-native.js \
  && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
  && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
@@ -275,6 +279,8 @@ COPY tests/test-context-manager-native-compact.mjs /opt/dsh/test-context-manager
 RUN node /opt/dsh/test-context-manager-native-compact.mjs
 COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-manager-native-transaction.mjs
 RUN node /opt/dsh/test-context-manager-native-transaction.mjs
+COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp-native.mjs
+RUN node /opt/dsh/test-context-manager-acp-native.mjs
 COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
 RUN node /opt/dsh/test-context-manager-external-preflight.mjs
 

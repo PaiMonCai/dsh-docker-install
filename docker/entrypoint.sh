@@ -126,6 +126,10 @@ run_web() {
     append_native_web_patch "/opt/dsh/plugins/dsh-context-manager/cordis.patch.yml" "${DSH_CONTEXT_MANAGER_PROBE:-true}" "上下文管理"
     # LAB-only takeover, separate from saved Web settings. Fail closed on
     # suspicious competing compressors before DSH starts any Agent.
+    if [[ "${DSH_CONTEXT_MANAGER_ACP_ACTIVE:-0}" == "1" && "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}" != "1" ]]; then
+        log "ACP 原生引擎必须在隔离 Tiered 单引擎实验环境中启用"
+        return 1
+    fi
     if [[ "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}" == "1" ]]; then
         node /opt/dsh/context-manager-tiered-preflight.mjs
         append_native_web_patch "/opt/dsh/plugins/dsh-context-manager/cordis.tiered-lab.patch.yml" "true" "实验性单引擎接管"
