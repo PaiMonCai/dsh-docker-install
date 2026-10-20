@@ -44,6 +44,8 @@ mkdir -p "$STATE_DIR/web-management/requests" "$STATE_DIR/web-management/results
 touch "$STATE_DIR/web-management.enabled"
 create_container
 grep -Fxq "type=bind,src=$STATE_DIR/web-management/requests,dst=/run/dsh-management/requests" "$tmp/docker-args"
+grep -Fxq "type=bind,src=$STATE_DIR/backups,dst=/run/dsh-management/backups,readonly" "$tmp/docker-args"
+grep -Fxq "type=bind,src=$STATE_DIR/web-management/uploads,dst=/run/dsh-management/uploads" "$tmp/docker-args"
 grep -Fxq "type=bind,src=$STATE_DIR/web-management/results,dst=/run/dsh-management/results,readonly" "$tmp/docker-args"
 ! grep -q docker.sock "$tmp/docker-args"
 ! grep -q "src=$STATE_DIR,dst=" "$tmp/docker-args"
