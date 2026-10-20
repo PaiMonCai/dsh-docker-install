@@ -174,3 +174,13 @@ HTTP or using another store. Real PTC subcall result-log offload is not included
 
 This is an **explicit additional laboratory flag**. It is not enabled for
 ordinary Agent sessions and is not authorization for shared/tenant history.
+
+## Honest runtime UI status
+
+The `status` and `settings` Web RPC responses now include an
+`experimentalRuntime` object derived from **active** mounted Cordis Fiber
+states for the Standard preset, not from flags alone. A mounted Standard
+Tiered+ACP lab may report `experimentalRuntime.active=true` while
+`runtime.applied=false` and `productionApproved=false` remain unchanged.
+This is deliberate: no host-global proof or tenant authorization has yet
+been established.

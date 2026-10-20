@@ -38,3 +38,19 @@ test('image build and all four model-facing native ACP tools are wired',()=>{
  assert.match(read('docker/plugins/dsh-context-manager/acp-runtime.mjs'),/nudgeMessage\(session\)/)
  assert.match(read('docker/plugins/dsh-context-manager/acp-runtime.mjs'),/appendRecord\(session,STATE_EVENT/)
 })
+
+test('separate mounted-lab observation from production approval',async()=>{
+ const {labReadiness}=await import('../docker/plugins/dsh-context-manager/lab-readiness.mjs')
+ const mk=(active=true)=>({available:true,presets:[{id:'standard',mounted:active,
+  basic:{active:0},tiered:{active:active?1:0},acp:{active:active?1:0},
+  manual:{active:active?1:0},external:{active:0,configured:0}}]})
+ const takeover={active:true,acp:true}
+ const no=labReadiness(takeover,{preset:'standard'},mk(false))
+ assert.equal(no.active,false)
+ assert.equal(no.productionApproved,false)
+ const yes=labReadiness(takeover,{preset:'standard'},mk(true))
+ assert.equal(yes.active,true)
+ assert.equal(yes.productionApproved,false)
+ const conflict=mk(true);conflict.presets[0].external.active=1
+ assert.equal(labReadiness(takeover,{preset:'standard'},conflict).active,false)
+})

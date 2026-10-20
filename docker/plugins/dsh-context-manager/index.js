@@ -1,5 +1,6 @@
 import { makeProbe } from './core.mjs'
 import { inspectRuntimePresets } from './native-inventory.mjs'
+import { labReadiness } from './lab-readiness.mjs'
 import { defaults, normalizeSettings, resolvePolicy, previewNative } from './policy.mjs'
 import { readSettings, writeSettings, settingsRevision } from './storage.mjs'
 import { indexCompactions, publicIndex, summaryDetail, originalPage } from './history-index.mjs'
@@ -178,6 +179,7 @@ export function apply(ctx) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard', acp:takeover.acp} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
@@ -187,6 +189,7 @@ export function apply(ctx) {
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
+            experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'},
             runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
               reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
