@@ -11,12 +11,23 @@ const [{defineTool},{appendPluginRecord}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-session')).href),
 ])
 export const name='dsh-context-manager-acp'
-export const inject=['tools','compaction','sessions']
+export const inject=['tools','compaction','sessions','systemPrompt']
 function textOutput() {return {schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]}}
 function printable(value) {return JSON.stringify(value)}
 export function apply(ctx) {
   const runtime=new AcpRuntime({appendRecord:appendPluginRecord,
     flushIntent:session=>ctx.sessions.flush(session),logger:ctx.logger})
+  ctx.systemPrompt.context({
+    name:'acp-model-pressure-guidance',order:80,
+    text:context=>{
+      try{
+        return context.agent?.session ? runtime.nudgeMessage(context.agent.session) : ''
+      }catch(error){
+        ctx.logger?.warn?.('ACP nudge unavailable: '+String(error?.message??error))
+        return ''
+      }
+    },
+  })
   const tool=(name,description,parameters,execute)=>{
     ctx.tools.register(defineTool({name,description,parameters,output:textOutput(),
       async execute(args,exec) {

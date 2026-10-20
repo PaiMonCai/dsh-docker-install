@@ -130,3 +130,13 @@ for the four ACP tools. It checks safe queuing, invalid-ref rejection,
 single-proposal ownership and no early Session Surface mutation. The
 upstream full AgentLoop transport across tool results and model streams
 is a separate production acceptance item.
+
+## Adaptive model guidance
+
+ACP contributes a bounded content-free advisory message via the native
+`ctx.systemPrompt.context()` dynamic runtime-context slot. The kernel
+selects a recommended tier and the model decides whether to compress.
+The generated text is stable across initial assembly and prompt refresh for
+a single DSH Surface content generation and never contains raw user or tool
+content. DSH's single-engine automatic pressure and overflow recovery remains
+authoritative. This guidance is not a substitute for real model validation.

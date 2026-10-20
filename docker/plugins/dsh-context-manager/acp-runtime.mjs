@@ -111,6 +111,7 @@ export class AcpRuntime {
     this.cache = new WeakMap()
     this.pending = new WeakMap()
     this.processing = new WeakSet()
+    this.nudgeCache = new WeakMap()
   }
   view(session) {
     let row = this.cache.get(session)
@@ -132,6 +133,29 @@ export class AcpRuntime {
     })
     row.state = projected.state
     return {row,messages,config,tokenCount,nudge:projected.nudge}
+  }
+  /**
+   * Bounded runtime-context recommendation; no user messages, raw tool
+   * content, or long cache-fragmenting prompt replacement is generated.
+   * Hold it stable across initial assembly and prompt refresh.
+   */
+  nudgeMessage(session) {
+    const generation=session.surface.contentGeneration
+    const cached=this.nudgeCache.get(session)
+    if(cached&&cached.generation===generation)return cached.text
+    const {nudge}=this.view(session)
+    let text=''
+    if(nudge?.shouldInject&&!this.pending.has(session)) {
+      const tier=Number(nudge.tier)
+      const label=tier===2?'T2':tier===3?'T3':'T1'
+      text='ACP context optimization recommended ('+label+'). '
+        +'Inspect acp_status for current message and block references. '
+        +'Call acp_compress only with a faithful model-authored summary of an earlier safe range. '
+        +'Keep recent instructions and tool-call/result pairs. '
+        +'Use acp_decompress to recover original source content; never invent refs.'
+    }
+    this.nudgeCache.set(session,{generation,text})
+    return text
   }
   status(session) {
     const {row,messages,config,tokenCount,nudge} = this.view(session)
@@ -194,6 +218,7 @@ export class AcpRuntime {
     if(!proposal.newBlock)throw Error('ACP kernel produced no durable block')
     queueAcpSummary(session,proposal)
     this.pending.set(session,proposal)
+    this.nudgeCache.delete(session)
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
       block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
       advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
@@ -253,6 +278,7 @@ export class AcpRuntime {
     } finally {
       this.pending.delete(session)
       clearQueuedAcpSummary(session,proposal)
+      this.nudgeCache.delete(session)
       this.processing.delete(session)
     }
   }

@@ -34,5 +34,7 @@ test('image build and all four model-facing native ACP tools are wired',()=>{
  for(const name of ['acp_status','acp_compress','acp_decompress','acp_search_context'])
  assert.ok(src.includes("'"+name+"'"))
  assert.match(src,/agent\/pre-step/)
+ assert.match(src,/systemPrompt\.context/)
+ assert.match(read('docker/plugins/dsh-context-manager/acp-runtime.mjs'),/nudgeMessage\(session\)/)
  assert.match(read('docker/plugins/dsh-context-manager/acp-runtime.mjs'),/appendRecord\(session,STATE_EVENT/)
 })
