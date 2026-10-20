@@ -79,6 +79,18 @@ test('host capability metadata prevents submitting unsupported or unknown-versio
   await assert.rejects(f.bridge.submit(task('restart')), /host-operation-unavailable/)
 })
 
+test('phase-two administrative actions are strictly fixed and do not accept paths or images', () => {
+  for (const action of [
+    'edition-standard', 'edition-research', 'pack-none', 'pack-economics',
+    'dashboard-start', 'dashboard-stop', 'diagnose-environment',
+    'diagnose-storage', 'diagnose-plugins'
+  ]) {
+    assert.doesNotThrow(() => validate(action, {}), action)
+    for (const parameters of [{ image: 'evil:latest' }, { instanceId: 'other' }, { command: 'id' }])
+      assert.throws(() => validate(action, parameters), action)
+  }
+})
+
 test('only named operations and bounded proxy inputs are accepted', () => {
   for (const [action, args] of [
     ['shell', { command: 'rm -rf /' }], ['restart', { container: 'other' }],
