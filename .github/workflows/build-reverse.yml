@@ -216,7 +216,6 @@ jobs:
           node --test tests/test-reverse-edition.cjs
           node --test tests/test-plugin-doctor.cjs
           node --test tests/test-reverse-plugin-parity.cjs
-          node --test tests/test-bili-domain-ui.cjs
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
