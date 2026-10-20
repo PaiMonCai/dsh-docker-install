@@ -270,6 +270,10 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
 
+# Verify the real upstream /compact command dispatches to the unique service.
+COPY tests/test-context-manager-native-compact.mjs /opt/dsh/test-context-manager-native-compact.mjs
+RUN node /opt/dsh/test-context-manager-native-compact.mjs
+
 # Import native summary candidate without mounting another compression owner.
 RUN node --input-type=module -e "const m = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof m.default !== 'function') throw Error('tiered backend export missing')"
 RUN set -eu; home="$(mktemp -d)"; \
