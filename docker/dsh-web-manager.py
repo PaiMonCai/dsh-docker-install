@@ -346,7 +346,7 @@ class Manager:
                                    "operations": list(SUPPORTED_OPERATIONS)},
                     "settings": self.settings, "release": self.release, "container": None,
                     "proxy": {"nodes": [], "running": False}, "logs": "",
-                    "backup": {"files": self.list_backups(), "schedule": self.backup_schedule()}
+                    "backup": {"files": self.list_backups(), "schedule": self.backup_schedule()}}
         try:
             container = self.inspect(description["name"])
             image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
