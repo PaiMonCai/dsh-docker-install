@@ -33,6 +33,29 @@ grep -Fq '回滚旧版容器' "$tmp/rescue"
 grep -Fq '恢复数据' "$tmp/backup"
 grep -Fq '逐项确认' "$tmp/uninstall"
 
+# Regression: "dshd" with NO arguments must enter the default rescue menu.
+# Before the fix, main() defaulted cmd=menu then ran an unconditional "shift";
+# under set -e this silently returned exit code 1 before anything was drawn.
+# Exercise the *real* command entry point, not the sourced menu() function.
+for invocation in default explicit legacy; do
+  case "$invocation" in
+    default) args=() ; expect='DSH Rescue v' ;;
+    explicit) args=(menu) ; expect='DSH Rescue v' ;;
+    legacy) args=(menu legacy) ; expect='DSH Manager' ;;
+  esac
+  if ! printf '0\n' | env DSHD_LIB_ONLY=0 DSHD_NO_SELF_UPDATE=1 \
+    DSHD_STATE_DIR="$tmp/real-cli-state" bash ./dshd "${args[@]}" >"$tmp/cli-$invocation" 2>&1; then
+    printf 'CLI %s failed:\n' "$invocation" >&2
+    cat "$tmp/cli-$invocation" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$expect" "$tmp/cli-$invocation"; then
+    printf 'CLI %s did not render %s:\n' "$invocation" "$expect" >&2
+    cat "$tmp/cli-$invocation" >&2
+    exit 1
+  fi
+done
+
 # The default menu responds to EOF and does not enter advanced configuration.
 printf '2\n1\n\n0\n0\n' | (
   cmd_web() { printf 'web-action:%s\n' "$1"; }
