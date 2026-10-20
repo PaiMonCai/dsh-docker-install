@@ -43,6 +43,8 @@ services:
       DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
       # 原生提示词与执行设置页；附加指令和工具禁用名单初始均关闭。
       DSH_PROMPT_MANAGER: "${DSH_PROMPT_MANAGER:-true}"
+      # Default-on Web fallback for custom presets; set false to disable.
+      DSH_GLOBAL_COMPACTION: "${DSH_GLOBAL_COMPACTION:-true}"
       # Search is opt-in; bundled SearXNG starts only when selected as provider.
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
       DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"
