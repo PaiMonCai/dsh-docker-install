@@ -156,6 +156,7 @@ jobs:
           bash -n docker/entrypoint.sh
           node --check docker/prepare-native-web-plugins.js
           bash tests/test-native-web-plugins.sh
+          node --test tests/test-global-compaction.cjs
           sh -n docker/cn-mirror.sh
           node --check docker/plugins/dsh-reasoning-editor/index.js
           node --check docker/plugins/dsh-reasoning-editor/client.js
