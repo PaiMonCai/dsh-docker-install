@@ -63,6 +63,41 @@ class Tests(unittest.TestCase):
         self.assertIn("restart", status["management"]["operations"])
         self.assertNotIn("shell", status["management"]["operations"])
 
+    def test_phase_two_actions_only_dispatch_fixed_commands(self):
+        expected = {
+            "edition-standard": ["web-switch", "standard"],
+            "edition-research": ["web-switch", "research"],
+            "pack-none": ["web-switch", "research"],
+            "pack-economics": ["web-switch", "research-economics"],
+            "dashboard-start": ["dashboard", "start"],
+            "dashboard-stop": ["dashboard", "stop"],
+            "diagnose-environment": ["env"],
+            "diagnose-storage": ["storage", "show"],
+            "diagnose-plugins": ["doctor", "plugins", "--json"],
+        }
+        for action, command in expected.items():
+            self.assertEqual(MODULE.command_for(action, {}), command)
+            with self.assertRaises(ValueError):
+                MODULE.command_for(action, {"image": "attacker/override"})
+        self.assertEqual(self.submit("edition-research")["state"], "succeeded")
+        self.assertIn(("edition-research", {}), self.manager.executed)
+
+    def test_dashboard_snapshot_is_research_scoped(self):
+        self.manager.target = "example/dsh:research"
+        self.manager.describe = lambda: {
+            "name": "dsh-test", "image": self.manager.target,
+            "edition": "research", "researchPack": "none"
+        }
+        self.manager.snapshot()
+        status = MODULE.read_json(self.manager.results / "status.json")
+        self.assertTrue(status["dashboard"]["running"])
+        self.manager.describe = lambda: {
+            "name": "dsh-test", "image": self.manager.target, "edition": "standard"
+        }
+        self.manager.snapshot()
+        status = MODULE.read_json(self.manager.results / "status.json")
+        self.assertFalse(status["dashboard"]["running"])
+
     def test_task_survives_restart_and_is_not_replayed(self):
         job = self.submit()
         self.assertEqual(job["state"], "succeeded")
