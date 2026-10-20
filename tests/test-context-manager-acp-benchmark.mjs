@@ -42,7 +42,7 @@ const t0=performance.now()
 for(let i=0;i<3;i++){
  const refs=runtime.status(session).refs
  runtime.propose(session,{startRef:refs[0].ref,endRef:refs[7].ref,
-  topic:'synthetic benchmark',summary:('Evidence, exact requirements and decisions from eight source messages remain recoverable in original native DSH events, without any provider call. ').repeat(2)})
+  topic:'synthetic benchmark batch '+i,summary:('Batch '+i+' evidence, exact requirements and decisions from eight source messages remain recoverable in original native DSH events, without any provider call. ').repeat(2)})
  await runtime.processPending({session},backend,new AbortController().signal)
 }
 const after=runtime.status(session)
