@@ -81,6 +81,24 @@ function configFor(session) {
     crush: { enabled: false },
   })
 }
+/** DSH Session.append rejects undefined, non-finite and exotic JSON values.
+ * ACP state is portable, but optional internal slots can hold undefined.
+ * Canonicalize it at this one storage boundary; reject cycles and oversized
+ * or semantically unsafe JSON rather than widening native validation.
+ */
+function durableJson(value) {
+  const raw=JSON.stringify(value,(_key,item)=>{
+    if(typeof item==='bigint'||typeof item==='function'||typeof item==='symbol')
+      throw Error('unsupported value in ACP kernel state')
+    if(typeof item==='number'&&!Number.isFinite(item))
+      throw Error('non-finite number in ACP kernel state')
+    if(item instanceof Map||item instanceof Set||item instanceof Date)
+      throw Error('non-JSON ACP kernel state')
+    return item
+  })
+  if(!raw||raw.length>1048576)throw Error('ACP state exceeds 1 MiB persistence budget')
+  return JSON.parse(raw)
+}
 function fullSummaryBlock(block) {
   return { id:block.blockId, tier:block.tier, topic:block.topic??null,
     summary:block.summary.slice(0,2200), active:!!block.active,
@@ -189,9 +207,9 @@ export class AcpRuntime {
       // The state commit is a DSH-native, ignorable, fork/replay-safe log
       // record. On a crash before this append, native compaction originals
       // remain recoverable and the adapter will not invent a recovered block.
-      this.appendRecord(session,STATE_EVENT,{
+      this.appendRecord(session,STATE_EVENT,durableJson({
         version:1,state:nextState,checkpoints:currentCheckpoints,lastResult,
-      })
+      }))
       current.row.state=nextState
       current.row.checkpoints=currentCheckpoints
       current.row.settled=lastResult
