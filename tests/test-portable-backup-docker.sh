@@ -2,6 +2,7 @@
 # Real, disposable Docker export -> archive verify -> import -> boot smoke.
 # Never run on a machine with real user DSH state. Only CI audit image dsh-ci:pr.
 set -Eeuo pipefail
+trap 'rc=$?; printf "[FAIL] Docker backup smoke line %s (status %s): %s\n" "$LINENO" "$rc" "$BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/.."
 docker image inspect dsh-ci:pr >/dev/null
 tmp="$(mktemp -d)"
