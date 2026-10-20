@@ -37,7 +37,7 @@ container_running() { return 1; }
 DSH_NAME=dsh
 DSH_PORT=3080
 set +e
-printf '2\n5\n\n1\n\n0\n0\n' | menu >"$TMP/menu.out" 2>"$TMP/menu.err"
+printf '2\n5\n\n1\n\n0\n0\n' | menu_legacy >"$TMP/menu.out" 2>"$TMP/menu.err"
 menu_rc=$?
 set -e
 [[ "$menu_rc" -eq 0 ]] || { echo "菜单应正常退出(0)，实际 $menu_rc"; cat "$TMP/menu.err"; exit 1; }
@@ -57,7 +57,7 @@ menu_render_category config >"$TMP/config-category.out"
 grep -Fq '[06] Web 登录 Token 管理' "$TMP/config-category.out"
 grep -q '容器 .*端口 ' "$TMP/menu.out"
 grep -q '版本 .*● ' "$TMP/menu.out"
-menu_render_main >"$TMP/menu-header.out"
+menu_render_legacy_main >"$TMP/menu-header.out"
 if grep -Fq $'\033[' "$TMP/menu-header.out"; then
   echo "重定向的主页标题不应包含 ANSI 控制符"; exit 1
 fi
@@ -67,7 +67,7 @@ fi
   menu_colors_enabled() { return 0; }
   container_state() { printf 'running'; }
   health_state() { printf 'healthy'; }
-  menu <<<"0"
+  menu_legacy <<<"0"
 ) >"$TMP/menu-colored.out" 2>&1
 grep -Fq $'\033[1;36m[01]' "$TMP/menu-colored.out" || { echo "选项快捷键应为青色"; exit 1; }
 ( menu_colors_enabled() { return 0; }; menu_render_category data ) >"$TMP/uninstall-colored.out"
@@ -78,7 +78,7 @@ grep -Fq $'\033[1;32m● healthy' "$TMP/menu-colored.out" || { echo "健康状�
 # 小屏幕不再挤压两列：每个快捷键各占一行。
 (
   COLUMNS=60
-  menu <<<"0"
+  menu_legacy <<<"0"
 ) >"$TMP/menu-narrow.out" 2>&1
 grep -Fq '[06] 数据与维护' "$TMP/menu-narrow.out" || { echo "窄屏缺少数据与维护入口"; exit 1; }
 if grep -E '\[01\].*\[02\]' "$TMP/menu-narrow.out" >/dev/null; then
@@ -90,7 +90,7 @@ fi
 # 不使用真实 Docker，确认交互路线与子命令一一对应。
 (
   cmd_token() { printf 'token-action:%s\n' "$1"; }
-  printf '4\n6\n无效\n1\n\n2\n\n3\n\n4\n\n0\n0\n0\n' | menu
+  printf '4\n6\n无效\n1\n\n2\n\n3\n\n4\n\n0\n0\n0\n' | menu_legacy
 ) >"$TMP/token-menu.out" 2>"$TMP/token-menu.err"
 grep -Fq 'Web 登录 Token 管理' "$TMP/token-menu.out" || { echo "配置菜单未进入 Token 子菜单"; exit 1; }
 grep -Fq '无效选项' "$TMP/token-menu.err" || { echo "Token 子菜单应允许重输无效选项"; exit 1; }
@@ -254,7 +254,7 @@ timeout 60 bash -c '
     esac
   }
   set +e
-  menu
+  menu_legacy
 ' >"$TMP/ctrlc.out" 2>&1 <<<"$(printf '2\n5\n\n\n\n0\n0\n')" || true
 grep -q '已取消当前操作' "$TMP/ctrlc.out" || { echo "Ctrl-C 应提示已取消当前操作"; cat "$TMP/ctrlc.out"; exit 1; }
 [[ "$(grep -c '◆ DSH Manager' "$TMP/ctrlc.out")" -ge 2 ]] \
