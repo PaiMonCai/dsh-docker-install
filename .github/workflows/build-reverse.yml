@@ -214,6 +214,7 @@ jobs:
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
+          node --test tests/test-global-compaction.cjs
           node --test tests/test-plugin-doctor.cjs
           node --test tests/test-reverse-plugin-parity.cjs
           node --test tests/test-bili-domain-ui.cjs
