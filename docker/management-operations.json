@@ -1,7 +1,7 @@
 {
   "schema": "dsh-web-management-operations/v1",
   "version": 1,
-  "description": "Phase 2 audited contract: current fixed Web operations; host executor is the final authority, CI verifies both allowlists.",
+  "description": "Audited host-operation contract for fixed Web management actions including portable backups; import is new-instance-only and file names are bounded.",
   "taskStates": [
     "queued",
     "running",
@@ -191,6 +191,49 @@
     {
       "id": "dashboard-stop",
       "category": "网络与服务",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "backup-export",
+      "category": "数据与维护",
+      "risk": "write",
+      "exampleArguments": {},
+      "confirmInWeb": true
+    },
+    {
+      "id": "backup-verify",
+      "category": "数据与维护",
+      "risk": "read",
+      "exampleArguments": {
+        "file": "dsh-full-20261020-120000.dshbak"
+      },
+      "confirmInWeb": false
+    },
+    {
+      "id": "backup-import",
+      "category": "数据与维护",
+      "risk": "destructive",
+      "exampleArguments": {
+        "file": "dsh-full-20261020-120000.dshbak",
+        "instance": "restored"
+      },
+      "confirmInWeb": true
+    },
+    {
+      "id": "backup-auto-on",
+      "category": "数据与维护",
+      "risk": "write",
+      "exampleArguments": {
+        "cadence": "daily",
+        "keep": 7
+      },
+      "confirmInWeb": true
+    },
+    {
+      "id": "backup-auto-off",
+      "category": "数据与维护",
       "risk": "write",
       "exampleArguments": {},
       "confirmInWeb": true
