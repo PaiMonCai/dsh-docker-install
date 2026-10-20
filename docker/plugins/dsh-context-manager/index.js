@@ -1,16 +1,23 @@
 import { makeProbe } from './core.mjs'
 import { inspectRuntimePresets } from './native-inventory.mjs'
+import { defaults, normalizeSettings, resolvePolicy, previewNative } from './policy.mjs'
+import { readSettings, writeSettings, settingsRevision } from './storage.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
 export const ENDPOINT = '/dsh-docker-context-manager'
 
 /**
- * Read-only Phase 1 adapter. Hooks see metadata only; they MUST NOT shadow or
- * mutate session events or replace the official ctx.compaction service.
+ * Phase 2: read-only native compaction observer with durable policy intentions.
+ * No policy is applied to a live compaction service until ownership is verified.
  */
 export function apply(ctx) {
   const probe = makeProbe()
+  // The boot revision is evidence of what this *plugin* read, NOT proof that an
+  // upstream compactor loaded these values. Do not claim a configuration is live.
+  let bootRevision = null
+  try { bootRevision = settingsRevision(readSettings()) }
+  catch { ctx.logger?.warn?.('Context Manager settings unavailable at boot; native compaction unchanged') }
   ctx.on('internal/config', function (_raw, next) {
     const resolved = next()
     try { probe.observeConfig(this?.entry, resolved) }
@@ -61,12 +68,56 @@ export function apply(ctx) {
 
   ctx.inject(['connection'], c => {
     c.connection.rpc.handle(ENDPOINT, async (method, payload = {}) => {
-      if (method !== 'status' || !payload || typeof payload !== 'object'
-        || Array.isArray(payload) || Object.keys(payload).length !== 0) {
-        return { ok: false, error: { code: 'invalid_request', message: 'phase 1 is read-only' } }
+      try {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+          throw Error('invalid request payload')
+        if (method === 'status' && Object.keys(payload).length === 0) {
+          const nativePresets = await inspectRuntimePresets(ctx)
+          return { ok: true, value: { ...probe.snapshot(ctx), nativePresets } }
+        }
+        if (method === 'settings' && Object.keys(payload).length === 0) {
+          const settings = readSettings()
+          const revision = settingsRevision(settings)
+          const nativePresets = await inspectRuntimePresets(ctx)
+          return { ok: true, value: {
+            settings, revision, nativePresets, events: probe.snapshot(ctx).events,
+            runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
+              reason: 'phase2-configuration-only',
+              restartPending: bootRevision !== null && revision !== bootRevision,
+              bootRevisionObserved: bootRevision !== null,
+              globalHostOwnershipVerified: false },
+          } }
+        }
+        if (method === 'save' && Object.keys(payload).length === 2
+          && Object.hasOwn(payload, 'settings') && Object.hasOwn(payload, 'revision')) {
+          const settings = writeSettings(payload.settings, payload.revision)
+          const revision = settingsRevision(settings)
+          return { ok: true, value: { settings, revision,
+            runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
+              reason: 'phase2-configuration-only',
+              restartPending: bootRevision !== null && revision !== bootRevision,
+              bootRevisionObserved: bootRevision !== null,
+              globalHostOwnershipVerified: false } } }
+        }
+        if (method === 'resolve' && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'target')) {
+          const target = payload.target
+          if (!target || typeof target !== 'object' || Array.isArray(target)
+            || Object.keys(target).some(k => !['agentId','provider','model'].includes(k))) throw Error('invalid target')
+          return { ok: true, value: resolvePolicy(readSettings(), target) }
+        }
+        if (method === 'preview' && Object.keys(payload).length === 2
+          && Object.hasOwn(payload, 'contextWindow') && Object.hasOwn(payload, 'reservedOutput')) {
+          return { ok: true, value: previewNative(readSettings().basic, payload) }
+        }
+        throw Error('unknown context manager method')
+      } catch (error) {
+        const message = String(error?.message ?? error)
+        // Avoid returning untrusted filesystem paths or raw exceptions to Web.
+        const friendly = /settings changed/.test(message) ? '配置已被其他页面修改，请刷新后保存'
+          : /invalid|unsupported|missing|duplicate|ratio|retention|revision|override|policy|target|method|range/i.test(message)
+            ? message.slice(0, 180) : '上下文管理配置不可用；请检查容器日志'
+        return { ok: false, error: { code: 'invalid_request', message: friendly } }
       }
-      const nativePresets = await inspectRuntimePresets(ctx)
-      return { ok: true, value: { ...probe.snapshot(ctx), nativePresets } }
     })
   })
 }

@@ -111,14 +111,12 @@ test('cordis adapter passes through config and only exposes status RPC', async (
   assert.equal(status.value.events['compaction/start'], 1)
   assert.equal(status.value.engine, 'not-installed')
   assert.equal(status.value.nativePresets.available, false)
-  assert.deepEqual(await rpc('save', {}), {
-    ok: false, error: { code: 'invalid_request', message: 'phase 1 is read-only' },
-  })
+  assert.equal((await rpc('save', {})).ok, false)
   assert.equal((await rpc('status', { dangerous: true })).ok, false)
 })
 
 test('launcher opt-in, image COPY and workflow tests are wired for Standard and Reverse', () => {
-  assert.match(text('docker/entrypoint.sh'), /dsh-context-manager\/cordis\.patch\.yml" "\$\{DSH_CONTEXT_MANAGER_PROBE:-false\}"/)
+  assert.match(text('docker/entrypoint.sh'), /dsh-context-manager\/cordis\.patch\.yml" "\$\{DSH_CONTEXT_MANAGER_PROBE:-true\}"/)
   assert.match(text('Dockerfile'), /COPY docker\/plugins\/dsh-context-manager\//)
   assert.match(text('Dockerfile'), /dsh-context-manager\/cordis\.patch\.yml --dump-config/)
   assert.match(text('docker-compose.yml'), /DSH_CONTEXT_MANAGER_PROBE:/)

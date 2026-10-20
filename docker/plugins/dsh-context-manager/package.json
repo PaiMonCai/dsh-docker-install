@@ -1,9 +1,9 @@
 {
   "name": "dsh-docker-context-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Read-only DSH native compaction compatibility probe (phase 1)",
+  "description": "DSH native context management policy editor and runtime compatibility probe (phase 2)",
   "main": "./index.js",
   "exports": {
     ".": "./index.js",

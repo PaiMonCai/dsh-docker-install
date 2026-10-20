@@ -7,7 +7,7 @@ enable another compaction service, change Session surfaces, or perform LLM calls
 ## Enable on a test instance
 
 Set `DSH_CONTEXT_MANAGER_PROBE=true` for a Web container and restart it.
-The default is **false** while compatibility is being evaluated. The Standard
+This was **false by default during Phase 1**; the Phase-2 policy editor enables the same non-mutating plugin by default. The Standard
 and Reverse images share the plugin through their common base Dockerfile.
 
 Open DSH Web → Settings → **上下文管理（检测）** to see metadata-only diagnostics.
