@@ -62,6 +62,32 @@ const recovered=new AcpRuntime({appendRecord:appendPluginRecord})
 assert.ok(recovered.status(restored).blocks.some(b=>b.id===proposal.block))
 assert.match(recovered.decompress(restored,proposal.block).original,/verified original statement/)
 assert.equal(kernel.search(session,'verified').length>0,true)
+// Phase 8: two native ACP T1 checkpoints can be distilled through b-ref
+// boundaries into one native DSH T2 checkpoint; the original event log is
+// still authoritative for cold replay and deep decompression.
+const remaining=kernel.status(session).refs
+assert.equal(remaining.length,4)
+const second=kernel.propose(session,{startRef:remaining[0].ref,endRef:remaining[1].ref,
+  summary:'The second set of original events records independent verified decisions and must be retained in the append-only DSH event log. '.repeat(2),
+  topic:'independent source evidence'})
+assert.equal(second.accepted,true)
+await kernel.processPending({session},fakeNativeCompaction,new AbortController().signal)
+const beforeT2=kernel.status(session)
+assert.deepEqual(beforeT2.blocks.map(x=>x.id).sort(),['b1','b2'])
+const merge=kernel.propose(session,{startRef:'b1',endRef:'b2',
+  summary:'The two ACP Tier 1 blocks capture separate user goals, decisions, exact evidence and source recovery boundaries. The Tier 2 merged summary preserves both their provenance and unresolved work without replacing DSH append-only source events. '.repeat(2),
+  topic:'merged T2 evidence'})
+assert.equal(merge.accepted,true)
+assert.equal(merge.tier,2)
+await kernel.processPending({session},fakeNativeCompaction,new AbortController().signal)
+const afterT2=kernel.status(session)
+assert.ok(afterT2.blocks.some(b=>b.id===merge.block&&b.tier===2))
+assert.equal(afterT2.blocks.some(b=>b.id==='b1'||b.id==='b2'),false)
+const afterT2Cold=Session.create(session.id,session.snapshotEvents(),session.header)
+const t2Restored=new AcpRuntime({appendRecord:appendPluginRecord})
+assert.ok(t2Restored.status(afterT2Cold).blocks.some(b=>b.id===merge.block))
+assert.match(t2Restored.decompress(afterT2Cold,merge.block).original,/verified original statement/)
+assert.ok(t2Restored.decompress(afterT2Cold,merge.block).originalCount>=6)
 // Inject a crash *after* a complete native checkpoint but *before* the
 // ACP state event. A cold Session replay must derive the block ONLY after
 // validating the native transaction and the pre-flushed intent.
