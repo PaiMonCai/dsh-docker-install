@@ -213,7 +213,7 @@ COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manage
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
-RUN npm install --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --no-audit --no-fund
+RUN npm ci --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --ignore-scripts --no-audit --no-fund
 COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions

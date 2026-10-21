@@ -5,6 +5,7 @@
  */
 import {
   createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
+  parseCompressArgs, resolveBoundaries,
 } from 'acp-kernel'
 import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
@@ -36,9 +37,20 @@ function asMessage(event, isHistoric = false) {
   const text = textOf(message.content, isHistoric ? MAX_ORIGINAL : MAX_VIEW)
   // Stable raw identity, never content-hash-based; seq is immutable under
   // replacements, even when visible surface order no longer follows seq.
+  const calls=message.content?.filter(c=>c?.type==='tool-call')??[]
+  const call=calls[0]
   return { id: String(event.seq), role,
-    contentType: role === 'tool' ? 'tool-result' : 'text',
-    text: text || '[non-text or empty message]' }
+    contentType: role === 'tool' ? 'tool-result' : call ? 'tool-call' : 'text',
+    ...(call?{toolName:call.name,toolCallId:call.id}:{}),
+    ...(role==='tool'?{toolCallId:message.toolCallId}:{}),
+    text: call ? call.arguments : text || '[non-text or empty message]' }
+}
+function unsafeEvent(event) {
+  if(['system/message','developer/message'].includes(event?.type))return true
+  const message=event?.type==='user/message'?event.data:event?.data?.message
+  if(!message?.content)return false
+  return message.content.some(c=>!['text','tool-call'].includes(c?.type))
+    ||message.content.filter(c=>c?.type==='tool-call').length>1
 }
 function activeMessages(session, checkpoints) {
   return session.surface.nodes.map(seq => {
@@ -76,6 +88,8 @@ function configFor(session) {
     ccr: { enabled: false },
     absorb: { enabled: false },
     crush: { enabled: false },
+    protectedTools: ['acp_compress'],
+    isMessageProtected: message=>unsafeEvent(session.eventAt(Number(message.id))),
   })
 }
 /** DSH Session.append rejects undefined, non-finite and exotic JSON values.
@@ -188,7 +202,11 @@ export class AcpRuntime {
       blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),
       refs,latest:row.settled}
   }
-  propose(session,{startRef,endRef,summary,topic}) {
+  propose(session,args) {
+    const parsed=parseCompressArgs(args)
+    if(parsed.ranges.length!==1||parsed.diagnostics.invalidItems)
+      throw Error('native ACP requires exactly one valid range per proposal')
+    const {startRef,endRef,summary,topic}=parsed.ranges[0]
     if (this.pending.has(session)) throw Error('one ACP compression proposal is already queued')
     const plain=REF.test(startRef)&&REF.test(endRef)
     const tiered=BLOCK.test(startRef)&&BLOCK.test(endRef)
@@ -199,11 +217,12 @@ export class AcpRuntime {
       throw Error('invalid topic')
     const view = this.view(session)
     const {row,messages,config} = view
-    const refMap=row.state.messageRefs.byRef
-    const position=ref=>plain
-      ? messages.findIndex(m=>m.id===refMap[ref])
-      : messages.findIndex(m=>m.summaryOfBlockId===ref)
-    const first=position(startRef),last=position(endRef)
+    let bounds
+    try { bounds=resolveBoundaries({startRef,endRef,messages,state:row.state}) }
+    catch(error) { throw Error('range must be a current ordered visible span: '+error.message) }
+    const {startIndex:first,endIndex:last}=bounds
+    if(bounds.reversedNote||bounds.snappedBoundaries.length||bounds.protectedGaps.length)
+      throw Error('ACP range must match exact ordered native boundaries without gaps')
     if(first<0||last<0||first>=last)
       throw Error('range must be a current ordered visible span of at least two messages or two blocks')
     const span=messages.slice(first,last+1)
@@ -224,8 +243,13 @@ export class AcpRuntime {
     // Do not consume the trailing context. DSH's native boundary validator
     // independently protects unmatched tool call/result pairs at commit time.
     if(last>=messages.length-2)throw Error('preserve at least two recent surface messages')
+    const firstSeq=nativeSeq(messages[first]),lastSeq=nativeSeq(messages[last])
+    const nodes=session.surface.nodes
+    const nativeSpan=nodes.slice(nodes.indexOf(firstSeq),nodes.indexOf(lastSeq)+1)
+    if(nativeSpan.some(seq=>unsafeEvent(session.eventAt(seq))))
+      throw Error('native ACP range contains protected instructions, media or multi-call content')
     const proposal={startRef,endRef,summary:summary.trim(),topic:topic??null,
-      firstId:String(nativeSeq(messages[first])),lastId:String(nativeSeq(messages[last])),
+      firstId:String(firstSeq),lastId:String(lastSeq),
       surfaceGeneration:session.surface.replaceGeneration}
     const draft=this.core.applyCompression({ranges:[{
       startRef,endRef,summary:proposal.summary,
@@ -236,6 +260,8 @@ export class AcpRuntime {
     proposal.nextState=draft.state
     proposal.newBlock=draft.state.blocks.find(b=>!row.state.blocks.some(old=>old.blockId===b.blockId))
     if(!proposal.newBlock)throw Error('ACP kernel produced no durable block')
+    if(plain&&span.some(m=>!proposal.newBlock.effectiveMessageIds.includes(m.id)))
+      throw Error('native ACP range contains protected messages excluded by the kernel')
     queueAcpSummary(session,proposal)
     this.pending.set(session,proposal)
     this.nudgeCache.delete(session)

@@ -7,6 +7,7 @@ on:
       - ci/acp-kernel-audit/**
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
+      - tests/test-context-manager-upstream.mjs
       - tests/lib/context-manager-legacy-probe.mjs
       - tests/fixtures/context-manager/**
       - .github/workflows/context-manager-kernel-audit.yml
@@ -17,6 +18,7 @@ on:
       - ci/acp-kernel-audit/**
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
+      - tests/test-context-manager-upstream.mjs
       - tests/lib/context-manager-legacy-probe.mjs
       - tests/fixtures/context-manager/**
       - .github/workflows/context-manager-kernel-audit.yml
@@ -56,6 +58,11 @@ jobs:
         run: node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
       - name: Build pinned source and audit compatibility
         run: node ci/acp-kernel-audit/run.mjs
+      - name: Verify the independently built native distribution
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix docker/plugins/dsh-context-manager
+          node ci/acp-kernel-audit/build-native.mjs --check
+          node --test tests/test-context-manager-upstream.mjs
       - name: Report upgrade decision separately from audit execution
         if: always()
         shell: bash
@@ -79,6 +86,8 @@ jobs:
         if: always()
         with:
           name: context-manager-m0-${{ matrix.os }}
-          path: ci/acp-kernel-audit/node_modules/.cache/m0-output
+          path: |
+            ci/acp-kernel-audit/node_modules/.cache/m0-output
+            ci/acp-kernel-audit/node_modules/.cache/native-output
           include-hidden-files: true
           if-no-files-found: error

@@ -93,8 +93,15 @@ for (const [file, expected] of Object.entries(snapshot.candidate.sha256)) {
   assert.equal(sha256(await readFile(resolve(source, file))), expected, 'snapshot checksum: ' + file)
 }
 assert.equal((await readJson(resolve(candidate, 'package.json'))).version, snapshot.candidate.sourceVersion)
-assert.equal((await readJson(resolve(repo, 'docker/plugins/dsh-context-manager/package.json'))).dependencies['acp-kernel'],
-  snapshot.baseline.version, 'M0 must not upgrade the production dependency')
+const dependency = (await readJson(resolve(repo, 'docker/plugins/dsh-context-manager/package.json'))).dependencies['acp-kernel']
+if (dependency !== snapshot.baseline.version) {
+  const vendor = resolve(repo, 'docker/plugins/dsh-context-manager/vendor')
+  const provenance = await readJson(resolve(vendor, 'provenance.json'))
+  assert.equal(dependency, 'file:vendor/' + provenance.artifact)
+  assert.equal(provenance.upstream.commit, snapshot.candidate.commit)
+  assert.equal(sha256(await readFile(resolve(vendor, provenance.artifact))), provenance.sha256)
+  assert.equal(provenance.reproducibleCleanBuild, true)
+}
 assert.equal((await npm('source-install', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], candidate)).exitCode, 0)
 const build = await npm('source-build', ['run', 'build'], candidate)
 // Failed type generation may still emit JS/declarations. These are diagnostic

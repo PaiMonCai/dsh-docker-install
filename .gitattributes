@@ -14,3 +14,5 @@ Dockerfile text eol=lf
 /tests/lib/context-manager-legacy-probe.mjs text eol=lf
 /tests/test-context-manager-kernel-audit.mjs text eol=lf
 /tests/test-context-manager-m0-native.mjs text eol=lf
+/docker/plugins/dsh-context-manager/vendor/*.txt text eol=lf
+/docker/plugins/dsh-context-manager/vendor/*.tgz binary

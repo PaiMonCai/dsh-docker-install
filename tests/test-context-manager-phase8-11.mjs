@@ -27,9 +27,10 @@ test('single Standard preset retains native engine and adds exactly one ACP tool
 })
 test('image build and all four model-facing native ACP tools are wired',()=>{
  const docker=read('Dockerfile')
- assert.match(read('docker/plugins/dsh-context-manager/package.json'),/"acp-kernel": "0.0.101"/)
+ assert.equal(JSON.parse(read('docker/plugins/dsh-context-manager/package.json')).dependencies['acp-kernel'],
+  'file:vendor/acp-kernel-0.0.147-dsh.bc4a3f87.1.tgz')
  assert.match(docker,/test-context-manager-acp-native.mjs/)
- assert.match(docker,/npm install --prefix \/opt\/dsh\/plugins\/dsh-context-manager/)
+ assert.match(docker,/npm ci --prefix \/opt\/dsh\/plugins\/dsh-context-manager/)
  const src=read('docker/plugins/dsh-context-manager/acp-native.js')
  for(const name of ['acp_status','acp_compress','acp_decompress','acp_search_context','acp_retrieve'])
  assert.ok(src.includes("'"+name+"'"))
