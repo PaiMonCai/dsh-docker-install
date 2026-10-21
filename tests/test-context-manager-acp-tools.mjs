@@ -58,4 +58,18 @@ assert.equal(duplicate.isError,true)
 assert.deepEqual(decoded(await execute('acp_search_context',{query:'nonexistent'})),[])
 const beforeEvents=session.snapshotEvents().length
 assert.equal(beforeEvents,9,'tool execution does not prematurely mutate the Session surface')
+const canonicalSession=sessions.Session.create(sessions.SessionId('acp-canonical-tools'))
+for(let i=0;i<9;i++)canonicalSession.append('user/message',{
+ id:'canonical-'+i,role:'user',source:{kind:'user'},content:[{type:'text',text:large}],
+},{surfaceOp:'append'})
+const canonicalAgent={...agent,session:canonicalSession}
+const canonicalExecute=(name,args)=>ctx.tools.execute({callId:'canonical-'+ ++index,name,arguments:args,
+ agent:canonicalAgent,signal:new AbortController().signal})
+const canonicalStatus=decoded(await canonicalExecute('acp_status',{}))
+const batch=decoded(await canonicalExecute('compress',{content:[{
+ startId:canonicalStatus.refs[0].ref,endId:canonicalStatus.refs[3].ref,
+ summary:'The canonical upstream tool schema accepts range arrays through the real DSH runtime while preserving native source facts. '.repeat(2),
+}]}))
+assert.equal(batch.batchQueued,1)
+assert.deepEqual(decoded(await canonicalExecute('search_context',{query:'missing'})),[])
 process.stdout.write('DSH_CONTEXT_MANAGER_ACP_REAL_TOOLS_PASS schemas=4 pipeline=true queue=true noPrematureReplace=true\n')

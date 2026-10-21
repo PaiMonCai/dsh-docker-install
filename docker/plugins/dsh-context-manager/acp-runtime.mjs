@@ -7,12 +7,14 @@ import {
   createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
   parseCompressArgs, resolveBoundaries,
   applyAbsorb,
+  renderNudgeText, defaultCountTokens,
+  searchBlocks, blockDocs, getSearchAlgorithm,
 } from 'acp-kernel'
+import {nativePrompts,nativeNudgeSections} from './acp-prompts.mjs'
 import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
 export { INTENT_EVENT, STATE_EVENT } from './acp-recovery.mjs'
 
-const MAX_VIEW = 1600
 const MAX_ORIGINAL = 4500
 const MAX_SUMMARY = 12000
 const MAX_ITEMS = 24
@@ -35,7 +37,7 @@ function asMessage(event, isHistoric = false) {
   const message = event.type === 'user/message' ? event.data : event.data?.message
   if (!message) return null
   const role = event.type === 'assistant/message' ? 'assistant' : event.type === 'tool/result' ? 'tool' : 'user'
-  const text = textOf(message.content, isHistoric ? MAX_ORIGINAL : MAX_VIEW)
+  const text = textOf(message.content, isHistoric ? MAX_ORIGINAL : Number.MAX_SAFE_INTEGER)
   // Stable raw identity, never content-hash-based; seq is immutable under
   // replacements, even when visible surface order no longer follows seq.
   const calls=message.content?.filter(c=>c?.type==='tool-call')??[]
@@ -132,6 +134,7 @@ export class AcpRuntime {
     this.pending = new WeakMap()
     this.processing = new WeakSet()
     this.nudgeCache = new WeakMap()
+    this.batches = new WeakMap()
   }
   view(session) {
     let row = this.cache.get(session)
@@ -155,12 +158,21 @@ export class AcpRuntime {
     } else row.observedLogLength=events.length
     const messages = activeMessages(session,row.checkpoints)
     const config = configFor(session)
-    const tokenCount = messages.reduce((total,m)=>total + Math.ceil(m.text.length/4),0)
+    const route=session.requestContext?.()
+    const key=JSON.stringify([session.surface.contentGeneration,config.modelContextLimit,route?.provider,route?.model])
+    if(row.projected?.key===key)return {...row.projected.value,row}
+    const tokenCount=session.surface.nodes.reduce((total,seq)=>{
+      const event=session.eventAt(seq),message=event?.type==='user/message'?event.data:event?.data?.message
+      return total+defaultCountTokens(textOf(message?.content,Number.MAX_SAFE_INTEGER))
+        +(message?.content??[]).filter(c=>c.type==='tool-call').reduce((n,c)=>n+defaultCountTokens(c.arguments??''),0)
+    },0)
     const projected = this.core.processTurn({
       messages,state:row.state,config,tokenCount,renderTags:'none',
     })
     row.state = projected.state
-    return {row,messages,config,tokenCount,nudge:projected.nudge}
+    const value={messages,config,tokenCount,nudge:projected.nudge}
+    row.projected={key,value}
+    return {row,...value}
   }
   /**
    * Bounded runtime-context recommendation; no user messages, raw tool
@@ -168,19 +180,13 @@ export class AcpRuntime {
    * Hold it stable across initial assembly and prompt refresh.
    */
   nudgeMessage(session) {
-    const generation=session.surface.contentGeneration
+    const generation=JSON.stringify([session.surface.contentGeneration,session.requestContext?.()])
     const cached=this.nudgeCache.get(session)
     if(cached&&cached.generation===generation)return cached.text
     const {nudge}=this.view(session)
     let text=''
     if(nudge?.shouldInject&&!this.pending.has(session)) {
-      const tier=Number(nudge.tier)
-      const label=tier===2?'T2':tier===3?'T3':'T1'
-      text='ACP context optimization recommended ('+label+'). '
-        +'Inspect acp_status for current message and block references. '
-        +'Call acp_compress only with a faithful model-authored summary of an earlier safe range. '
-        +'Keep recent instructions and tool-call/result pairs. '
-        +'Use acp_decompress to recover original source content; never invent refs.'
+      text=renderNudgeText(nudge,nativePrompts,nativeNudgeSections).text
     }
     this.nudgeCache.set(session,{generation,text})
     return text
@@ -208,7 +214,7 @@ export class AcpRuntime {
       blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),
       refs,latest:row.settled}
   }
-  propose(session,args) {
+  propose(session,args,{preview=false}={}) {
     const parsed=parseCompressArgs(args)
     if(parsed.ranges.length!==1||parsed.diagnostics.invalidItems)
       throw Error('native ACP requires exactly one valid range per proposal')
@@ -268,12 +274,31 @@ export class AcpRuntime {
     if(!proposal.newBlock)throw Error('ACP kernel produced no durable block')
     if(plain&&span.some(m=>!proposal.newBlock.effectiveMessageIds.includes(m.id)))
       throw Error('native ACP range contains protected messages excluded by the kernel')
+    if(preview)return proposal
     queueAcpSummary(session,proposal)
     this.pending.set(session,proposal)
     this.nudgeCache.delete(session)
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
       block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
       advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
+  }
+  proposeBatch(session,args) {
+    if(this.pending.has(session)||this.batches.has(session))throw Error('one ACP compression proposal is already queued')
+    const parsed=parseCompressArgs(args)
+    if(!parsed.ranges.length||parsed.ranges.length>8||parsed.diagnostics.invalidItems)
+      throw Error('native ACP requires 1-8 valid ranges per batch')
+    const selected=new Set()
+    for(const range of parsed.ranges) {
+      const proposal=this.propose(session,range,{preview:true})
+      const nodes=session.surface.nodes
+      for(const seq of nodes.slice(nodes.indexOf(Number(proposal.firstId)),nodes.indexOf(Number(proposal.lastId))+1)) {
+        if(selected.has(seq))throw Error('native ACP batch ranges overlap')
+        selected.add(seq)
+      }
+    }
+    const accepted=this.propose(session,parsed.ranges[0])
+    this.batches.set(session,parsed.ranges.slice(1))
+    return {...accepted,batchQueued:parsed.ranges.length,transactionScope:'one-native-transaction-per-range'}
   }
   proposeAbsorb(session,{ref,summary}={}) {
     const {row,messages,config}=this.view(session)
@@ -291,6 +316,21 @@ export class AcpRuntime {
     return this.propose(session,{startRef:row.state.messageRefs.byRaw[calls[0].id],endRef:ref,summary,topic:'Consumed tool result'})
   }
   async processPending(agent,compaction,signal) {
+    const session=agent.session
+    if(this.processing.has(session))return null
+    const remaining=this.batches.get(session)??[]
+    this.batches.delete(session)
+    const first=await this.processOnePending(agent,compaction,signal)
+    if(!first)return null
+    const committed=[first]
+    for(const range of remaining) {
+      signal?.throwIfAborted?.()
+      this.propose(session,range)
+      committed.push(await this.processOnePending(agent,compaction,signal))
+    }
+    return committed.length===1?first:{batchCommitted:committed.length,latest:committed.at(-1)}
+  }
+  async processOnePending(agent,compaction,signal) {
     const session=agent.session
     const proposal=this.pending.get(session)
     if(!proposal || this.processing.has(session))return null
@@ -345,6 +385,7 @@ export class AcpRuntime {
       current.row.checkpoints=currentCheckpoints
       current.row.settled=lastResult
       current.row.recovered=false
+      delete current.row.projected
       return lastResult
     } catch(error) {
       this.logger?.warn?.('native ACP proposal refused: '+String(error?.message??error))
@@ -356,21 +397,14 @@ export class AcpRuntime {
       this.processing.delete(session)
     }
   }
-  search(session,query) {
+  search(session,query,{algorithm='hybrid'}={}) {
     if(typeof query!=='string'||query.length<2||query.length>160)
       throw Error('query must be 2–160 characters')
     const {row}=this.view(session)
-    const ranked=this.core.search(query,row.state)
-    // Kernel's weighted relevance gate deliberately needs >0.1 score;
-    // short blocks with one or two exact term matches can score 0.04–0.08.
-    // Preserve exact-match findability without weakening the kernel's ranking
-    // logic or returning unrelated/hidden content.
-    const seen=new Set(ranked.map(b=>b.blockId))
-    const needle=query.toLocaleLowerCase()
-    const exact=row.state.blocks.filter(b=>b.active&&!seen.has(b.blockId)
-      && ((b.summary??'').toLocaleLowerCase().includes(needle)
-        || (b.topic??'').toLocaleLowerCase().includes(needle)))
-    return [...ranked,...exact].slice(0,10).map(fullSummaryBlock)
+    if(typeof algorithm!=='string'||!getSearchAlgorithm(algorithm))throw Error('unknown upstream search algorithm')
+    const active=row.state.blocks.filter(b=>b.active)
+    const ranked=searchBlocks(blockDocs({...row.state,blocks:active}),query,{algorithm,limit:10})
+    return ranked.map(hit=>({...fullSummaryBlock(active.find(b=>b.blockId===hit.blockId)),score:hit.score}))
   }
   /**
    * Lossless bounded paging over the ORIGINAL native Session event, not a

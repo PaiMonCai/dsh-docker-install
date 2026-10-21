@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { AcpRuntime } from './acp-runtime.mjs'
 import { offloadCcr, retrieveCcr } from './acp-ccr.mjs'
+import {nativeGuidance,nativeCompressDescription,nativeCompressParameters} from './acp-prompts.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const [{defineTool},{appendPluginRecord}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href),
@@ -18,6 +19,7 @@ function printable(value) {return JSON.stringify(value)}
 export function apply(ctx) {
   const runtime=new AcpRuntime({appendRecord:appendPluginRecord,
     flushIntent:session=>ctx.sessions.flush(session),logger:ctx.logger})
+  ctx.systemPrompt.context({name:'acp-native-upstream-rules',order:79,text:()=>nativeGuidance})
   ctx.systemPrompt.context({
     name:'acp-model-pressure-guidance',order:80,
     text:context=>{
@@ -47,6 +49,8 @@ export function apply(ctx) {
     {startRef:{type:'string',required:true},endRef:{type:'string',required:true},
       summary:{type:'string',required:true},topic:{type:'string'}},
     (args,exec)=>runtime.propose(exec.agent.session,args))
+  tool('compress',nativeCompressDescription,nativeCompressParameters,
+    (args,exec)=>runtime.proposeBatch(exec.agent.session,args))
   tool('acp_decompress',
     'Read original event-log content from a compressed ACP block without expanding the active model prompt. Returns bounded untrusted historical text.',
     {blockId:{type:'string',required:true}},
@@ -59,8 +63,14 @@ export function apply(ctx) {
   }
   tool('acp_search_context',
     'Search summaries of native ACP blocks; use acp_decompress to inspect a selected original range.',
-    {query:{type:'string',required:true}},
-    (args,exec)=>runtime.search(exec.agent.session,args.query))
+    {query:{type:'string',required:true},algorithm:{type:'string'}},
+    (args,exec)=>runtime.search(exec.agent.session,args.query,args))
+  tool('search_context','Search current native ACP block summaries with an upstream registered algorithm; results belong to this Session.',
+    {query:{type:'string',required:true},algorithm:{type:'string'}},
+    (args,exec)=>runtime.search(exec.agent.session,args.query,args))
+  tool('decompress','Read bounded historical originals from this Session block, without expanding or changing the model prompt. Use retrieve for exact paginated text.',
+    {blockId:{type:'string',required:true}},
+    (args,exec)=>runtime.decompress(exec.agent.session,args.blockId))
   tool('acp_retrieve',
     'Retrieve full-length, paginated original text from DSH immutable events covered by an active ACP block. First call with blockId to list source refs, then request one ref with offset and limit (max 8192 characters). No proxy store or unsafe history mutation.',
     {blockId:{type:'string'},ref:{type:'string'},
