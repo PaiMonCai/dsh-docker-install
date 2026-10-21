@@ -174,6 +174,15 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Reserve disk for candidate base and derived layers
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+          free -h
+
       - name: Validate Research scripts
         run: |
           bash -n research/bin/research-init
@@ -286,6 +295,7 @@ jobs:
         shell: bash
         env:
           AUDIT_IMAGE: ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+          CANDIDATE: ${{ needs.prepare.outputs.candidate }}
         run: |
           set -euo pipefail
           bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
@@ -293,7 +303,8 @@ jobs:
           paths="$(docker run --rm --entrypoint bash "$AUDIT_IMAGE" -lc \
             'du -sh /opt/dsh-research/venv /usr/share/texlive /usr/local/go /ms-playwright /tmp/dsh-cache 2>/dev/null || true')"
           baseline=""
-          if docker pull "$AUDIT_IMAGE" >/dev/null 2>&1; then
+          # Keep the candidate tag and disk budget for the actual PR image.
+          if [[ "$CANDIDATE" != true ]] && docker pull "$AUDIT_IMAGE" >/dev/null 2>&1; then
             baseline_bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
             baseline_mib="$(awk -v b="$baseline_bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
             baseline="- Current published tag (local uncompressed): **${baseline_mib} MiB** (${baseline_bytes} bytes)"

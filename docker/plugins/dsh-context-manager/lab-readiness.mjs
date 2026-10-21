@@ -6,6 +6,10 @@
 export function labReadiness(takeover,evidence,inventory) {
  const row=inventory?.available&&inventory?.presets?.find(p=>p.id==='standard')
  const blockers=[]
+ if(!inventory?.available||inventory.truncated)blockers.push('runtime-inventory-incomplete')
+ if(row?.broken||row?.rowLimitReached)blockers.push('preset-inventory-incomplete')
+ if(['tiered','basic','manual','acp','external'].some(key=>row?.[key]?.conditional>0))
+   blockers.push('conditional-owner-unverified')
  if(!takeover?.active)blockers.push('pilot-not-enabled')
  if(!evidence||evidence.preset!=='standard')blockers.push('preset-overlay-not-observed')
  if(!row?.mounted)blockers.push('standard-not-mounted')

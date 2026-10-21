@@ -28,6 +28,11 @@ export function normalizeProviderUsage(usage,{schema='dsh'}={}) {
     cached=counter(value.cache_read_input_tokens);cacheWrite=counter(value.cache_creation_input_tokens)
     input=sum(counter(value.input_tokens),cached,cacheWrite);output=counter(value.output_tokens)
   } else throw Error('unknown provider usage schema')
+  const fields=schema==='dsh'?[value.inputTokens,value.cacheReadTokens,value.cacheWriteTokens,value.outputTokens,value.totalTokens]
+    :schema==='openai-chat'?[value.prompt_tokens,value.completion_tokens,value.prompt_tokens_details?.cached_tokens]
+    :schema==='openai-responses'?[value.input_tokens,value.output_tokens,value.input_tokens_details?.cached_tokens]
+    :[value.input_tokens,value.cache_read_input_tokens,value.cache_creation_input_tokens,value.output_tokens]
+  if(fields.some(n=>n!==undefined&&counter(n)===null))reason='invalid-provider-counter'
   if(input!==null&&cached!==null&&cached>input)reason='cached-exceeds-input'
   if(reason)input=cached=null
   const known=input!==null&&cached!==null&&output!==null
@@ -35,7 +40,7 @@ export function normalizeProviderUsage(usage,{schema='dsh'}={}) {
     reason:reason??(known?null:input===null?'input-total-unknown':cached===null?'cache-read-unknown':'output-unknown')}
 }
 
-function messageOf(event) { return ['user/message','system/message'].includes(event?.type)?event.data:event?.data?.message }
+function messageOf(event) { return event?.type==='user/message'?event.data:event?.data?.message }
 function textTokens(event) {
   return (messageOf(event)?.content??[]).reduce((n,c)=>n+(c.type==='text'?defaultCountTokens(c.text)
     :c.type==='tool-call'?defaultCountTokens(c.arguments??''):0),0)

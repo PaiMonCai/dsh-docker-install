@@ -152,11 +152,69 @@ conversation experiment remains pending; this plan authorizes no API charges.
 Rollback: disable ACP and rebuild without the M4 tool/module. This observer
 does not append events or change persisted records.
 
+## M5: native safety, runtime evidence and rollback
+
+All adapter instances share one processing lease per native in-memory Session.
+The lease covers every intent flush, native commit, ACK and range in a batch;
+another Session can still progress. The adapter rechecks native replacement
+generation, visible bounds and the latest authoritative ACP state record after
+awaiting intent durability. Native overflow/pressure retains its own engine
+lock and can invalidate a queued ACP proposal. Cancellation also rechecks here.
+Tool identities must have one complete unambiguous call/result pair inside the
+selected interval. Selected events from an unclosed native step are refused,
+including plain output that the native tool-pair check already considers balanced;
+the actual native compactRegion still owns tool balance and
+transaction validation. There is no replacement native lock or second ledger.
+
+Fault tests cover simultaneous processing, cross-instance proposals, stale state,
+surface replacement during flush, cancellation, duplicate intent, missing ACK,
+and every partial native transaction prefix. Closed native transactions recover
+once; incomplete transactions refuse projection. Fork/legacy/T1/T2/T3 regressions
+remain in the same suite. The real packaged engine test additionally refuses a
+range ending with an unpaired tool call in an open step. Existing pressure/overflow tests prove that
+queuing ACP suppresses only pressure, leaving native overflow recovery available.
+
+Status/settings RPC now includes a read-only rollout report per observed Preset.
+Mounted owners/tools are distinguished from unobserved Provider Router, CCR and
+usage acceptance. Conditional/broken/truncated inventories cannot qualify the
+Standard lab. Reverse/Research/Web Presets remain individually blocked for ACP
+activation. The unchanged owner-only history opt-in grants no shared-user
+authorization; no principal/resource Remote port is claimed or enabled.
+
+The isolated Standard ACP lab smoke now spools a genuine version 2 CCR record,
+flushes it through the native Session Store, switches policy back to Basic,
+turns Tiered/ACP/CCR flags explicitly off and recreates the container over the
+same disposable volume. The new container cold-inspects the native log and
+pages the exact CCR original without activating its Agent. The compaction seed
+in this volume smoke is synthetic; real compactRegion/AgentLoop acceptance is
+the independent packaged-engine tests, not the synthetic seed. This exercises
+flags-off rollback on the candidate image with its additive versioned reader;
+it does not claim an older image can resolve version 2 CCR refs without that reader.
+
+Forty-one targeted local checks pass, including history default-off/owner opt-in and
+existing activation gates. Hosted image checks exercise the real engine, offline
+AgentLoop, container recreation and derived editions separately. No new default
+activation, production deployment or image publication is part of these PRs.
+
+Rollback: set ACP/CCR/Tiered active flags to 0, set the saved engine policy to
+Basic, retain the Session volume and versioned CCR reader, then recreate the
+container. Verify cold original retrieval and the original Basic owner before
+resuming a pilot. Reverting M5 code alone is not a substitute for disabling flags.
+
 ## Remaining acceptance
 
-M5 implementation and validation will be appended as its slice lands.
+The requested delivery scope on 2026-10-21 is code and CI; controlled real-provider
+acceptance will be scheduled separately. The PRs remain drafts until review.
+No production activation or paid provider experiment is included in this delivery.
+
 Real provider charges, real user-session export, shared history access and
 production activation have not been authorized by this plan.
+
+M1-M5 code slices are implemented, but the plan's full M4/M5 completion gates
+remain pending controlled real-provider workloads and per-edition/preset router,
+usage, CCR and principal/resource authorization evidence. Exact-commit hosted
+CI is reported separately from these source/local results. The rollout report
+always retains `productionApproved:false` and `sharedHistoryApproved:false`.
 
 ## Credits
 
