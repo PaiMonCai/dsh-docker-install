@@ -284,6 +284,10 @@ COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-man
 RUN node /opt/dsh/test-context-manager-native-transaction.mjs
 COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp-native.mjs
 RUN node /opt/dsh/test-context-manager-acp-native.mjs
+COPY tests/lib/context-manager-legacy-probe.mjs /opt/dsh/test-lib/context-manager-legacy-probe.mjs
+COPY tests/fixtures/context-manager/acp-0.0.101-session.json /opt/dsh/test-fixtures/acp-0.0.101-session.json
+COPY tests/test-context-manager-m0-native.mjs /opt/dsh/test-context-manager-m0-native.mjs
+RUN node /opt/dsh/test-context-manager-m0-native.mjs
 COPY tests/test-context-manager-acp-real-region.mjs /opt/dsh/test-context-manager-acp-real-region.mjs
 RUN node /opt/dsh/test-context-manager-acp-real-region.mjs
 COPY tests/test-context-manager-acp-t3.mjs /opt/dsh/test-context-manager-acp-t3.mjs

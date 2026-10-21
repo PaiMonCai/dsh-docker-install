@@ -6,3 +6,11 @@
 Dockerfile text eol=lf
 *.yml      text eol=lf
 *.yaml     text eol=lf
+
+# Audit checksums and upstream license texts must survive Windows checkouts.
+/ci/acp-kernel-audit/* text eol=lf
+/ci/acp-kernel-audit/*LICENSE.txt whitespace=-blank-at-eof
+/tests/fixtures/context-manager/*.json text eol=lf
+/tests/lib/context-manager-legacy-probe.mjs text eol=lf
+/tests/test-context-manager-kernel-audit.mjs text eol=lf
+/tests/test-context-manager-m0-native.mjs text eol=lf
