@@ -11,7 +11,8 @@ import {
   searchBlocks, blockDocs, getSearchAlgorithm,
 } from 'acp-kernel'
 import {nativePrompts,nativeNudgeSections} from './acp-prompts.mjs'
-import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary } from './acp-pending.mjs'
+import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary,
+  acquireAcpProcessing,ownsAcpProcessing,releaseAcpProcessing } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
 export { INTENT_EVENT, STATE_EVENT } from './acp-recovery.mjs'
 
@@ -82,6 +83,7 @@ function historicMessages(session) {
   return session.snapshotEvents().map(ev => asMessage(ev, true)).filter(Boolean)
 }
 function recordFrom(session) { return replayAcpState(session) }
+function stateRevision(session) {return session.snapshotEvents().findLast(e=>e.type===STATE_EVENT)?.seq??-1}
 function configFor(session) {
   // The host remains authoritative for actual routed model capacity and
   // overflow recovery. This is only the kernel's pressure/decision window.
@@ -132,7 +134,6 @@ export class AcpRuntime {
     this.core = createCore()
     this.cache = new WeakMap()
     this.pending = new WeakMap()
-    this.processing = new WeakSet()
     this.nudgeCache = new WeakMap()
     this.batches = new WeakMap()
   }
@@ -214,7 +215,7 @@ export class AcpRuntime {
       blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),
       refs,latest:row.settled}
   }
-  propose(session,args,{preview=false}={}) {
+  propose(session,args,{preview=false,lease}={}) {
     const parsed=parseCompressArgs(args)
     if(parsed.ranges.length!==1||parsed.diagnostics.invalidItems)
       throw Error('native ACP requires exactly one valid range per proposal')
@@ -260,9 +261,16 @@ export class AcpRuntime {
     const nativeSpan=nodes.slice(nodes.indexOf(firstSeq),nodes.indexOf(lastSeq)+1)
     if(nativeSpan.some(seq=>unsafeEvent(session.eventAt(seq))))
       throw Error('native ACP range contains protected instructions, media or multi-call content')
+    for(const message of span.filter(m=>m.toolCallId)) {
+      const pair=messages.filter(m=>m.toolCallId===message.toolCallId)
+      if(pair.filter(m=>m.contentType==='tool-call').length!==1
+        ||pair.filter(m=>m.contentType==='tool-result').length!==1
+        ||pair.some(m=>!span.includes(m)))
+        throw Error('native ACP requires complete unambiguous tool-call/result pairs')
+    }
     const proposal={startRef,endRef,summary:summary.trim(),topic:topic??null,
       firstId:String(firstSeq),lastId:String(lastSeq),
-      surfaceGeneration:session.surface.replaceGeneration}
+      surfaceGeneration:session.surface.replaceGeneration,stateRevision:stateRevision(session)}
     const draft=this.core.applyCompression({ranges:[{
       startRef,endRef,summary:proposal.summary,
       ...(topic===undefined?{}:{topic}),
@@ -275,7 +283,7 @@ export class AcpRuntime {
     if(plain&&span.some(m=>!proposal.newBlock.effectiveMessageIds.includes(m.id)))
       throw Error('native ACP range contains protected messages excluded by the kernel')
     if(preview)return proposal
-    queueAcpSummary(session,proposal)
+    queueAcpSummary(session,proposal,lease)
     this.pending.set(session,proposal)
     this.nudgeCache.delete(session)
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
@@ -317,33 +325,44 @@ export class AcpRuntime {
   }
   async processPending(agent,compaction,signal) {
     const session=agent.session
-    if(this.processing.has(session))return null
-    const remaining=this.batches.get(session)??[]
-    this.batches.delete(session)
-    const first=await this.processOnePending(agent,compaction,signal)
-    if(!first)return null
-    const committed=[first]
-    for(const range of remaining) {
-      signal?.throwIfAborted?.()
-      this.propose(session,range)
-      committed.push(await this.processOnePending(agent,compaction,signal))
+    if(!this.pending.has(session))return null
+    const lease=acquireAcpProcessing(session)
+    if(!lease)return null
+    try {
+      const remaining=this.batches.get(session)??[]
+      this.batches.delete(session)
+      const first=await this.processOnePending(agent,compaction,signal,lease)
+      if(!first)return null
+      const committed=[first]
+      for(const range of remaining) {
+        signal?.throwIfAborted?.()
+        this.propose(session,range,{lease})
+        committed.push(await this.processOnePending(agent,compaction,signal,lease))
+      }
+      return committed.length===1?first:{batchCommitted:committed.length,latest:committed.at(-1)}
+    } finally {
+      releaseAcpProcessing(session,lease)
     }
-    return committed.length===1?first:{batchCommitted:committed.length,latest:committed.at(-1)}
   }
-  async processOnePending(agent,compaction,signal) {
+  async processOnePending(agent,compaction,signal,lease) {
     const session=agent.session
     const proposal=this.pending.get(session)
-    if(!proposal || this.processing.has(session))return null
-    this.processing.add(session)
+    if(!proposal)return null
+    if(!ownsAcpProcessing(session,lease))throw Error('native ACP processing lease required')
     try {
       signal?.throwIfAborted?.()
       // Do not act on a changed context or stale ref mapping.
       const current=this.view(session)
-      if(session.surface.replaceGeneration!==proposal.surfaceGeneration)
-        throw Error('surface changed since ACP proposal')
       const start=Number(proposal.firstId),end=Number(proposal.lastId)
-      if(!session.surface.nodes.includes(start)||!session.surface.nodes.includes(end))
-        throw Error('ACP proposal bounds are no longer visible')
+      const validate=()=>{
+        signal?.throwIfAborted?.()
+        if(session.surface.replaceGeneration!==proposal.surfaceGeneration
+          ||stateRevision(session)!==proposal.stateRevision)
+          throw Error('surface or ACP state changed since proposal')
+        if(!session.surface.nodes.includes(start)||!session.surface.nodes.includes(end))
+          throw Error('ACP proposal bounds are no longer visible')
+      }
+      validate()
       // Persist the EXACT proposed post-compaction kernel state *before*
       // the native engine can replace the visible DSH Surface.
       // On crash after native commit, recovery validates the DSH transaction
@@ -357,6 +376,8 @@ export class AcpRuntime {
         const persisted=await this.flushIntent(session)
         if(persisted!==true)throw Error('native ACP intent lacks durable persistence listener')
       }
+      // Native pressure/overflow has its own lock and may run during the flush.
+      validate()
       const result=await withAcpSummary(session,proposal,
         ()=>compaction.compactRegion(start,end,agent,signal))
       const nextState=proposal.nextState
@@ -394,7 +415,6 @@ export class AcpRuntime {
       this.pending.delete(session)
       clearQueuedAcpSummary(session,proposal)
       this.nudgeCache.delete(session)
-      this.processing.delete(session)
     }
   }
   search(session,query,{algorithm='hybrid'}={}) {

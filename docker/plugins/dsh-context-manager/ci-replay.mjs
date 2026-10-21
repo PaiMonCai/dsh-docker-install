@@ -5,10 +5,13 @@
  * replay, but does NOT claim that real /compact was run.
  */
 import { randomUUID } from 'node:crypto'
+import {createRequire} from 'node:module'
+import {pathToFileURL} from 'node:url'
 import { indexCompactions, originalPage } from './history-index.mjs'
 const MODES=new Set(['seed','verify'])
 const PREFIX='DSH_CONTEXT_MANAGER_CI_REPLAY_'
 const EVIDENCE='CI context manager replay native log evidence '+ 'x'.repeat(2000)
+const CCR_EVIDENCE='CI rollback exact CCR original evidence. '.repeat(1500)
 function isSafeId(s){return typeof s==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(s)}
 export function installReplaySmoke(ctx) {
   const mode=process.env.DSH_CONTEXT_MANAGER_CI_REPLAY_MODE
@@ -59,6 +62,16 @@ export function installReplaySmoke(ctx) {
               sourceEventSeqs:[begin.seq,summary.seq,origin.seq],
             })
             session.append('compaction/end',{compactionId,turn:null})
+            if(process.env.DSH_CONTEXT_MANAGER_CI_REPLAY_CCR==='1') {
+              const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
+              const {appendPluginRecord}=await import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-session')).href)
+              const {offloadCcr}=await import('./acp-ccr.mjs')
+              const saved=await offloadCcr({agent:{session},name:'read_file',callId:'ci-rollback-ccr',arguments:{}},
+                {isError:false,content:[{type:'text',text:CCR_EVIDENCE}]},
+                {appendRecord:appendPluginRecord,flush:s=>c.sessions.flush(s)})
+              if(!saved)throw Error('CI rollback CCR did not persist')
+              process.stdout.write(PREFIX+'CCR_SEEDED '+saved.ref+'\n')
+            }
             await c.sessions.flush(session)
             const inspection=await c.sessionController.inspect(sessionId)
             const index=indexCompactions(inspection)
@@ -81,6 +94,22 @@ export function installReplaySmoke(ctx) {
             })
             if(!page?.items?.[0]?.text?.startsWith('CI context manager replay native log evidence'))
               throw Error('original source event lost across container recreate')
+            if(process.env.DSH_CONTEXT_MANAGER_CI_REPLAY_CCR==='1') {
+              const {retrieveCcr}=await import('./acp-ccr.mjs')
+              const ref=process.env.DSH_CONTEXT_MANAGER_CI_REPLAY_CCR_REF
+              const detached={eventAt:seq=>inspection.events.find(e=>e.seq===seq)}
+              let text='',offset=0
+              for(;;) {
+                const chunk=retrieveCcr(detached,{ref,offset,limit:8192})
+                text+=chunk.content
+                if(chunk.nextOffset===null)break
+                offset=chunk.nextOffset
+              }
+              if(text!==CCR_EVIDENCE)throw Error('CCR original changed across flags-off rollback')
+              if(['TIERED','ACP','CCR'].some(flag=>process.env['DSH_CONTEXT_MANAGER_'+flag+'_ACTIVE']!=='0'))
+                throw Error('CI rollback flags must all be explicitly off')
+              process.stdout.write(PREFIX+'CCR_ROLLBACK_VERIFIED originalExact=true flagsOff=true\n')
+            }
             const cold=c.sessions.get(sessionId)===undefined
             if(!cold)throw Error('replay unexpectedly activated live Agent')
             process.stdout.write(PREFIX+'VERIFIED '+sessionId+' cold=true\n')

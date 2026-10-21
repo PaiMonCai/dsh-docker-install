@@ -74,6 +74,19 @@ try {
  const cold=new AcpRuntime({appendRecord:appendPluginRecord})
  assert.ok(cold.status(restored).blocks.some(b=>b.id===proposal.block))
  assert.match(cold.decompress(restored,proposal.block).original,/Original real DSH native/)
+ // The actual native engine, rather than the controlled replay helper, must
+ // reject an end boundary inside a step whose tool work has not closed.
+ const open=Session.create(SessionId('acp-native-open-step'))
+ open.append('turn/start',{turn:1})
+ const first=open.append('user/message',llm.createUserMessage({content:[{type:'text',text:large}],source:{kind:'user'}}),{surfaceOp:'append'})
+ open.append('step/start',{turn:1,step:1})
+ const last=open.append('assistant/message',{stream:[],turn:1,step:1,
+   message:llm.createAssistantMessage({content:[{type:'text',text:'Unclosed step output'}],source:{provider:'mock',model:'mock'}})},
+ {surfaceOp:'append'})
+ const untouched=open.surface.nodes.slice()
+ await assert.rejects(engine.compactRegion(first.seq,last.seq,{...agent,session:open},new AbortController().signal),/balanced|open/)
+ assert.deepEqual(open.surface.nodes,untouched)
+ assert.equal(open.snapshotEvents().filter(e=>e.type==='compaction/summary').length,0)
  process.stdout.write('DSH_CONTEXT_MANAGER_ACP_REAL_REGION_PASS transaction=true coldReplay=true\n')
 }finally {
  if(oldHome===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=oldHome

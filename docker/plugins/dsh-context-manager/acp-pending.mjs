@@ -4,10 +4,24 @@
  */
 const active = new WeakMap()
 const queued = new WeakMap()
+const processing = new WeakMap()
+// Shared by all adapter instances using the native store's one Session object.
+export function acquireAcpProcessing(session) {
+  if(processing.has(session))return null
+  const lease=Symbol('native-acp-processing')
+  processing.set(session,lease)
+  return lease
+}
+export function ownsAcpProcessing(session,lease) {return !!lease&&processing.get(session)===lease}
+export function releaseAcpProcessing(session,lease) {
+  if(ownsAcpProcessing(session,lease))processing.delete(session)
+}
 // Single queued model-authored proposal per live Session, not per tool call.
 // The native pressure middleware runs before the ACP pre-step consumer.
 export function hasQueuedAcpSummary(session) {return queued.has(session)}
-export function queueAcpSummary(session, proposal) {
+export function queueAcpSummary(session, proposal,lease) {
+  if(processing.has(session)&&!ownsAcpProcessing(session,lease))
+    throw Error('another ACP transaction is processing this Session')
   if(queued.has(session))throw Error('ACP proposal already queued in this Session')
   queued.set(session,proposal)
 }
