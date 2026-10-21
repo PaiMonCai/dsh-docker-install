@@ -203,6 +203,10 @@ resuming a pilot. Reverting M5 code alone is not a substitute for disabling flag
 
 ## Remaining acceptance
 
+The requested delivery scope on 2026-10-21 is code and CI; controlled real-provider
+acceptance will be scheduled separately. The PRs remain drafts until review.
+No production activation or paid provider experiment is included in this delivery.
+
 Real provider charges, real user-session export, shared history access and
 production activation have not been authorized by this plan.
 
