@@ -161,7 +161,9 @@ generation, visible bounds and the latest authoritative ACP state record after
 awaiting intent durability. Native overflow/pressure retains its own engine
 lock and can invalidate a queued ACP proposal. Cancellation also rechecks here.
 Tool identities must have one complete unambiguous call/result pair inside the
-selected interval; the actual native compactRegion still owns step balance and
+selected interval. Selected events from an unclosed native step are refused,
+including plain output that the native tool-pair check already considers balanced;
+the actual native compactRegion still owns tool balance and
 transaction validation. There is no replacement native lock or second ledger.
 
 Fault tests cover simultaneous processing, cross-instance proposals, stale state,
@@ -169,7 +171,7 @@ surface replacement during flush, cancellation, duplicate intent, missing ACK,
 and every partial native transaction prefix. Closed native transactions recover
 once; incomplete transactions refuse projection. Fork/legacy/T1/T2/T3 regressions
 remain in the same suite. The real packaged engine test additionally refuses a
-range ending inside an open step. Existing pressure/overflow tests prove that
+range ending with an unpaired tool call in an open step. Existing pressure/overflow tests prove that
 queuing ACP suppresses only pressure, leaving native overflow recovery available.
 
 Status/settings RPC now includes a read-only rollout report per observed Preset.
@@ -189,7 +191,7 @@ the independent packaged-engine tests, not the synthetic seed. This exercises
 flags-off rollback on the candidate image with its additive versioned reader;
 it does not claim an older image can resolve version 2 CCR refs without that reader.
 
-Forty targeted local checks pass, including history default-off/owner opt-in and
+Forty-one targeted local checks pass, including history default-off/owner opt-in and
 existing activation gates. Hosted image checks exercise the real engine, offline
 AgentLoop, container recreation and derived editions separately. No new default
 activation, production deployment or image publication is part of these PRs.

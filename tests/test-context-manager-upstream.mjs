@@ -423,3 +423,20 @@ test('cache fold prefix includes native system text and invalid explicit counter
   assert.ok(report.folds[0].firstFoldStartTokens>100)
   assert.equal(report.unattributedFolds.length,0)
 })
+
+test('selected plain text from an unclosed native step is rejected before any intent',()=>{
+  const session=populated('m5-open-step')
+  session.append('turn/start',{turn:1})
+  session.append('step/start',{turn:1,step:1})
+  session.append('assistant/message',{turn:1,step:1,stream:[],message:{id:'open-output',role:'assistant',
+    source:{kind:'model',provider:'offline',model:'one'},content:[{type:'text',text:'Unsettled native output '.repeat(200)}]}},{surfaceOp:'append'})
+  for(let i=0;i<3;i++)session.append('user/message',{id:'open-tail-'+i,role:'user',source:{kind:'user'},
+    content:[{type:'text',text:'Preserve the current open step.'}]},{surfaceOp:'append'})
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord})
+  const {refs}=runtime.status(session)
+  const args={...foldArgs(runtime)(session),endRef:refs[7].ref}
+  assert.throws(()=>runtime.propose(session,args),/unclosed native step/)
+  assert.equal(session.snapshotEvents().filter(e=>e.type===INTENT_EVENT).length,0)
+  session.append('step/end',{turn:1,step:1})
+  assert.equal(runtime.propose(session,args).accepted,true)
+})

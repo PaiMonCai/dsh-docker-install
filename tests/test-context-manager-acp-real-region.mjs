@@ -81,7 +81,8 @@ try {
  const first=open.append('user/message',llm.createUserMessage({content:[{type:'text',text:large}],source:{kind:'user'}}),{surfaceOp:'append'})
  open.append('step/start',{turn:1,step:1})
  const last=open.append('assistant/message',{stream:[],turn:1,step:1,
-   message:llm.createAssistantMessage({content:[{type:'text',text:'Unclosed step output'}],source:{provider:'mock',model:'mock'}})},
+   message:llm.createAssistantMessage({content:[{type:'tool-call',id:llm.ToolCallId('unclosed-tool'),name:'read_file',arguments:'{}'}],
+     source:{provider:'mock',model:'mock'}})},
  {surfaceOp:'append'})
  const untouched=open.surface.nodes.slice()
  await assert.rejects(engine.compactRegion(first.seq,last.seq,{...agent,session:open},new AbortController().signal),/balanced|open/)

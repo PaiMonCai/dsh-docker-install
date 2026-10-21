@@ -84,6 +84,19 @@ function historicMessages(session) {
 }
 function recordFrom(session) { return replayAcpState(session) }
 function stateRevision(session) {return session.snapshotEvents().findLast(e=>e.type===STATE_EVENT)?.seq??-1}
+function assertClosedSelectedSteps(session,seqs) {
+  const selected=new Set(seqs),open=new Map()
+  for(const event of session.snapshotEvents()) {
+    const key=JSON.stringify([event.data?.turn,event.data?.step])
+    if(event.type==='step/start') {
+      if(open.has(key))throw Error('duplicate native step opening')
+      open.set(key,false)
+    }
+    if(selected.has(event.seq))for(const step of open.keys())open.set(step,true)
+    if(event.type==='step/end')open.delete(key)
+  }
+  if([...open.values()].some(Boolean))throw Error('ACP range intersects an unclosed native step')
+}
 function configFor(session) {
   // The host remains authoritative for actual routed model capacity and
   // overflow recovery. This is only the kernel's pressure/decision window.
@@ -261,6 +274,7 @@ export class AcpRuntime {
     const nativeSpan=nodes.slice(nodes.indexOf(firstSeq),nodes.indexOf(lastSeq)+1)
     if(nativeSpan.some(seq=>unsafeEvent(session.eventAt(seq))))
       throw Error('native ACP range contains protected instructions, media or multi-call content')
+    assertClosedSelectedSteps(session,nativeSpan)
     for(const message of span.filter(m=>m.toolCallId)) {
       const pair=messages.filter(m=>m.toolCallId===message.toolCallId)
       if(pair.filter(m=>m.contentType==='tool-call').length!==1
