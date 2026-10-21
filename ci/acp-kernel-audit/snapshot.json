@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "observedOn": "2026-10-21",
+  "dshBaseline": "6d4d79bdbdcf2849eb923cc22e00f40c7a6fde53",
+  "legacyFixtureSha256": "ce23e0d13355e9cf932f5a7ee2e2f40c377441663ac4c23d7505c51ce51d1edd",
+  "baseline": {
+    "version": "0.0.101",
+    "gitHead": "4d38906e004e7fd9fe4b0c06cbd8c661694f506f",
+    "tarball": "https://registry.npmjs.org/acp-kernel/-/acp-kernel-0.0.101.tgz",
+    "integrity": "sha512-zKqi1mW+oTcpSY79lKkQXdz9AXFrmRj7JL6Mfpuo6JXM0WqRebXHBkQUZz9VGGi1SsOOjK0D9NghZ1/mIakdAA=="
+  },
+  "candidate": {
+    "repository": "ranxianglei/billion-context",
+    "commit": "bc4a3f87e2dc98e82df6f707d362e75492fdf3d1",
+    "sourceVersion": "0.0.147",
+    "kernelTree": "1392b4e1250b76a4c26669beb628a22c21708555",
+    "archiveRoot": "ranxianglei-billion-context-bc4a3f8",
+    "sha256": {
+      "kernel/package.json": "5261a9f98ff5f9427c09faf414fed5b77b4be6a012c3aec8aee3fd30ed0abaa2",
+      "kernel/package-lock.json": "75f7e5ca04121bec2368212c6e7fd65b2174ba870c200375057859a6d60c60b2",
+      "kernel/LICENSE": "5f82d3c8724c30a0ece8819b23babc4587a50eddf350273c6c8f0c936bad2a74",
+      "LICENSE": "f27574cd3f4b0b4877da2869953945d66d76a665e7ebb9320a5e87aa76f7ab58"
+    }
+  }
+}
