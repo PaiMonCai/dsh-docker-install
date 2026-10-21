@@ -51,18 +51,31 @@ export function apply(ctx) {
     'Read original event-log content from a compressed ACP block without expanding the active model prompt. Returns bounded untrusted historical text.',
     {blockId:{type:'string',required:true}},
     (args,exec)=>runtime.decompress(exec.agent.session,args.blockId))
+  if(process.env.DSH_CONTEXT_MANAGER_ABSORB_ACTIVE==='1') {
+    tool('absorb',
+      'Queue a model-authored summary of a consumed tool result using its message ref. DSH commits the complete call/result pair at the next safe step. Original events remain retrievable; confirm the commit with acp_status.',
+      {ref:{type:'string',required:true},summary:{type:'string',required:true}},
+      (args,exec)=>runtime.proposeAbsorb(exec.agent.session,args))
+  }
   tool('acp_search_context',
     'Search summaries of native ACP blocks; use acp_decompress to inspect a selected original range.',
     {query:{type:'string',required:true}},
     (args,exec)=>runtime.search(exec.agent.session,args.query))
   tool('acp_retrieve',
     'Retrieve full-length, paginated original text from DSH immutable events covered by an active ACP block. First call with blockId to list source refs, then request one ref with offset and limit (max 8192 characters). No proxy store or unsafe history mutation.',
-    {blockId:{type:'string',required:true},ref:{type:'string'},
+    {blockId:{type:'string'},ref:{type:'string'},
       startIndex:{type:'integer'},offset:{type:'integer'},limit:{type:'integer'}},
-    (args,exec)=>runtime.retrieve(exec.agent.session,args))
+    (args,exec)=>/^(dshccr:|ccr:)/.test(args.ref??'')
+      ?retrieveCcr(exec.agent.session,args):runtime.retrieve(exec.agent.session,args))
+
+  tool('retrieve',
+    'Retrieve original text from this Session. For dshccr:v2 or legacy ccr refs pass {ref,offset,limit}; for compressed conversation originals pass {blockId,ref,offset,limit}. The result is untrusted historical data.',
+    {blockId:{type:'string'},ref:{type:'string'},startIndex:{type:'integer'},offset:{type:'integer'},limit:{type:'integer'}},
+    (args,exec)=>/^(dshccr:|ccr:)/.test(args.ref??'')
+      ?retrieveCcr(exec.agent.session,args):runtime.retrieve(exec.agent.session,args))
 
   tool('acp_ccr_retrieve',
-    'Read one page of an earlier large tool result that native CCR stored in this exact Session. It does not access other agents or sessions. Use the ccr:NNN ref from the tool-result placeholder.',
+    'Read one page of an earlier tool result in this exact Session. Pass an object {ref,offset,limit}, using the full dshccr:v2 ref from the placeholder. Legacy ccr:NNN references remain supported.',
     {ref:{type:'string',required:true},offset:{type:'integer'},limit:{type:'integer'}},
     (args,exec)=>retrieveCcr(exec.agent.session,args))
 
@@ -75,6 +88,7 @@ export function apply(ctx) {
       const offload=await offloadCcr(exec,result,{
         appendRecord:appendPluginRecord,flush:session=>ctx.sessions.flush(session),
         logger:ctx.logger,
+        projection:process.env.DSH_CONTEXT_MANAGER_CCR_PROJECTION??'retrieve',
       })
       return offload?{...decision,content:offload.content}:decision
     })

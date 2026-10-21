@@ -24,8 +24,8 @@ const result={isError:false,content:[{type:'text',text:exact}]}
 const failed=await offloadCcr(exec,result,{appendRecord:sessions.appendPluginRecord,flush:async()=>false})
 assert.equal(failed,null)
 const saved=await offloadCcr(exec,result,{appendRecord:sessions.appendPluginRecord,flush:async()=>true})
-assert.ok(saved?.ref.startsWith('ccr:'))
-assert.equal(session.snapshotEvents().filter(e=>e.type===CCR_EVENT).length,2)
+assert.ok(saved?.ref.startsWith('dshccr:v2:'))
+assert.equal(session.snapshotEvents().filter(e=>e.type===CCR_EVENT).length,1,'retry reuses the original pending durable record')
 const full=[]
 let offset=0
 while(true){
@@ -90,8 +90,14 @@ try{
  assert.match(settled.content[0].text,/ccr:/)
  const events=live.session.snapshotEvents().filter(e=>e.type===CCR_EVENT)
  assert.equal(events.length,1)
- const ref=/ccr:\d+/.exec(settled.content[0].text)[0]
+ const ref=/dshccr:v2:[a-f0-9]{16}:\d+/.exec(settled.content[0].text)[0]
  assert.equal(retrieveCcr(live.session,{ref,offset:0,limit:4096}).content,exact.slice(0,4096))
+ for(const name of ['retrieve','acp_retrieve','acp_ccr_retrieve']) {
+  const restored=await ctx.tools.execute({callId:'alias-'+name,name,arguments:{ref,limit:4096},
+   agent:live,signal:new AbortController().signal})
+  assert.equal(restored.isError,false)
+  assert.equal(JSON.parse(restored.value).content,exact.slice(0,4096))
+ }
  assert.throws(()=>retrieveCcr(other,{ref}),/unavailable/)
  process.stdout.write('DSH_CONTEXT_MANAGER_CCR_PASS native=true durable=true lossless=true pipeline=true\n')
 }finally{
