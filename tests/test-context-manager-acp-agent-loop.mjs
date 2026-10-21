@@ -71,9 +71,19 @@ class OfflineAdapter extends llm.LlmAdapter {
   }else if(n===4){
    const original=parsed()
    assert.ok(original.original.includes('Verified original facts'))
+   name='acp_cache'
+   args={detail:'full'}
+  }else if(n===5){
+   const ledger=parsed()
+   assert.equal(ledger.scope,'current-native-session')
+   assert.equal(ledger.requestsWithCompleteUsage,5)
+   assert.equal(ledger.unknownRequests,0)
+   assert.equal(ledger.currency,null)
+   assert.ok(ledger.groups.every(g=>g.report.totals.balanced))
    visited.push('final')
    yield {type:'block-start',index:0,blockType:'text'}
    yield {type:'block-end',index:0,block:{type:'text',text:'ACP native loop completed successfully'}}
+   yield {type:'usage',usage:{inputTokens:300,cacheReadTokens:700,cacheWriteTokens:0,outputTokens:30,totalTokens:1030}}
    yield {type:'finish',reason:{kind:'stop'}}
    return
   }else throw Error('unexpected additional mock model request '+n)
@@ -82,6 +92,7 @@ class OfflineAdapter extends llm.LlmAdapter {
   yield {type:'block-start',index:0,blockType:'tool-call'}
   yield {type:'block-end',index:0,block:{type:'tool-call',
    id:callId,name,arguments:JSON.stringify(args)}}
+  yield {type:'usage',usage:{inputTokens:300,cacheReadTokens:700,cacheWriteTokens:0,outputTokens:30,totalTokens:1030}}
   yield {type:'finish',reason:{kind:'tool-calls'}}
  }
 }
@@ -118,14 +129,14 @@ try{
  agent.followup(llm.createUserMessage({content:[{type:'text',text:'Summarize earlier history safely'}],
   source:{kind:'user'}}))
  await idle
- assert.deepEqual(visited,['acp_status','acp_compress','acp_search_context','acp_decompress','final'])
- assert.equal(calls,5)
+ assert.deepEqual(visited,['acp_status','acp_compress','acp_search_context','acp_decompress','acp_cache','final'])
+ assert.equal(calls,6)
  const events=agent.session.snapshotEvents()
  assert.equal(events.filter(e=>e.type==='compaction/end'&&e.data.error===undefined).length,1)
- assert.equal(events.filter(e=>e.type==='tool/result').length,4)
+ assert.equal(events.filter(e=>e.type==='tool/result').length,5)
  assert.equal(events.filter(e=>e.type==='compaction/start').length,1)
  assert.equal(events.filter(e=>e.type==='compaction/summary').length,1)
- process.stdout.write('DSH_CONTEXT_MANAGER_ACP_AGENT_LOOP_PASS tools=4 turns=1 nativeCompaction=1 replayable=true\n')
+ process.stdout.write('DSH_CONTEXT_MANAGER_ACP_AGENT_LOOP_PASS tools=5 turns=1 nativeCompaction=1 replayable=true cacheLedger=true\n')
 }finally{
  for(const fiber of owned.reverse())await fiber.dispose()
  if(oldGate===undefined)delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED

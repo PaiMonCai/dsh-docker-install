@@ -7,10 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { AcpRuntime } from './acp-runtime.mjs'
 import { offloadCcr, retrieveCcr } from './acp-ccr.mjs'
 import {nativeGuidance,nativeCompressDescription,nativeCompressParameters} from './acp-prompts.mjs'
+import {readSessionCacheLedger} from './cache-ledger.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
-const [{defineTool},{appendPluginRecord}]=await Promise.all([
+const [{defineTool},{appendPluginRecord},{expandAssistantStream,isTokenDelta}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href),
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-session')).href),
+  import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-llm')).href),
 ])
 export const name='dsh-context-manager-acp'
 export const inject=['tools','compaction','sessions','systemPrompt']
@@ -44,6 +46,17 @@ export function apply(ctx) {
     'Page native Session message and block references in current surface order (earliest first). Call before acp_compress. Use nextRefOffset or nextBlockOffset to fetch subsequent pages. Do not invent refs.',
     {offset:{type:'integer'},limit:{type:'integer'},blockOffset:{type:'integer'},blockLimit:{type:'integer'}},
     (args,exec)=>runtime.status(exec.agent.session,args))
+  tool('acp_cache',
+    'Read the current Session cache ledger, provider usage coverage, native folds and relative economics. Missing cache fields remain unknown. Local estimates and relative units are not provider bills. detail is summary or full.',
+    {detail:{type:'string',enum:['summary','full']}},
+    (args,exec)=>readSessionCacheLedger(exec.agent.session,{...args,streamTimings:stream=>{
+      try {
+        const chunks=expandAssistantStream(stream??[])
+        const first=chunks.find(row=>isTokenDelta(row.chunk))
+        return {timeToFirstTokenMs:null,streamSpanMs:chunks.length?chunks.at(-1).time-chunks[0].time:null,
+          firstTokenObserved:first!==undefined,source:'native-timed-stream'}
+      }catch{return null}
+    }}))
   tool('acp_compress',
     'Queue a user/assistant-written summary for a current m-ref range; it is committed at the next safe DSH agent/pre-step. Confirm with acp_status. Preserve tool pairs.',
     {startRef:{type:'string',required:true},endRef:{type:'string',required:true},
