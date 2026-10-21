@@ -1,82 +1,66 @@
-/**
- * DSH-native CCR: arrival-time tool output offload into the *same Session log*.
- *
- * Executed at the documented tools/post-execute waterfall BEFORE the canonical
- * tool/result is appended. A shortened result may leave the pipeline ONLY if
- * its original text has already been persisted through session/flush.
- * This does not intercept HTTP, global fetch, model prompts, or third-party tools.
- */
-export const CCR_EVENT='plugin:dsh-docker-context-manager/ccr-result'
-const DEFAULT_MIN=16000
-const MAX_RECORD_BYTES=786432
-const MAX_PAGE=8192
-const REF=/^ccr:(0|[1-9][0-9]{0,8})$/
-function encodeRecord(record) {
-  const encoded=JSON.stringify(record)
-  if (!encoded || Buffer.byteLength(encoded,'utf8')>MAX_RECORD_BYTES)
-    return null
-  return JSON.parse(encoded)
-}
-function originalText(blocks) {
-  return blocks.map(c=>c.text).join('\n')
-}
-export async function offloadCcr(exec,result,options) {
-  const {
-    appendRecord,flush,logger,minChars=DEFAULT_MIN,
-  }=options
+/** Arrival-time upstream CCR, committed through the original DSH Session. */
+import {
+  createInitialState, createContentStore, defaultConfig, defaultCountTokens,
+  storeLargeResults, buildStoredPlaceholder, parseStoredPlaceholder,
+  truncateLargeToolOutputs, applyCrushToMessages,
+} from 'acp-kernel'
+import { ContentStorePort, KERNEL_STORE_REF } from './content-store-port.mjs'
+export { CCR_EVENT, ContentStorePort } from './content-store-port.mjs'
+
+export async function offloadCcr(exec,result,options={}) {
+  const {appendRecord,flush,logger,minChars,maxSessionBytes,projection='retrieve'}=options
   const session=exec.agent?.session
-  // Never offload failed/cancelled results, ACP control responses or nested
-  // PTC calls. PTC retains canonical programmatic values independently, and
-  // needs a separately scoped copy-projection policy.
-  if(!session||result.isError||exec.parent||/^acp_/.test(exec.name)
-    ||!Array.isArray(result.content)
-    ||result.content.length===0
-    ||!result.content.every(c=>c?.type==='text'&&typeof c.text==='string'))
-    return null
-  const value=originalText(result.content)
-  if(value.length<minChars)return null
-  const record=encodeRecord({
-    version:1,tool:exec.name,callId:String(exec.callId),
-    content:result.content,characters:value.length,
-  })
-  if(!record)return null // Never silently truncate unspoolable results.
-  if(typeof appendRecord!=='function'||typeof flush!=='function')return null
+  if(!['retrieve','truncate','crush'].includes(projection)||!session||typeof exec.name!=='string'
+    ||result.isError||exec.parent||/^acp_|^(compress|decompress|retrieve|search_context)$/.test(exec.name)
+    ||exec.signal?.aborted||!exec.callId||!Array.isArray(result.content)||!result.content.length
+    ||!result.content.every(c=>c?.type==='text'&&typeof c.text==='string'))return null
   try {
-    const seq=appendRecord(session,CCR_EVENT,record)
-    const durable=await flush(session)
-    if(durable!==true){
-      logger?.warn?.('CCR has no durable native Session writer; preserving original tool result')
-      return null
+    const text=result.content.map(c=>c.text).join('\n')
+    if(Buffer.byteLength(JSON.stringify(result.content),'utf8')>786432)return null
+    const state=createInitialState()
+    state.messageRefs={byRaw:{arrival:KERNEL_STORE_REF},byRef:{[KERNEL_STORE_REF]:'arrival'}}
+    const config=defaultConfig(200000,{ccr:{enabled:true,toolName:'acp_ccr_retrieve',
+      ...(minChars===undefined?{}:{minToolTokens:Math.ceil(minChars/4)})}})
+    const projected=storeLargeResults({state,store:createContentStore(),config,countTokens:defaultCountTokens,
+      messages:[{id:'call',role:'assistant',contentType:'tool-call',toolName:exec.name,
+        toolCallId:String(exec.callId),text:JSON.stringify(exec.arguments??{})},
+      {id:'arrival',role:'tool',contentType:'tool-result',toolName:exec.name,
+        toolCallId:String(exec.callId),text}]})
+    if(projected.storedCount!==1)return null
+    const entry=projected.store.byRef[KERNEL_STORE_REF]
+    const parsed=parseStoredPlaceholder(projected.messages.at(-1).text)
+    if(parsed?.ref!==KERNEL_STORE_REF)return null
+    const port=new ContentStorePort({appendRecord,flush,maxSessionBytes})
+    const ref=port.putOriginal(session,{tool:exec.name,callId:String(exec.callId),content:result.content,entry})
+    if(!ref||!await port.commitBarrier(session)||exec.signal?.aborted)return null
+    // Kernel's parser reserves mN. Only the host namespace is substituted;
+    // classification, threshold, preview and placeholder rendering stay upstream.
+    const pointer=buildStoredPlaceholder({
+      ref,kind:entry.kind,tokens:entry.tokens,head:entry.head,command:entry.command,
+      retrieveToolName:'acp_ccr_retrieve',
+    })
+    let reduced=''
+    if(projection!=='retrieve') {
+    const arrival={id:'arrival',role:'tool',contentType:'tool-result',toolName:exec.name,
+      toolCallId:String(exec.callId),text}
+    const window=session.requestContext?.()?.contextWindow??200000
+    const tokenCount=defaultCountTokens(text)+session.surface.nodes.reduce((n,seq)=>{
+      const event=session.eventAt(seq),message=event?.type==='user/message'?event.data:event?.data?.message
+      return n+(message?.content??[]).reduce((sum,c)=>sum+(c.type==='text'?defaultCountTokens(c.text):0),0)
+    },0)
+    const reductionConfig=defaultConfig(window,{absorb:{enabled:true},crush:{enabled:true}})
+    if(projection==='truncate')reduced=truncateLargeToolOutputs([arrival],tokenCount,reductionConfig,
+      defaultCountTokens,{protectRecentMessages:0}).messages[0].text
+    if(projection==='crush')reduced=applyCrushToMessages([arrival],reductionConfig,tokenCount,defaultCountTokens).messages[0].text
     }
-    return {
-      ref:'ccr:'+seq,
-      content:[{type:'text',text:
-        '[Native CCR: a '+value.length+'-character tool result was stored in the same DSH Session event log at ccr:'+seq+'. '
-        +'Read it using acp_ccr_retrieve({ref:"ccr:'+seq+'",offset:0,limit:4096}). '
-        +'Original tool text is NOT discarded.]\n'+value.slice(0,192)}],
-    }
+    return {ref,content:[{type:'text',text:reduced&&reduced.length+pointer.length<text.length
+      ?reduced+'\n\n'+pointer:pointer}]}
   }catch(error) {
     logger?.warn?.('CCR offload refused, unmodified tool result retained: '+String(error?.message??error))
     return null
   }
 }
-export function retrieveCcr(session,{ref,offset=0,limit=4096}={}) {
-  const match=typeof ref==='string'?REF.exec(ref):null
-  if(!match)throw Error('invalid native CCR ref')
-  if(!Number.isSafeInteger(offset)||offset<0||offset>100000000
-    ||!Number.isSafeInteger(limit)||limit<1||limit>MAX_PAGE)
-    throw Error('invalid native CCR paging arguments')
-  const event=session.eventAt(Number(match[1]))
-  if(event?.type!==CCR_EVENT||event.ignorable!==true
-    ||event.data?.version!==1
-    ||!Array.isArray(event.data.content)
-    ||!event.data.content.every(c=>c?.type==='text'&&typeof c.text==='string'))
-    throw Error('native CCR record unavailable in this Session')
-  // No cross-session locator resolution. The current Agent's Session is the
-  // ONLY resource from which a retrieval can be authorized and performed.
-  const blocks=event.data.content
-  const text=originalText(blocks)
-  const page=text.slice(offset,offset+limit)
-  return {ref,tool:event.data.tool,characters:text.length,offset,
-    content:page,nextOffset:offset+page.length<text.length?offset+page.length:null}
+
+export function retrieveCcr(session,args) {
+  return new ContentStorePort().getOriginal(session,args)
 }

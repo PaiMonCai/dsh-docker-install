@@ -6,6 +6,7 @@
 import {
   createCore, createInitialState, defaultConfig, collectBlockContent, summaryMessageId,
   parseCompressArgs, resolveBoundaries,
+  applyAbsorb,
 } from 'acp-kernel'
 import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
@@ -53,7 +54,7 @@ function unsafeEvent(event) {
     ||message.content.filter(c=>c?.type==='tool-call').length>1
 }
 function activeMessages(session, checkpoints) {
-  return session.surface.nodes.map(seq => {
+  const messages=session.surface.nodes.map(seq => {
     const event = session.eventAt(seq)
     const message = asMessage(event)
     if (message && checkpoints?.[String(seq)]) {
@@ -69,6 +70,11 @@ function activeMessages(session, checkpoints) {
     }
     return message
   }).filter(Boolean)
+  for(const result of messages.filter(m=>m.contentType==='tool-result')) {
+    const calls=messages.filter(m=>m.contentType==='tool-call'&&m.toolCallId===result.toolCallId)
+    if(calls.length===1)result.toolName=calls[0].toolName
+  }
+  return messages
 }
 function historicMessages(session) {
   return session.snapshotEvents().map(ev => asMessage(ev, true)).filter(Boolean)
@@ -268,6 +274,21 @@ export class AcpRuntime {
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
       block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
       advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
+  }
+  proposeAbsorb(session,{ref,summary}={}) {
+    const {row,messages,config}=this.view(session)
+    const raw=row.state.messageRefs.byRef[ref]
+    const result=messages.find(m=>m.id===raw&&m.contentType==='tool-result')
+    const calls=messages.filter(m=>m.contentType==='tool-call'&&m.toolCallId===result?.toolCallId)
+    const results=messages.filter(m=>m.contentType==='tool-result'&&m.toolCallId===result?.toolCallId)
+    if(!result||!result.toolCallId||calls.length!==1||results.length!==1
+      ||messages.indexOf(result)!==messages.indexOf(calls[0])+1)
+      throw Error('native absorb requires one complete unambiguous consecutive tool pair')
+    const checked=applyAbsorb({ref,summary,messages,state:row.state,config:{...config,absorb:{...config.absorb,enabled:true}}})
+    if(!checked.ok)throw Error(checked.resultText)
+    // DSH expresses the upstream decision through its existing transaction.
+    // Never persist absorbed state that would independently hide host messages.
+    return this.propose(session,{startRef:row.state.messageRefs.byRaw[calls[0].id],endRef:ref,summary,topic:'Consumed tool result'})
   }
   async processPending(agent,compaction,signal) {
     const session=agent.session

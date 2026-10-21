@@ -45,9 +45,49 @@ and keep flags disabled. The frozen 0.0.101 fixture remains unchanged. No proxy,
 fetch patch or second session storage is introduced. Kernel wire/persist exports
 are present in its original distribution but are never imported by the adapter.
 
+## M2: CCR, ContentStorePort and optional reductions
+
+`storeLargeResults` owns thresholding, tool exclusions, classification and
+preview selection. `ContentStorePort` appends version 2 original blocks into the
+same native Session; `applyRetrieve` and upstream content hashes validate reads.
+New canonical refs are `dshccr:v2:<session-scope>:<event-seq>`. The only placeholder
+shim substitutes this host namespace for Kernel's reserved `mN` namespace.
+Version 1 `ccr:SEQ` remains readable, including in the frozen pre-upgrade fixture.
+`retrieve`, `acp_retrieve` and `acp_ccr_retrieve` share the bounded native reader.
+
+No shortened result escapes before a successful native flush. A retry of the
+same call and bytes reuses its event/ref and rechecks durability; a changed
+payload under the same call id is preserved unchanged. A missing writer, disk
+error, cancellation, mixed media, PTC parent, oversized original or exhausted
+32 MiB Session CCR budget preserves the complete result. Individual records
+retain the existing 768 KiB ceiling. Originals are not independently evicted:
+whole-Session archival/deletion controls their lifecycle, so compaction and
+repeated retrieval cannot invalidate a ref. Child agents use their own Session;
+seeded native forks may read only records inherited into their own log.
+
+Optional `DSH_CONTEXT_MANAGER_CCR_PROJECTION=truncate|crush` uses upstream
+`truncateLargeToolOutputs` / `applyCrushToMessages` after storing the exact original,
+and always retains a retrieval pointer. Default projection is `retrieve`.
+`DSH_CONTEXT_MANAGER_ABSORB_ACTIVE=1` registers `absorb`: `applyAbsorb` validates
+the model's decision, and DSH compiles the complete unambiguous pair into its
+existing deferred compactRegion transaction. No second hide-state is persisted.
+Both capabilities still require the existing ACP/CCR laboratory owner gates.
+
+Fifteen targeted local checks pass across the baseline and pinned distribution,
+including both reduction projections, native-pair absorb, canonical references,
+colliding sequence isolation, retry idempotency and fail-open storage faults.
+The image test also calls all three retrieval aliases through real ToolRuntime.
+Hosted image results remain a separate acceptance state.
+
+Rollback: disable optional flags, CCR and ACP, rebuild and keep native logs.
+Version 2 CCR is additive; older plugin images do not understand its new refs.
+Complete CCR ref access after an image downgrade therefore requires retaining
+this small versioned reader (or upgrading again). Original bytes remain in the
+ignorable native plugin records; no old log is rewritten or deleted.
+
 ## Remaining acceptance
 
-M2-M5 implementation and validation will be appended as their slices land.
+M3-M5 implementation and validation will be appended as their slices land.
 Real provider charges, real user-session export, shared history access and
 production activation have not been authorized by this plan.
 
