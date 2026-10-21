@@ -42,6 +42,8 @@
 |---|---|
 | [项目结构与维护](project-layout.md) | 目录职责、配置来源、生成文件与按改动选择检查 |
 | [内置 Web 插件接入规范](builtin-plugin-contract.md) | 原生 `--patch` 加载、插件开关、Icon Dock 契约与验收 |
+| [Context Manager 上游优先原生化方案](context-manager-upstream-first-plan.md) | billion-context Kernel 复用路线、版本迁移、分阶段 PR、验收门禁与回滚 |
+| [ACP 上游功能对照矩阵](context-manager-upstream-parity-matrix.md) | 模块 Reuse / Adapt / Do not port 决策和代码归属 |
 | [推理等级插件实现说明](../docker/plugins/dsh-reasoning-editor/README.md) | 同一 `reasoningEfforts` 字段、批量保存与加载方式 |
 | [镜像构建与自动更新](ci.md) | 开发版 / Git 标签发布、工作流依赖、上游更新与发布操作 |
 | [发布流水线](release-pipeline.md) | OCI 合同、digest 固定、promotion、重跑与 reconciliation |
