@@ -10,6 +10,7 @@ import { renderNudgeText,searchBlocks,blockDocs } from '../docker/plugins/dsh-co
 import {nativePrompts,nativeGuidance,nativeNudgeSections} from '../docker/plugins/dsh-context-manager/acp-prompts.mjs'
 import * as pending from '../docker/plugins/dsh-context-manager/acp-pending.mjs'
 import { transaction } from './lib/context-manager-legacy-probe.mjs'
+import {normalizeProviderUsage,readSessionCacheLedger} from '../docker/plugins/dsh-context-manager/cache-ledger.mjs'
 
 test('native kernel distribution is pinned to the verified source and lockfile', async () => {
   const root = new URL('../docker/plugins/dsh-context-manager/', import.meta.url)
@@ -198,4 +199,91 @@ test('short English and Chinese searches preserve upstream scores and cannot que
   }
   assert.equal(runtime.search(session,'nebulazeta').length,1)
   assert.deepEqual(runtime.search(populated('m3-search-unrelated'),'nebulazeta'),[])
+})
+
+test('provider usage schemas preserve inclusive versus additive cache counts and unknown fields',()=>{
+  const fixtures=[
+    ['openai-chat',{prompt_tokens:1000,completion_tokens:30,prompt_tokens_details:{cached_tokens:700}}],
+    ['openai-responses',{input_tokens:1000,output_tokens:30,input_tokens_details:{cached_tokens:700}}],
+    ['anthropic',{input_tokens:200,cache_read_input_tokens:700,cache_creation_input_tokens:100,output_tokens:30}],
+    ['dsh',{inputTokens:200,cacheReadTokens:700,cacheWriteTokens:100,outputTokens:30,totalTokens:1030}],
+  ]
+  for(const [schema,usage] of fixtures){
+    const actual=normalizeProviderUsage(usage,{schema})
+    assert.equal(actual.known,true,schema)
+    assert.deepEqual([actual.input,actual.cached,actual.output],[1000,700,30],schema)
+  }
+  for(const usage of [{inputTokens:100,outputTokens:20,totalTokens:120},
+    {inputTokens:100,outputTokens:20,cacheReadTokens:0},
+    {inputTokens:100,outputTokens:20,totalTokens:120,cacheReadTokens:200},
+    {inputTokens:100,outputTokens:20,totalTokens:120,cacheReadTokens:10,cacheWriteTokens:0},
+    {inputTokens:-1,outputTokens:20,cacheReadTokens:0}]){
+    assert.equal(normalizeProviderUsage(usage).known,false)
+  }
+  assert.equal(normalizeProviderUsage({prompt_tokens:100,completion_tokens:20},{schema:'openai-chat'}).cached,null)
+  assert.throws(()=>normalizeProviderUsage({}, {schema:'guess'}),/unknown/)
+})
+
+function usageSample(session,{model='one',known=true,input=1000,cached=700}={}) {
+  return session.append('assistant/message',{turn:1,step:1,stream:[],
+    usage:{inputTokens:input-cached,outputTokens:30,totalTokens:input+30,
+      ...(known?{cacheReadTokens:cached,cacheWriteTokens:0}:{})},
+    message:{id:'usage-'+session.seq,role:'assistant',source:{kind:'model',provider:'offline',model},
+      content:[{type:'text',text:'SECRET_PROVIDER_MESSAGE'}]},
+  },{surfaceOp:'append'})
+}
+
+test('cache reports balance exactly and separate unknown, route, series and inherited boundaries',()=>{
+  const session=populated('m4-cache')
+  session.append('request/context',{provider:'offline',model:'one',contextWindow:8192})
+  usageSample(session);usageSample(session,{input:1100,cached:800})
+  usageSample(session,{known:false});usageSample(session);usageSample(session,{model:'two'})
+  session.append('assistant/attempt',{turn:1,step:1,stream:[]})
+  usageSample(session,{model:'two'})
+  session.append('request/header',{header:{config:{provider:'offline',model:'two'}},reason:'series',startsSeries:true})
+  usageSample(session,{model:'two'})
+  const before=JSON.stringify(session.snapshotEvents())
+  const result=readSessionCacheLedger(session,{detail:'full'})
+  assert.equal(result.requestsObserved,7)
+  assert.equal(result.requestsWithCompleteUsage,6)
+  assert.equal(result.unknownRequests,1)
+  assert.equal(result.attemptsWithoutUsage,1)
+  assert.deepEqual(result.groups.map(g=>g.kind==='measured'?g.report.totals.requests:'unknown'),[2,'unknown',1,1,1,1])
+  for(const group of result.groups.filter(g=>g.kind==='measured')){
+    const t=group.report.totals
+    assert.equal(t.input,t.cached+t.newContent+t.compRepay+t.ttlRepay)
+    assert.equal(t.balanced,true)
+  }
+  assert.equal(JSON.stringify(session.snapshotEvents()),before)
+  assert.doesNotMatch(JSON.stringify(result),/SECRET_PROVIDER_MESSAGE|Original native safety/)
+  assert.equal(result.currency,null)
+  assert.equal(result.providerExperimentAccepted,false)
+  const fork=Session.create(SessionId('m4-fork'),session.snapshotEvents(),{...session.header,id:SessionId('m4-fork'),isSeeded:true},session.snapshotEvents().length)
+  usageSample(fork,{model:'two'})
+  assert.equal(readSessionCacheLedger(fork).groups.at(-1).origin,'live')
+  assert.equal(readSessionCacheLedger(fork).groups.at(-2).origin,'inherited')
+})
+
+test('native fold economics require a closed transaction and retain boundary attribution gaps',async()=>{
+  for(const boundary of [false,true]){
+    const session=populated('m4-fold-'+boundary)
+    session.append('request/context',{provider:'offline',model:'one',contextWindow:8192})
+    usageSample(session)
+    const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+    const {refs}=runtime.status(session)
+    runtime.propose(session,{startRef:refs[0].ref,endRef:refs[2].ref,
+      summary:'Preserve original native facts and constraints; this synthetic summary is used only to check cache attribution boundaries. '.repeat(2)})
+    await runtime.processPending({session},transaction(session,pending))
+    if(boundary)session.append('request/context',{provider:'offline',model:'two',contextWindow:8192})
+    usageSample(session,{model:boundary?'two':'one',input:600,cached:0})
+    const result=readSessionCacheLedger(session,{detail:'full'})
+    assert.equal(result.folds.length,1)
+    assert.equal(result.folds[0].tokensCompressed,800)
+    assert.equal(result.unattributedFolds.length,boundary?1:0)
+    assert.equal(result.groups.reduce((n,g)=>n+(g.report?.folds.length??0),0),boundary?0:1)
+    const broken=session.snapshotEvents().filter(e=>e.type!=='compaction/end')
+    const partial=readSessionCacheLedger({id:session.id,snapshotEvents:()=>broken})
+    assert.equal(partial.folds.length,0)
+    assert.equal(partial.incompleteCompactions,1)
+  }
 })

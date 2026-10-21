@@ -119,9 +119,42 @@ queries and score parity for all four built-in algorithms. The image tests cover
 canonical schema execution through DSH ToolRuntime. Hosted image acceptance is
 tracked separately. Rollback is the independent M3 commit; logs are unchanged.
 
+## M4: native cache ledger and measurement coverage
+
+`cache-ledger.mjs` normalizes explicitly selected DSH, OpenAI Chat, OpenAI
+Responses and Anthropic usage schemas. OpenAI inclusive prompt input and
+Anthropic separate cache write/read counts cannot be confused. DSH's settled
+inclusive total must reconcile with its separate counters when all are present.
+Missing, negative, inconsistent or incomplete counters are unknown, never zero
+cache hits. Unknown requests and unsettled attempts break sample continuity.
+
+The read-only `acp_cache` tool runs inside the same native Session and returns
+upstream `buildCacheReport` / `formatCacheReport` results. Upstream decomposition
+and fold economics reconcile the complete-usage ledger exactly. Route, explicit
+request series, inherited/live origin and unknown-usage boundaries cannot be
+combined into a claimed aggregate hit rate. Only closed native compactions are
+folds. Missing prefix estimates, prior usage or following usage stay explicitly
+unattributed. Prefix/summary sizes are local text estimates; media is unmeasured.
+
+Native timed streams expose stream span and whether a first token was observed.
+Request dispatch is not recorded here, so time-to-first-token remains null.
+Reports label relative price weights, estimated economics and `currency:null`;
+neither the default weights nor a synthetic adapter establish a provider bill.
+No raw messages, tool results or other Session's log are returned.
+
+Twenty-one targeted local checks pass across baseline/candidate compatibility,
+four usage schemas, exact ledger identity, unknown coverage, route/series/Fork
+boundaries and closed/native fold attribution. The real offline AgentLoop image
+test now emits deterministic usage and calls `acp_cache` through ToolRuntime.
+Hosted image execution is recorded separately. The required real-provider long
+conversation experiment remains pending; this plan authorizes no API charges.
+
+Rollback: disable ACP and rebuild without the M4 tool/module. This observer
+does not append events or change persisted records.
+
 ## Remaining acceptance
 
-M4-M5 implementation and validation will be appended as their slices land.
+M5 implementation and validation will be appended as its slice lands.
 Real provider charges, real user-session export, shared history access and
 production activation have not been authorized by this plan.
 
