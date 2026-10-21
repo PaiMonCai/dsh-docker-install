@@ -9,7 +9,7 @@ on:
       - ci/reverse-web-parity.cjs
       - .dockerignore
   pull_request:
-    branches: [main]
+    branches: [main, chore/context-manager-m0-audit, 'feat/context-manager-*']
     paths:
       - reverse/**
       - docker-compose.reverse.yml
