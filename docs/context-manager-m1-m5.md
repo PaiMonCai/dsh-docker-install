@@ -85,9 +85,43 @@ Complete CCR ref access after an image downgrade therefore requires retaining
 this small versioned reader (or upgrading again). Original bytes remain in the
 ignorable native plugin records; no old log is rewritten or deleted.
 
+## M3: upstream prompts, Nudge and search
+
+`acp-prompts.mjs` resolves the built-in upstream default pack and quality rules.
+Only host-surface sections explain DSH refs, deferred native transactions and
+bounded retrieval; proxy/XML/inline-restore claims are replaced with the actual
+host contract. Nudge text comes directly from `renderNudgeText`. Tool names
+`compress`, `search_context` and `decompress` are native compatibility entries;
+the existing `acp_*` names remain available. The upstream compress parameter
+union maps to DSH's lossless JSON schema and is parsed only by Kernel.
+
+Canonical compress prevalidates up to eight disjoint ranges. Every range uses a
+separate durable native transaction, and later ranges are revalidated after
+earlier commits. This is deliberately not an all-or-nothing batch: a fault can
+leave earlier ranges committed and independently recoverable. Inspect acp_status
+afterward; never infer a commit from the queued response alone.
+
+The active Kernel view now receives full native text rather than a 1600-character
+preview. Pressure uses a full visible-text token estimate and the resolved native
+route's context window, with a disclosed 200000 fallback when unavailable. Media
+remains protected; this estimate does not claim provider image-token accuracy.
+Projection/Nudge caches key on surface generation and route, so repeated status
+reads cannot consume growth cadence or needlessly rewrite the same prompt.
+
+Search uses upstream `blockDocs` and `searchBlocks` with registered hybrid, BM25,
+fuzzy or substring algorithms, their actual scores and their default threshold.
+The independent exact-match fallback has been removed. Only active blocks from
+the caller's Session are supplied to the search engine.
+
+Eighteen local targeted checks pass, including batch cold replay, overlapping
+range refusal, byte-identical Nudge, stable repeated reads, short English/Chinese
+queries and score parity for all four built-in algorithms. The image tests cover
+canonical schema execution through DSH ToolRuntime. Hosted image acceptance is
+tracked separately. Rollback is the independent M3 commit; logs are unchanged.
+
 ## Remaining acceptance
 
-M3-M5 implementation and validation will be appended as their slices land.
+M4-M5 implementation and validation will be appended as their slices land.
 Real provider charges, real user-session export, shared history access and
 production activation have not been authorized by this plan.
 

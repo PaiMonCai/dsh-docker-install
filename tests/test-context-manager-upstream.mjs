@@ -6,6 +6,10 @@ import { Session, SessionId, appendPluginRecord } from '../ci/acp-kernel-audit/c
 import { AcpRuntime } from '../docker/plugins/dsh-context-manager/acp-runtime.mjs'
 import { offloadCcr,retrieveCcr,CCR_EVENT } from '../docker/plugins/dsh-context-manager/acp-ccr.mjs'
 import { buildStoredPlaceholder } from '../docker/plugins/dsh-context-manager/node_modules/acp-kernel/dist/index.js'
+import { renderNudgeText,searchBlocks,blockDocs } from '../docker/plugins/dsh-context-manager/node_modules/acp-kernel/dist/index.js'
+import {nativePrompts,nativeGuidance,nativeNudgeSections} from '../docker/plugins/dsh-context-manager/acp-prompts.mjs'
+import * as pending from '../docker/plugins/dsh-context-manager/acp-pending.mjs'
+import { transaction } from './lib/context-manager-legacy-probe.mjs'
 
 test('native kernel distribution is pinned to the verified source and lockfile', async () => {
   const root = new URL('../docker/plugins/dsh-context-manager/', import.meta.url)
@@ -139,4 +143,59 @@ test('absorb queues the complete native pair and rejects duplicated call identit
     else assert.equal(runtime.proposeAbsorb(session,args).accepted,true)
     assert.equal(session.snapshotEvents().filter(e=>e.type.includes('acp-state')).length,0)
   }
+})
+
+test('batch compression prevalidates disjoint ranges and commits separate recoverable native transactions', async () => {
+  const session=populated('m3-batch')
+  for(let i=0;i<5;i++)session.append('user/message',{id:'extra-'+i,role:'user',source:{kind:'user'},
+    content:[{type:'text',text:'Further original source facts. '.repeat(80)}]},{surfaceOp:'append'})
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+  const {refs}=runtime.status(session)
+  const summary='Preserve the original source facts, the native transaction boundary, every constraint and all remaining objectives. '.repeat(2)
+  assert.throws(()=>runtime.proposeBatch(session,{content:[
+    {startId:refs[0].ref,endId:refs[3].ref,summary},
+    {startId:refs[2].ref,endId:refs[5].ref,summary},
+  ]}),/overlap/)
+  assert.equal(runtime.status(session).pending,false)
+  assert.equal(runtime.proposeBatch(session,{content:[
+    {startId:refs[0].ref,endId:refs[2].ref,summary},
+    {startId:refs[3].ref,endId:refs[5].ref,summary},
+  ]}).batchQueued,2)
+  assert.equal((await runtime.processPending({session},transaction(session,pending))).batchCommitted,2)
+  const cold=new AcpRuntime({appendRecord:appendPluginRecord})
+  assert.equal(cold.status(Session.create(session.id,session.snapshotEvents(),session.header)).blocks.length,2)
+})
+
+test('upstream nudge is byte-identical and repeated status reads do not consume its cadence', () => {
+  const session=populated('m3-nudge')
+  session.append('request/context',{provider:'offline',model:'tiny',contextWindow:8192})
+  for(let i=0;i<3;i++)session.append('user/message',{id:'large-'+i,role:'user',source:{kind:'user'},
+    content:[{type:'text',text:'Large consumed native evidence. '.repeat(2500)}]},{surfaceOp:'append'})
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord})
+  runtime.status(session)
+  const view=runtime.view(session)
+  assert.equal(view.nudge.shouldInject,true)
+  const text=runtime.nudgeMessage(session)
+  assert.equal(text,renderNudgeText(view.nudge,nativePrompts,nativeNudgeSections).text)
+  runtime.status(session)
+  assert.equal(runtime.nudgeMessage(session),text)
+  assert.ok(nativeGuidance.includes(nativePrompts.howToCompressRules))
+  assert.doesNotMatch(nativeGuidance,/injected by the proxy/)
+})
+
+test('short English and Chinese searches preserve upstream scores and cannot query another Session', async () => {
+  const session=populated('m3-search')
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+  const {refs}=runtime.status(session)
+  runtime.propose(session,{startRef:refs[0].ref,endRef:refs[2].ref,
+    summary:'nebulazeta, connection pool, \u8fde\u63a5\u6c60: retain exact request boundaries and recover original evidence from the native Session log. '.repeat(2)})
+  await runtime.processPending({session},transaction(session,pending))
+  const {row}=runtime.view(session)
+  for(const algorithm of ['hybrid','bm25','fuzzy','substring'])for(const query of ['nebulazeta','\u8fde\u63a5\u6c60']) {
+    const expected=searchBlocks(blockDocs({...row.state,blocks:row.state.blocks.filter(b=>b.active)}),query,{algorithm,limit:10})
+    const actual=runtime.search(session,query,{algorithm})
+    assert.deepEqual(actual.map(hit=>({id:hit.id,score:hit.score})),expected.map(hit=>({id:hit.blockId,score:hit.score})))
+  }
+  assert.equal(runtime.search(session,'nebulazeta').length,1)
+  assert.deepEqual(runtime.search(populated('m3-search-unrelated'),'nebulazeta'),[])
 })
