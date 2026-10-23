@@ -111,6 +111,8 @@ test('launcher gates preserve original injects and nested group paths', () => {
   assert.deepEqual(tree, before)
   tree[1].inject = { some: 'unsupported' }
   assert.throws(() => nativeOrderingPatches(tree), /unsupported preset injection/)
+  tree[1].inject = [{ nativeUnevaluatedExpression: 'someOriginalService()' }]
+  assert.throws(() => nativeOrderingPatches(tree), /unsupported preset injection/)
 })
 
 test('known external plugin manifests are detected without reading credentials', t => {

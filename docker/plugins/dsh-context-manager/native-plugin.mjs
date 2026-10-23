@@ -120,7 +120,8 @@ export function nativeOrderingPatches(tree) {
     for (const row of rows) {
       if (!row || typeof row !== 'object') throw Error('unsupported launcher entry')
       if (row.name === '@deepseek-ai/dsh-agent-preset' && row.disabled !== true) {
-        if (!ID.test(row.id ?? '') || (row.inject !== undefined && !Array.isArray(row.inject)))
+        if (!ID.test(row.id ?? '') || (row.inject !== undefined
+          && (!Array.isArray(row.inject) || row.inject.some(name => typeof name !== 'string'))))
           throw Error('unsupported preset injection gate')
         patches.push({ id: row.id, inject: [...new Set([...(row.inject ?? []), GATE])] })
       }
