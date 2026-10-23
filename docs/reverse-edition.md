@@ -115,7 +115,7 @@ CI 会验证真实格式转换、MCP stdio 工具调用与预设会话创建；�
 ## 保留内容
 
 - 原生「逆向工程」Agent：persona、Shell、文件操作与搜索、Jobs、Todo、用户交互等工具。
-- REA 6.4.0：通过 `rea mcp` stdio，在逆向 Agent 作用域内加载，而非修改全局 Agent。
+- REA 6.7.0：通过 `rea mcp` stdio，在逆向 Agent 作用域内加载，而非修改全局 Agent；升级差异与上游跟踪见 [REA 6.7 升级记录](reverse-rea-670.md)。
 - Ghidra 12.1.4、JADX 1.5.3、JADX Headless MCP、apktool、GDB、strace、ltrace、binutils、patchelf。
 - frida-tools 14.11.0、pwntools 4.15.0。
 - 十个镜像自有逆向 Skills（位于 `/opt/dsh-reverse/skills/`，启动时复制缺失项到 `$DSH_HOME/reverse-engineering/skills/`），不会覆盖用户文件。
