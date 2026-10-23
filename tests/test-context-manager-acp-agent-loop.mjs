@@ -11,6 +11,7 @@ import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 import {configureNativePlugin} from '/opt/dsh/plugins/dsh-context-manager/native-plugin.mjs'
 import {defaults} from '/opt/dsh/plugins/dsh-context-manager/policy.mjs'
+import {installDiagnosticsConsole,LOG_PREFIX} from '/opt/dsh/plugins/dsh-context-manager/diagnostics.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const load=p=>import(pathToFileURL(rq.resolve(p)).href)
 const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp]=await Promise.all([
@@ -23,7 +24,10 @@ const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp
  import('/opt/dsh/plugins/dsh-context-manager/acp-native.js'),
 ])
 const oldGate=process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
+const oldLogLevel=process.env.DSH_CONTEXT_MANAGER_LOG_LEVEL
+process.env.DSH_CONTEXT_MANAGER_LOG_LEVEL='debug'
 const builtin=process.argv.includes('--builtin')
+const canonical=process.argv.includes('--canonical')
 if (builtin) {
  const saved=defaults();saved.engine='tiered';saved.nativePlugin.enabled=true
  saved.tiered.preserveRecentMessages=2;saved.tiered.preserveRecentTokens=0
@@ -31,6 +35,8 @@ if (builtin) {
  configureNativePlugin(saved,{})
 } else process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED='1'
 const ctx=new cordis.Context()
+const diagnosticRows=[]
+assert.equal(installDiagnosticsConsole(ctx,{write:line=>diagnosticRows.push(JSON.parse(line.slice(LOG_PREFIX.length)))}),true)
 const owned=[]
 async function mount(plugin,config){
  const fiber=ctx.plugin(plugin,config)
@@ -69,8 +75,9 @@ class OfflineAdapter extends llm.LlmAdapter {
   else if(n===1){
    const status=parsed()
    assert.ok(status.refs?.length>=5)
-   name='acp_compress'
-   args={startRef:status.refs[0].ref,endRef:status.refs[3].ref,summary,topic:'verified original evidence'}
+   name=canonical?'compress':'acp_compress'
+   args=canonical?{startId:status.refs[0].ref,endId:status.refs[3].ref,content:summary}:
+    {startRef:status.refs[0].ref,endRef:status.refs[3].ref,summary,topic:'verified original evidence'}
   }else if(n===2){
    const accepted=parsed()
    assert.equal(accepted.accepted,true)
@@ -144,13 +151,16 @@ try{
  agent.followup(llm.createUserMessage({content:[{type:'text',text:'Summarize earlier history safely'}],
   source:{kind:'user'}}))
  await idle
- assert.deepEqual(visited,['acp_status','acp_compress','acp_search_context','acp_decompress','acp_cache','final'])
+ assert.deepEqual(visited,['acp_status',canonical?'compress':'acp_compress','acp_search_context','acp_decompress','acp_cache','final'])
  assert.equal(calls,6)
  const events=agent.session.snapshotEvents()
  assert.equal(events.filter(e=>e.type==='compaction/end'&&e.data.error===undefined).length,1)
  assert.equal(events.filter(e=>e.type==='tool/result').length,5)
  assert.equal(events.filter(e=>e.type==='compaction/start').length,1)
  assert.equal(events.filter(e=>e.type==='compaction/summary').length,1)
+ assert.ok(diagnosticRows.some(row=>row.event==='acp.committed'))
+ assert.ok(diagnosticRows.some(row=>row.event==='tools.mounted'))
+ assert.ok(!JSON.stringify(diagnosticRows).includes('acp-offline-real-loop'))
  process.stdout.write('DSH_CONTEXT_MANAGER_ACP_AGENT_LOOP_PASS tools=5 turns=1 nativeCompaction=1 replayable=true cacheLedger=true\n')
  if(builtin) {
   const original='Exact native ToolRuntime CCR evidence. '.repeat(1800)
@@ -205,10 +215,17 @@ try{
    agent,signal:new AbortController().signal})
   assert.equal(denied.isError,true)
   lift()
+  assert.ok(diagnosticRows.some(row=>row.event==='ccr.stored'))
+  assert.ok(diagnosticRows.some(row=>row.event==='readers.mounted'))
+  assert.ok(diagnosticRows.some(row=>row.event==='tool.completed'&&row.historical===true))
+  assert.ok(!JSON.stringify(diagnosticRows).includes('Exact native ToolRuntime CCR evidence.'))
   process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_PLUGIN_LOOP_PASS labFlags=false ccrToolRuntime=true readerIsolation=true readerPolicyPreserved=true basicRecompaction=true\n')
+  process.stdout.write('DSH_CONTEXT_MANAGER_DIAGNOSTICS_LOOP_PASS transport=cordis-exporter redacted=true durable=true\n')
  }
 }finally{
  for(const fiber of owned.reverse())await fiber.dispose()
  if(oldGate===undefined)delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
  else process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED=oldGate
+ if(oldLogLevel===undefined)delete process.env.DSH_CONTEXT_MANAGER_LOG_LEVEL
+ else process.env.DSH_CONTEXT_MANAGER_LOG_LEVEL=oldLogLevel
 }

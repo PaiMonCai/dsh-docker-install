@@ -27,6 +27,6 @@
   },
   "license": "MIT",
   "dependencies": {
-    "acp-kernel": "file:vendor/acp-kernel-0.0.147-dsh.bc4a3f87.1.tgz"
+    "acp-kernel": "file:vendor/acp-kernel-0.0.160-dsh.a2d8cb9b.1.tgz"
   }
 }

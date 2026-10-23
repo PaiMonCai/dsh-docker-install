@@ -18,6 +18,13 @@ save(){
     writeSettings(saved,revision)
   ' "$1" >/dev/null
 }
+require_log(){
+  if ! grep -q -- "$1" <<<"$logs"; then
+    printf '%s\n' "$logs" | tail -100
+    echo "::error::Expected native context diagnostic log missing: $1"
+    return 1
+  fi
+}
 wait_ready(){
   local state="$1" marker="$2" logs
   for _ in {1..95}; do
@@ -47,6 +54,8 @@ save enabled
 start_enabled
 wait_ready enabled 'DSH_CONTEXT_MANAGER_CI_REPLAY_SEEDED '
 logs="$(docker logs "$name" 2>&1)"
+require_log '^DSH_CONTEXT_EVENT .*"event":"plugin.boot".*"enabled":true'
+require_log '^DSH_CONTEXT_EVENT .*"event":"engine.mounted"'
 sid="$(sed -n 's/.*DSH_CONTEXT_MANAGER_CI_REPLAY_SEEDED //p' <<<"$logs" | tail -1)"
 ref="$(sed -n 's/.*DSH_CONTEXT_MANAGER_CI_REPLAY_CCR_SEEDED //p' <<<"$logs" | tail -1)"
 [[ "$sid" =~ ^[A-Za-z0-9_.:-]{1,128}$ && "$ref" =~ ^dshccr:v2:[a-f0-9]{16}:[0-9]+$ ]]
@@ -65,7 +74,9 @@ docker run -d --name "$name" -v "$volume:/root/.dsh" \
   -e DSH_CONTEXT_MANAGER_CI_REPLAY_CONFIRM=isolated-test-volume \
   "$image" >/dev/null
 wait_ready disabled "DSH_CONTEXT_MANAGER_CI_REPLAY_VERIFIED $sid cold=true"
-docker logs "$name" 2>&1 | grep -q 'CCR_ROLLBACK_VERIFIED originalExact=true'
+logs="$(docker logs "$name" 2>&1)"
+grep -q 'CCR_ROLLBACK_VERIFIED originalExact=true' <<<"$logs"
+require_log '^DSH_CONTEXT_EVENT .*"event":"plugin.boot".*"enabled":false'
 docker rm -f "$name" >/dev/null
 save enabled
 start_enabled

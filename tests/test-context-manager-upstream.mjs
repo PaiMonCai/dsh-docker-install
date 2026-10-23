@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { Session, SessionId, appendPluginRecord } from '../ci/acp-kernel-audit/compatibility.mjs'
+import { Session, SessionId, appendPluginRecord, probeLegacySession } from '../ci/acp-kernel-audit/compatibility.mjs'
 import { AcpRuntime,INTENT_EVENT,STATE_EVENT } from '../docker/plugins/dsh-context-manager/acp-runtime.mjs'
 import { offloadCcr,retrieveCcr,CCR_EVENT } from '../docker/plugins/dsh-context-manager/acp-ccr.mjs'
 import { buildStoredPlaceholder } from '../docker/plugins/dsh-context-manager/node_modules/acp-kernel/dist/index.js'
@@ -13,6 +13,8 @@ import { transaction } from './lib/context-manager-legacy-probe.mjs'
 import {normalizeProviderUsage,readSessionCacheLedger} from '../docker/plugins/dsh-context-manager/cache-ledger.mjs'
 import {rolloutReadiness} from '../docker/plugins/dsh-context-manager/rollout-readiness.mjs'
 import {defaults} from '../docker/plugins/dsh-context-manager/policy.mjs'
+import * as recovery from '../docker/plugins/dsh-context-manager/acp-recovery.mjs'
+import * as ccr from '../docker/plugins/dsh-context-manager/acp-ccr.mjs'
 
 test('native kernel distribution is pinned to the verified source and lockfile', async () => {
   const root = new URL('../docker/plugins/dsh-context-manager/', import.meta.url)
@@ -21,8 +23,47 @@ test('native kernel distribution is pinned to the verified source and lockfile',
   const data = await readFile(new URL('vendor/' + provenance.artifact, root))
   assert.equal(createHash('sha256').update(data).digest('hex'), provenance.sha256)
   assert.equal(lock.packages['node_modules/acp-kernel'].integrity, provenance.integrity)
-  assert.equal(provenance.upstream.commit, 'bc4a3f87e2dc98e82df6f707d362e75492fdf3d1')
+  assert.equal(provenance.upstream.commit, 'a2d8cb9b2e5060978d130b9cebc3e41b1506a0db')
   assert.equal(provenance.reproducibleCleanBuild, true)
+})
+
+test('the upgraded runtime replays the frozen 0.0.147 log, originals, missing ACK and fork', async () => {
+  const bytes=await readFile(new URL('./fixtures/context-manager/acp-0.0.147-session.json',import.meta.url))
+  const snapshot=JSON.parse(await readFile(new URL('../ci/acp-kernel-audit/native-snapshot.json',import.meta.url),'utf8'))
+  const expected=snapshot.fixtures.find(row=>row.path.endsWith('acp-0.0.147-session.json'))
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),expected.sha256)
+  const fixture=JSON.parse(bytes)
+  assert.equal(fixture.provenance.kernel,'0.0.147-dsh.bc4a3f87.1')
+  const results=await probeLegacySession({AcpRuntime,...pending,...recovery,...ccr},fixture)
+  assert.ok(Object.values(results).every(value=>value===true))
+})
+
+test('flat summary-in-content and new line separators retain exact native range coverage', async () => {
+  for(const shape of ['flat','minus','fullwidth']) {
+    const session=populated('upgrade-parser-'+shape)
+    const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+    const {refs}=runtime.status(session)
+    const summary='Preserve the exact original native source interval and all session boundaries while accepting the upstream parser spelling. '.repeat(2)
+    const args=shape==='flat'?{startId:refs[0].ref,endId:refs[2].ref,content:summary}:
+      {content:refs[0].ref+(shape==='minus'?'\u2212':'\uff0d')+refs[2].ref+'\n'+summary}
+    const original=JSON.stringify(args)
+    assert.equal(runtime.proposeBatch(session,args).batchQueued,1)
+    await runtime.processPending({session},transaction(session,pending))
+    const id=runtime.status(session).blocks[0].id
+    assert.equal(runtime.retrieve(session,{blockId:id}).sourceCount,3)
+    assert.equal(JSON.stringify(args),original)
+  }
+})
+
+test('an unknown line separator cannot silently narrow a multi-message range', () => {
+  const session=populated('upgrade-parser-unknown-separator')
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord})
+  const {refs}=runtime.status(session)
+  const before=JSON.stringify(session.snapshotEvents())
+  assert.throws(()=>runtime.proposeBatch(session,{content:refs[0].ref+'/'+refs[2].ref+'\n'+
+    'Keep the complete intended source interval; never silently reduce a two-ref range to its first message. '.repeat(2)}),/valid ranges/)
+  assert.equal(runtime.status(session).pending,false)
+  assert.equal(JSON.stringify(session.snapshotEvents()),before)
 })
 
 test('native policy exposes and enforces the configured recent context and growth threshold', () => {

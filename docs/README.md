@@ -44,6 +44,8 @@
 | [内置 Web 插件接入规范](builtin-plugin-contract.md) | 原生 `--patch` 加载、插件开关、Icon Dock 契约与验收 |
 | [Context Manager 上游优先原生化方案](context-manager-upstream-first-plan.md) | billion-context Kernel 复用路线、版本迁移、分阶段 PR、验收门禁与回滚 |
 | [billion-context 内置原生插件](context-manager-native-plugin.md) | 设置页启停、重启应用、原生回退、历史回取与验收 |
+| [Kernel 0.0.160 与长任务对照](context-manager-kernel-0160.md) | 固定升级、双版本旧日志回放、原生/内置/外部插件对照材料 |
+| [上下文增强运行日志](context-manager-diagnostics.md) | 日志级别、容器采集、事务/CCR/用量事件与关联边界 |
 | [Context Manager M0 审计](context-manager-m0-audit.md) | 固定来源、实际发布包/API 差异、旧日志回放与升级阻断结论 |
 | [ACP 上游功能对照矩阵](context-manager-upstream-parity-matrix.md) | 模块 Reuse / Adapt / Do not port 决策和代码归属 |
 | [推理等级插件实现说明](../docker/plugins/dsh-reasoning-editor/README.md) | 同一 `reasoningEfforts` 字段、批量保存与加载方式 |

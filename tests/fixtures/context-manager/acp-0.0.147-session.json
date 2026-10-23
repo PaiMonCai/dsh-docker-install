@@ -1,0 +1,1526 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "synthetic": true,
+    "kernel": "0.0.147-dsh.bc4a3f87.1",
+    "dshSession": "0.2.1-rc.2",
+    "nativeTransaction": "controlled double; not CompactionEngine acceptance",
+    "generator": "ci/acp-kernel-audit/generate-fixture.mjs --write --native-baseline"
+  },
+  "header": {
+    "version": 4,
+    "id": "m0-synthetic-legacy-session",
+    "createdAt": 1792713600000,
+    "isSeeded": false
+  },
+  "events": [
+    {
+      "type": "plugin:dsh-docker-context-manager/ccr-result",
+      "seq": 0,
+      "time": 1792713600000,
+      "data": {
+        "version": 2,
+        "scope": "85ca6a9645eade9d",
+        "tool": "read_audit_fixture",
+        "callId": "m0-tool-1",
+        "content": [
+          {
+            "type": "text",
+            "text": "SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL "
+          }
+        ],
+        "characters": 1472,
+        "entry": {
+          "hash": "cd0d7476b21e7cab77d052c558e23b700e3faeacb7a155b3a83d67b7b15cbf8a",
+          "rawId": "arrival",
+          "kind": "tool result",
+          "tokens": 368,
+          "chars": 1472,
+          "head": "SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNT…",
+          "toolName": "read_audit_fixture"
+        }
+      },
+      "ignorable": true
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 1,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 0
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 2,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-0",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 3,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 1
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 4,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-1",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 5,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 2
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 6,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-2",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 7,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 3
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 8,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-3",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 9,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 4
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 10,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-4",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 11,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 5
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 12,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-5",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 13,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 6
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 14,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-6",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 15,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 7
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 16,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-7",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 17,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 8
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 18,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-8",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. Synthetic source 8: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 19,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 9
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 20,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-9",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. Synthetic source 9: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 21,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 10
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 22,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-10",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. Synthetic source 10: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/m0-gap",
+      "seq": 23,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "marker": 11
+      },
+      "ignorable": true
+    },
+    {
+      "type": "user/message",
+      "seq": 24,
+      "time": 1792713600000,
+      "data": {
+        "id": "synthetic-11",
+        "role": "user",
+        "source": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. Synthetic source 11: preserve exact evidence and session ownership. "
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-intent",
+      "seq": 25,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 804,
+            "compressionCount": 1,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 2,
+          "nextRunId": 2,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 1,
+          "lastPassIds": [
+            "2",
+            "4",
+            "6",
+            "8",
+            "10",
+            "12",
+            "14",
+            "16",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "blockId": "b1",
+        "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+        "startSeq": 2,
+        "endSeq": 8,
+        "checkpoints": {}
+      },
+      "ignorable": true
+    },
+    {
+      "type": "compaction/start",
+      "seq": 26,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-26",
+        "turn": null
+      }
+    },
+    {
+      "type": "compaction/summary",
+      "seq": 27,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-26",
+        "summary": [
+          {
+            "type": "text",
+            "text": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history."
+          }
+        ],
+        "shadowedRange": {
+          "start": 2,
+          "end": 8
+        },
+        "shadowedSeqs": [
+          2,
+          4,
+          6,
+          8
+        ],
+        "shadowedTokenCount": 800,
+        "provider": "synthetic",
+        "model": "offline"
+      }
+    },
+    {
+      "type": "user/message",
+      "seq": 28,
+      "time": 1792713600000,
+      "data": {
+        "id": "checkpoint-m0-transaction-26",
+        "role": "user",
+        "source": {
+          "kind": "compact-checkpoint",
+          "compactionId": "m0-transaction-26"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "<compacted-summary>\nSynthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.\n</compacted-summary>"
+          }
+        ]
+      },
+      "sourceEventSeqs": [
+        26,
+        27,
+        2,
+        4,
+        6,
+        8
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 2,
+        "endSeq": 8
+      }
+    },
+    {
+      "type": "compaction/end",
+      "seq": 29,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-26",
+        "turn": null
+      }
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-state",
+      "seq": 30,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 804,
+            "compressionCount": 1,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 2,
+          "nextRunId": 2,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 1,
+          "lastPassIds": [
+            "2",
+            "4",
+            "6",
+            "8",
+            "10",
+            "12",
+            "14",
+            "16",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "checkpoints": {
+          "28": "b1"
+        },
+        "lastResult": {
+          "block": "b1",
+          "summarySeq": 27,
+          "compactionId": "m0-transaction-26"
+        }
+      },
+      "ignorable": true
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-intent",
+      "seq": 31,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 1,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            },
+            {
+              "blockId": "b2",
+              "runId": "r2",
+              "tier": 1,
+              "summary": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "effectiveMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00005",
+              "endRef": "m00008"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012",
+              "acp_summary_b1": "m00013"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24",
+              "m00013": "acp_summary_b1"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 1608,
+            "compressionCount": 2,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 3,
+          "nextRunId": 3,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 5,
+          "lastPassIds": [
+            "acp_summary_b1",
+            "10",
+            "12",
+            "14",
+            "16",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "blockId": "b2",
+        "summary": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+        "startSeq": 10,
+        "endSeq": 16,
+        "checkpoints": {
+          "28": "b1"
+        }
+      },
+      "ignorable": true
+    },
+    {
+      "type": "compaction/start",
+      "seq": 32,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-32",
+        "turn": null
+      }
+    },
+    {
+      "type": "compaction/summary",
+      "seq": 33,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-32",
+        "summary": [
+          {
+            "type": "text",
+            "text": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history."
+          }
+        ],
+        "shadowedRange": {
+          "start": 10,
+          "end": 16
+        },
+        "shadowedSeqs": [
+          10,
+          12,
+          14,
+          16
+        ],
+        "shadowedTokenCount": 800,
+        "provider": "synthetic",
+        "model": "offline"
+      }
+    },
+    {
+      "type": "user/message",
+      "seq": 34,
+      "time": 1792713600000,
+      "data": {
+        "id": "checkpoint-m0-transaction-32",
+        "role": "user",
+        "source": {
+          "kind": "compact-checkpoint",
+          "compactionId": "m0-transaction-32"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "<compacted-summary>\nSynthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.\n</compacted-summary>"
+          }
+        ]
+      },
+      "sourceEventSeqs": [
+        32,
+        33,
+        10,
+        12,
+        14,
+        16
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 10,
+        "endSeq": 16
+      }
+    },
+    {
+      "type": "compaction/end",
+      "seq": 35,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-32",
+        "turn": null
+      }
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-state",
+      "seq": 36,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 1,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            },
+            {
+              "blockId": "b2",
+              "runId": "r2",
+              "tier": 1,
+              "summary": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "effectiveMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "m00005",
+              "endRef": "m00008"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012",
+              "acp_summary_b1": "m00013"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24",
+              "m00013": "acp_summary_b1"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 1608,
+            "compressionCount": 2,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 3,
+          "nextRunId": 3,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 5,
+          "lastPassIds": [
+            "acp_summary_b1",
+            "10",
+            "12",
+            "14",
+            "16",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "checkpoints": {
+          "28": "b1",
+          "34": "b2"
+        },
+        "lastResult": {
+          "block": "b2",
+          "summarySeq": 33,
+          "compactionId": "m0-transaction-32"
+        }
+      },
+      "ignorable": true
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-intent",
+      "seq": 37,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 2,
+              "generation": "young",
+              "active": false,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            },
+            {
+              "blockId": "b2",
+              "runId": "r2",
+              "tier": 1,
+              "summary": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "effectiveMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 1,
+              "generation": "young",
+              "active": false,
+              "startRef": "m00005",
+              "endRef": "m00008"
+            },
+            {
+              "blockId": "b3",
+              "runId": "r3",
+              "tier": 2,
+              "summary": "The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership. The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership.",
+              "directMessageIds": [],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8",
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [
+                "b1",
+                "b2"
+              ],
+              "compressedTokens": 138,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "b1",
+              "endRef": "b2"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012",
+              "acp_summary_b1": "m00013",
+              "acp_summary_b2": "m00014"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24",
+              "m00013": "acp_summary_b1",
+              "m00014": "acp_summary_b2"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 1746,
+            "compressionCount": 3,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 4,
+          "nextRunId": 4,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 1,
+          "lastPassIds": [
+            "acp_summary_b1",
+            "acp_summary_b2",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "blockId": "b3",
+        "summary": "The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership. The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership.",
+        "startSeq": 28,
+        "endSeq": 34,
+        "checkpoints": {
+          "28": "b1",
+          "34": "b2"
+        }
+      },
+      "ignorable": true
+    },
+    {
+      "type": "compaction/start",
+      "seq": 38,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-38",
+        "turn": null
+      }
+    },
+    {
+      "type": "compaction/summary",
+      "seq": 39,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-38",
+        "summary": [
+          {
+            "type": "text",
+            "text": "The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership. The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership."
+          }
+        ],
+        "shadowedRange": {
+          "start": 28,
+          "end": 34
+        },
+        "shadowedSeqs": [
+          28,
+          34
+        ],
+        "shadowedTokenCount": 800,
+        "provider": "synthetic",
+        "model": "offline"
+      }
+    },
+    {
+      "type": "user/message",
+      "seq": 40,
+      "time": 1792713600000,
+      "data": {
+        "id": "checkpoint-m0-transaction-38",
+        "role": "user",
+        "source": {
+          "kind": "compact-checkpoint",
+          "compactionId": "m0-transaction-38"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "<compacted-summary>\nThe two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership. The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership.\n</compacted-summary>"
+          }
+        ]
+      },
+      "sourceEventSeqs": [
+        38,
+        39,
+        28,
+        34
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 28,
+        "endSeq": 34
+      }
+    },
+    {
+      "type": "compaction/end",
+      "seq": 41,
+      "time": 1792713600000,
+      "data": {
+        "compactionId": "m0-transaction-38",
+        "turn": null
+      }
+    },
+    {
+      "type": "plugin:dsh-docker-context-manager/acp-state",
+      "seq": 42,
+      "time": 1792713600000,
+      "data": {
+        "version": 1,
+        "state": {
+          "blocks": [
+            {
+              "blockId": "b1",
+              "runId": "r1",
+              "tier": 1,
+              "summary": "Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 0 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 2,
+              "generation": "young",
+              "active": false,
+              "startRef": "m00001",
+              "endRef": "m00004"
+            },
+            {
+              "blockId": "b2",
+              "runId": "r2",
+              "tier": 1,
+              "summary": "Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history. Synthetic group 1 keeps all verified source evidence, stable message references and the DSH event log as the only authoritative history.",
+              "directMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "effectiveMessageIds": [
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [],
+              "compressedTokens": 804,
+              "createdAt": 1792713600000,
+              "survivedCount": 1,
+              "generation": "young",
+              "active": false,
+              "startRef": "m00005",
+              "endRef": "m00008"
+            },
+            {
+              "blockId": "b3",
+              "runId": "r3",
+              "tier": 2,
+              "summary": "The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership. The two synthetic Tier 1 groups retain independent original evidence and stable message references. Their Tier 2 summary preserves every recovery boundary and keeps DSH Session ownership.",
+              "directMessageIds": [],
+              "effectiveMessageIds": [
+                "2",
+                "4",
+                "6",
+                "8",
+                "10",
+                "12",
+                "14",
+                "16"
+              ],
+              "directBlockIds": [
+                "b1",
+                "b2"
+              ],
+              "compressedTokens": 138,
+              "createdAt": 1792713600000,
+              "survivedCount": 0,
+              "generation": "young",
+              "active": true,
+              "startRef": "b1",
+              "endRef": "b2"
+            }
+          ],
+          "messageRefs": {
+            "byRaw": {
+              "2": "m00001",
+              "4": "m00002",
+              "6": "m00003",
+              "8": "m00004",
+              "10": "m00005",
+              "12": "m00006",
+              "14": "m00007",
+              "16": "m00008",
+              "18": "m00009",
+              "20": "m00010",
+              "22": "m00011",
+              "24": "m00012",
+              "acp_summary_b1": "m00013",
+              "acp_summary_b2": "m00014"
+            },
+            "byRef": {
+              "m00001": "2",
+              "m00002": "4",
+              "m00003": "6",
+              "m00004": "8",
+              "m00005": "10",
+              "m00006": "12",
+              "m00007": "14",
+              "m00008": "16",
+              "m00009": "18",
+              "m00010": "20",
+              "m00011": "22",
+              "m00012": "24",
+              "m00013": "acp_summary_b1",
+              "m00014": "acp_summary_b2"
+            }
+          },
+          "tokenSnapshot": {},
+          "nudge": {
+            "lastPerMessageNudgeTokens": 0,
+            "lastNudgeShownTokens": 0,
+            "baselineTokens": 0,
+            "anchors": {},
+            "lastShownByTier": {}
+          },
+          "stats": {
+            "tokensCompressed": 1746,
+            "compressionCount": 3,
+            "absorbedTokens": 0,
+            "storedCount": 0,
+            "retrievalCount": 0
+          },
+          "absorbed": [],
+          "rules": [],
+          "nextRuleId": 1,
+          "terminalStreak": 0,
+          "nextBlockId": 4,
+          "nextRunId": 4,
+          "hiddenOrphanRefs": [],
+          "pendingOrphanSweepMinRef": 1,
+          "lastPassIds": [
+            "acp_summary_b1",
+            "acp_summary_b2",
+            "18",
+            "20",
+            "22",
+            "24"
+          ]
+        },
+        "checkpoints": {
+          "28": "b1",
+          "34": "b2",
+          "40": "b3"
+        },
+        "lastResult": {
+          "block": "b3",
+          "summarySeq": 39,
+          "compactionId": "m0-transaction-38"
+        }
+      },
+      "ignorable": true
+    }
+  ],
+  "expected": {
+    "blocks": [
+      {
+        "id": "b3",
+        "tier": 2
+      }
+    ],
+    "activeBlock": "b3",
+    "checkpoints": {
+      "28": "b1",
+      "34": "b2",
+      "40": "b3"
+    },
+    "refs": {
+      "2": "m00001",
+      "4": "m00002",
+      "6": "m00003",
+      "8": "m00004",
+      "10": "m00005",
+      "12": "m00006",
+      "14": "m00007",
+      "16": "m00008",
+      "18": "m00009",
+      "20": "m00010",
+      "22": "m00011",
+      "24": "m00012",
+      "acp_summary_b1": "m00013",
+      "acp_summary_b2": "m00014"
+    },
+    "originals": [
+      {
+        "ref": "m00001",
+        "text": "Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. Synthetic source 0: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00002",
+        "text": "Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. Synthetic source 1: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00003",
+        "text": "Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. Synthetic source 2: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00004",
+        "text": "Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. Synthetic source 3: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00005",
+        "text": "Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. Synthetic source 4: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00006",
+        "text": "Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. Synthetic source 5: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00007",
+        "text": "Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. Synthetic source 6: preserve exact evidence and session ownership. "
+      },
+      {
+        "ref": "m00008",
+        "text": "Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. Synthetic source 7: preserve exact evidence and session ownership. "
+      }
+    ],
+    "ccr": {
+      "ref": "dshccr:v2:85ca6a9645eade9d:0",
+      "text": "SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL SYNTHETIC-CCR-ORIGINAL "
+    }
+  }
+}

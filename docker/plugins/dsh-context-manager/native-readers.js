@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { AcpRuntime } from './acp-runtime.mjs'
 import { retrieveCcr } from './acp-ccr.mjs'
+import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
 
 const rq = createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const { defineTool } = await import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href)
@@ -11,15 +12,25 @@ const installed = new WeakSet()
 export function installNativeReaders(agent) {
   if (installed.has(agent)) return
   const ctx = agent.ctx
+  const log = createDiagnostics(ctx.logger)
   const runtime = new AcpRuntime({ appendRecord: () => { throw Error('compatibility reader cannot write Session records') } })
   const register = (name, description, parameters, run) => {
     if (ctx.tools.get(name, agent)) return
     ctx.tools.register(defineTool({ name, description, parameters,
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute(args, exec) {
-        exec.signal?.throwIfAborted?.()
-        if (exec.agent?.session !== agent.session) throw Error('historical retrieval requires the calling Session')
-        return JSON.stringify(run(args))
+        const started=performance.now()
+        try {
+          exec.signal?.throwIfAborted?.()
+          if (exec.agent?.session !== agent.session) throw Error('historical retrieval requires the calling Session')
+          const result=JSON.stringify(run(args))
+          log('tool.completed',{session:agent.session,callId:exec.callId,tool:name,historical:true,elapsedMs:performance.now()-started})
+          return result
+        } catch(error) {
+          log('tool.refused',{session:exec.agent?.session,callId:exec.callId,tool:name,historical:true,
+            reason:diagnosticReason(error),elapsedMs:performance.now()-started})
+          throw error
+        }
       },
     }))
   }
@@ -37,4 +48,5 @@ export function installNativeReaders(agent) {
     { query: { type: 'string', required: true }, algorithm: { type: 'string' } },
     args => runtime.search(agent.session, args.query, args, { historical: true }))
   installed.add(agent)
+  log('readers.mounted',{session:agent.session,mode:'read-only',historical:true})
 }

@@ -307,7 +307,7 @@ test('Reverse keeps Standard image-owned Web plugins and compose toggles in pari
  assert.match(workflow,/reverse-web-parity\.cjs compare/)
  assert.match(workflow,/verify-runtime \/tmp\/standard-web-plugins\.json/)
  assert.match(workflow,/Detect changed Standard base on PR/)
- assert.match(workflow,/docker build --pull -f Dockerfile -t dsh-standard-ci:reverse/)
+ assert.match(workflow,/docker buildx build --pull --load --platform linux\/amd64 -f Dockerfile -t dsh-standard-ci:reverse/)
  assert.match(workflow,/docker\/plugins\/\*\*/)
 
  assert.match(workflow,/client-graph/)

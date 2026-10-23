@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Session, SessionId, appendPluginRecord, baselineRoot, fixturePath,
   loadAdapter, transaction, probeLegacySession } from './compatibility.mjs'
 
 // Explicit maintainer command only: normal tests always consume the frozen file.
 assert.equal(process.argv[2], '--write', 'pass --write to replace the synthetic baseline fixture')
+const native = process.argv.includes('--native-baseline')
+const kernelRoot = native ? resolve(import.meta.dirname, '../../docker/plugins/dsh-context-manager/node_modules/acp-kernel') : baselineRoot
+const kernelVersion = JSON.parse(await readFile(resolve(kernelRoot, 'package.json'), 'utf8')).version
+assert.equal(kernelVersion, native ? '0.0.147-dsh.bc4a3f87.1' : '0.0.101')
+const output = native ? resolve(dirname(fixturePath), 'acp-0.0.147-session.json') : fixturePath
 const temporary = await mkdtemp(join(tmpdir(), 'dsh-acp-fixture-'))
 const clock = Date.now
-Date.now = () => Date.parse('2026-10-21T00:00:00Z')
+Date.now = () => Date.parse(native ? '2026-10-23T00:00:00Z' : '2026-10-21T00:00:00Z')
 try {
-  const adapter = await loadAdapter(baselineRoot, temporary)
+  const adapter = await loadAdapter(kernelRoot, temporary)
   const session = Session.create(SessionId('m0-synthetic-legacy-session'))
   const ccrText = 'SYNTHETIC-CCR-ORIGINAL '.repeat(64)
   const saved = await adapter.offloadCcr({ agent: { session }, name: 'read_audit_fixture', callId: 'm0-tool-1' },
@@ -41,17 +46,17 @@ try {
   }))
   const fixture = {
     schemaVersion: 1,
-    provenance: { synthetic: true, kernel: '0.0.101', dshSession: '0.2.1-rc.2',
-      nativeTransaction: 'controlled double; not CompactionEngine acceptance', generator: 'ci/acp-kernel-audit/generate-fixture.mjs --write' },
+    provenance: { synthetic: true, kernel: kernelVersion, dshSession: '0.2.1-rc.2',
+      nativeTransaction: 'controlled double; not CompactionEngine acceptance', generator: 'ci/acp-kernel-audit/generate-fixture.mjs --write' + (native ? ' --native-baseline' : '') },
     header: session.header, events: session.snapshotEvents(),
     expected: { blocks: status.blocks.map(b => ({ id: b.id, tier: b.tier })), activeBlock: active,
       checkpoints: record.checkpoints, refs: record.state.messageRefs.byRaw,
       originals, ccr: { ref: saved.ref, text: ccrText } },
   }
   await probeLegacySession(adapter, fixture)
-  await mkdir(dirname(fixturePath), { recursive: true })
-  await writeFile(fixturePath, JSON.stringify(fixture, null, 2) + '\n')
-  console.log('Wrote synthetic legacy fixture:', fixturePath)
+  await mkdir(dirname(output), { recursive: true })
+  await writeFile(output, JSON.stringify(fixture, null, 2) + '\n')
+  console.log('Wrote synthetic legacy fixture:', output)
 } finally {
   Date.now = clock
   await rm(temporary, { recursive: true, force: true })

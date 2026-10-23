@@ -10,7 +10,10 @@ import { probeLegacySession, probeTieredAdapter } from '/opt/dsh/test-lib/contex
 
 const require = createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const session = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session')).href)
-const fixture = JSON.parse(await readFile('/opt/dsh/test-fixtures/acp-0.0.101-session.json', 'utf8'))
-const result = await probeLegacySession({ ...runtime, ...recovery, ...pending, ...ccr }, fixture, session)
+const result = {}
+for (const version of ['0.0.101', '0.0.147']) {
+  const fixture = JSON.parse(await readFile('/opt/dsh/test-fixtures/acp-' + version + '-session.json', 'utf8'))
+  result[version] = await probeLegacySession({ ...runtime, ...recovery, ...pending, ...ccr }, fixture, session)
+}
 const tiers = await probeTieredAdapter({ ...runtime, ...recovery, ...pending, ...ccr }, session)
 console.log('DSH_CONTEXT_MANAGER_M0_LEGACY_PASS ' + JSON.stringify({ legacy: result, tiers }))

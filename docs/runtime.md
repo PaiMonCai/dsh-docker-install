@@ -232,6 +232,7 @@ docker run --rm -it dsh:latest bash               # 进容器排查
 | `DSH_SEARCH_ENABLED` | `false` | 启用搜索设置插件；SearXNG 仅在被选为提供方时启动 |
 | `DSH_PERMISSION_MODE` | — | `danger-full-access` 可临时关闭文件沙箱 |
 | `DSH_PROMPT_MANAGER` | `true` | 原生「提示词与执行」设置页；附加指令与工具禁用名单默认关闭，支持显式切换会话权限预设 |
+| `DSH_CONTEXT_MANAGER_LOG_LEVEL` | `info` | 上下文增强结构化运行日志；`debug` 增加工具、用量和原样保留原因，另支持 `warn` / `off`，见 [采集说明](context-manager-diagnostics.md) |
 | `DSH_DOCKER_ACCESS` | `false` | dshd 是否把宿主机 Docker Socket 挂入 DSH |
 | `DSH_DOCKER_RESTART` | 由 dshd/Compose 注入 `container` | 内部 supervisor 标记；让 dsh-market 把“立即重启”委托给 Docker restart policy |
 | `DSH_SHM_SIZE` | `1g` | 容器 `/dev/shm` 大小；为 Chromium/Playwright 预留足够共享内存 |
