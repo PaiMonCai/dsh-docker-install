@@ -287,6 +287,7 @@ COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp
 RUN node /opt/dsh/test-context-manager-acp-native.mjs
 COPY tests/lib/context-manager-legacy-probe.mjs /opt/dsh/test-lib/context-manager-legacy-probe.mjs
 COPY tests/fixtures/context-manager/acp-0.0.101-session.json /opt/dsh/test-fixtures/acp-0.0.101-session.json
+COPY tests/fixtures/context-manager/acp-0.0.147-session.json /opt/dsh/test-fixtures/acp-0.0.147-session.json
 COPY tests/test-context-manager-m0-native.mjs /opt/dsh/test-context-manager-m0-native.mjs
 RUN node /opt/dsh/test-context-manager-m0-native.mjs
 COPY tests/test-context-manager-acp-real-region.mjs /opt/dsh/test-context-manager-acp-real-region.mjs
@@ -298,6 +299,7 @@ RUN node /opt/dsh/test-context-manager-acp-tools.mjs
 COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
 RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
 RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs --builtin
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs --builtin --canonical
 COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
 RUN node /opt/dsh/test-context-manager-ccr.mjs
 COPY tests/test-context-manager-acp-fork.mjs /opt/dsh/test-context-manager-acp-fork.mjs

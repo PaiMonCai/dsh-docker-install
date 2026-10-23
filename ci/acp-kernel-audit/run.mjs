@@ -97,8 +97,9 @@ const dependency = (await readJson(resolve(repo, 'docker/plugins/dsh-context-man
 if (dependency !== snapshot.baseline.version) {
   const vendor = resolve(repo, 'docker/plugins/dsh-context-manager/vendor')
   const provenance = await readJson(resolve(vendor, 'provenance.json'))
+  const nativeSnapshot = await readJson(resolve(home, 'native-snapshot.json'))
   assert.equal(dependency, 'file:vendor/' + provenance.artifact)
-  assert.equal(provenance.upstream.commit, snapshot.candidate.commit)
+  assert.equal(provenance.upstream.commit, nativeSnapshot.candidate.commit)
   assert.equal(sha256(await readFile(resolve(vendor, provenance.artifact))), provenance.sha256)
   assert.equal(provenance.reproducibleCleanBuild, true)
 }

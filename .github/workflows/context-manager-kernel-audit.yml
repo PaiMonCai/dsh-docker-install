@@ -5,9 +5,11 @@ on:
     paths:
       - .gitattributes
       - ci/acp-kernel-audit/**
+      - ci/context-manager-comparison.mjs
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-comparison.mjs
       - tests/test-context-manager-native-plugin*
       - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
@@ -18,9 +20,11 @@ on:
     paths:
       - .gitattributes
       - ci/acp-kernel-audit/**
+      - ci/context-manager-comparison.mjs
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-comparison.mjs
       - tests/test-context-manager-native-plugin*
       - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
@@ -61,6 +65,7 @@ jobs:
         run: |
           node tests/test-context-manager-acp-real-region.mjs
           node tests/test-context-manager-acp-agent-loop.mjs --builtin
+          node tests/test-context-manager-acp-agent-loop.mjs --builtin --canonical
 
   audit:
     name: Immutable Audit (${{ matrix.os }})
@@ -95,6 +100,7 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund --prefix docker/plugins/dsh-context-manager
           node ci/acp-kernel-audit/build-native.mjs --check
           node --test tests/test-context-manager-upstream.mjs
+          node --test tests/test-context-manager-comparison.mjs
       - name: Report upgrade decision separately from audit execution
         if: always()
         shell: bash

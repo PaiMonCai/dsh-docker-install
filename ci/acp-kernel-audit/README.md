@@ -1,7 +1,17 @@
 # Context Manager M0 audit
 
 This is an isolated audit harness, not a production dependency workspace.
-The production plugin remains on `acp-kernel@0.0.101`.
+The frozen M0 audit still compares `0.0.101` with the original `0.0.147`
+candidate. Its historical snapshot and evidence are not the runtime version.
+The production dependency is declared by the plugin package/lockfile and
+verified independently against `native-snapshot.json` and vendor provenance.
+
+`build-native.mjs --check` rebuilds the current `0.0.160` source, compares the
+prior `0.0.147` distribution/API, verifies both versioned frozen Session logs,
+and runs all upstream Kernel tests. It writes fresh evidence to
+`node_modules/.cache/native-output/` without replacing the historical M0 data.
+The old tarball remains an integrity-checked audit input, not a runtime dependency.
+See [the upgrade and comparison guide](../../docs/context-manager-kernel-0160.md).
 
 ## Reproduce
 

@@ -24,6 +24,7 @@ const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp
 ])
 const oldGate=process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
 const builtin=process.argv.includes('--builtin')
+const canonical=process.argv.includes('--canonical')
 if (builtin) {
  const saved=defaults();saved.engine='tiered';saved.nativePlugin.enabled=true
  saved.tiered.preserveRecentMessages=2;saved.tiered.preserveRecentTokens=0
@@ -69,8 +70,9 @@ class OfflineAdapter extends llm.LlmAdapter {
   else if(n===1){
    const status=parsed()
    assert.ok(status.refs?.length>=5)
-   name='acp_compress'
-   args={startRef:status.refs[0].ref,endRef:status.refs[3].ref,summary,topic:'verified original evidence'}
+   name=canonical?'compress':'acp_compress'
+   args=canonical?{startId:status.refs[0].ref,endId:status.refs[3].ref,content:summary}:
+    {startRef:status.refs[0].ref,endRef:status.refs[3].ref,summary,topic:'verified original evidence'}
   }else if(n===2){
    const accepted=parsed()
    assert.equal(accepted.accepted,true)
@@ -144,7 +146,7 @@ try{
  agent.followup(llm.createUserMessage({content:[{type:'text',text:'Summarize earlier history safely'}],
   source:{kind:'user'}}))
  await idle
- assert.deepEqual(visited,['acp_status','acp_compress','acp_search_context','acp_decompress','acp_cache','final'])
+ assert.deepEqual(visited,['acp_status',canonical?'compress':'acp_compress','acp_search_context','acp_decompress','acp_cache','final'])
  assert.equal(calls,6)
  const events=agent.session.snapshotEvents()
  assert.equal(events.filter(e=>e.type==='compaction/end'&&e.data.error===undefined).length,1)

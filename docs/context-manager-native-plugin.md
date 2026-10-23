@@ -66,6 +66,10 @@ bash tests/test-context-manager-native-plugin.sh IMAGE standard
 
 运行状态中的已挂载只证明当前组合，不代表真实 Provider 验收或生产准入通过。
 
+固定 Kernel `0.0.160` 的升级差异、旧日志回放和三组十二次长任务对照材料，见
+[Kernel 升级与长任务对照](context-manager-kernel-0160.md)。对照工具只准备合成输入和
+核对记录，不会调用模型；真实运行仍由实例所有者设置模型、费用和时长上限。
+
 ## 来源
 
 算法来自 ranxianglei 的 [billion-context](https://github.com/ranxianglei/billion-context)
