@@ -12,6 +12,7 @@ import * as pending from '../docker/plugins/dsh-context-manager/acp-pending.mjs'
 import { transaction } from './lib/context-manager-legacy-probe.mjs'
 import {normalizeProviderUsage,readSessionCacheLedger} from '../docker/plugins/dsh-context-manager/cache-ledger.mjs'
 import {rolloutReadiness} from '../docker/plugins/dsh-context-manager/rollout-readiness.mjs'
+import {defaults} from '../docker/plugins/dsh-context-manager/policy.mjs'
 
 test('native kernel distribution is pinned to the verified source and lockfile', async () => {
   const root = new URL('../docker/plugins/dsh-context-manager/', import.meta.url)
@@ -22,6 +23,48 @@ test('native kernel distribution is pinned to the verified source and lockfile',
   assert.equal(lock.packages['node_modules/acp-kernel'].integrity, provenance.integrity)
   assert.equal(provenance.upstream.commit, 'bc4a3f87e2dc98e82df6f707d362e75492fdf3d1')
   assert.equal(provenance.reproducibleCleanBuild, true)
+})
+
+test('native policy exposes and enforces the configured recent context and growth threshold', () => {
+  const session=populated('native-configured-protection')
+  const saved=defaults()
+  saved.tiered.preserveRecentMessages=4
+  saved.tiered.preserveRecentTokens=0
+  saved.tiered.nudgeGrowthTokens=12345
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,policyFor:()=>saved})
+  const status=runtime.status(session)
+  assert.deepEqual(status.protection,{recentMessages:4,recentTokens:0})
+  const config=runtime.view(session).config
+  assert.equal(config.nudge.growthFloor,12345)
+  assert.equal(config.nudge.growthCap,12345)
+  const args={startRef:status.refs[0].ref,endRef:status.refs[3].ref,
+    summary:'Preserve all original evidence and the four most recent messages according to the configured native policy. '.repeat(3)}
+  assert.throws(()=>runtime.propose(session,args),/protected|kernel rejected/)
+  assert.equal(runtime.propose(session,{...args,endRef:status.refs[2].ref}).accepted,true)
+})
+
+test('read-only historical paging survives later ordinary native compaction without expanding the live write surface', async () => {
+  const session=populated('native-basic-after-disable')
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,flushIntent:async()=>true})
+  const {refs}=runtime.status(session)
+  runtime.propose(session,{startRef:refs[0].ref,endRef:refs[2].ref,
+    summary:'Verified original history must remain fully retrievable after native compression folds this ACP checkpoint again. '.repeat(2)})
+  await runtime.processPending({session},transaction(session,pending))
+  const id=runtime.status(session).blocks[0].id
+  const seq=session.surface.nodes[0]
+  await pending.withAcpSummary(session,{summary:'A later ordinary Basic summary.'},
+    ()=>transaction(session,pending).compactRegion(seq,seq))
+  const cold=Session.create(session.id,session.snapshotEvents(),session.header)
+  const reader=new AcpRuntime({appendRecord:()=>{throw Error('read-only')}})
+  const before=JSON.stringify(cold.snapshotEvents())
+  assert.throws(()=>reader.retrieve(cold,{blockId:id}),/inactive/)
+  const sources=reader.retrieve(cold,{blockId:id},{historical:true}).sources
+  assert.equal(sources.length,3)
+  const original=reader.retrieve(cold,{blockId:id,ref:sources[0].ref,limit:8192},{historical:true})
+  assert.equal(original.text,session.eventAt(0).data.content[0].text)
+  assert.throws(()=>reader.retrieve(cold,{blockId:id,ref:refs[5].ref},{historical:true}),/not covered/)
+  assert.ok(reader.search(cold,'Verified original history',{}, {historical:true}).length>0)
+  assert.equal(JSON.stringify(cold.snapshotEvents()),before)
 })
 
 function populated(id, content) {

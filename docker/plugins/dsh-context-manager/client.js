@@ -1,4 +1,4 @@
-/* Native DSH Settings surface; persisted desired policy is not a live engine. */
+/* Native DSH Settings surface; plugin activation is bound to container restart. */
 window.__ModuleLoader__.load({
   id: 'dsh-docker-context-manager',
   factory(require) {
@@ -37,8 +37,17 @@ window.__ModuleLoader__.load({
       return h('select', { disabled, value, onChange: e => onChange(e.target.value), style: styles.input },
         ...options.map(o => h('option', { key: o[0], value: o[0] }, o[1])))
     }
-    const MODES = [['basic','DSH 原生'],['tiered','分层压缩（预留）'],['off','关闭压缩（预留）']]
+    const MODES = [['basic','DSH 原生'],['tiered','billion-context 原生增强']]
     const INHERIT = [['inherit','继承全局'], ...MODES]
+    const nativeReason = reason => ({
+      'startup-incompatible': '启动兼容检查未通过，请检查是否同时安装了其他上下文插件',
+      'startup-disabled': '本次启动已由管理员停用增强',
+      'external-context-plugin': '检测到外部上下文插件，保留现有配置以避免冲突',
+      'unsupported-compaction-ownership': '此预设的压缩器组成暂不支持自动接入',
+      'conditional-plugin-tree': '此预设使用条件压缩配置，保留现有行为',
+      'native-policy-selected': '此预设选择了 DSH 原生策略',
+      'mixed-model-modes-unsupported': '模型规则包含不同压缩模式，暂保留现有行为',
+    }[reason] || '此预设暂不兼容原生增强，保留现有行为')
     function HistoryPanel({ call }) {
       const [enabled, setEnabled] = useState(null)
       const [sessions, setSessions] = useState([])
@@ -208,7 +217,7 @@ window.__ModuleLoader__.load({
           setRevision(response.value.revision)
           setDraft(JSON.parse(JSON.stringify(response.value.settings)))
           setRemote(previous => ({ ...previous, ...response.value }))
-          setNotice('设置已持久化。当前版本不会自动改写正在运行的压缩引擎。')
+          setNotice('设置已保存。重启容器后应用；正在运行的会话继续使用本次启动配置。')
         } catch (e) { setError(String(e?.message || e)) }
         finally { setSaving(false) }
       }
@@ -267,7 +276,7 @@ window.__ModuleLoader__.load({
       return h('section', { style: styles.root },
         h('div', { style: layout },
           h('div', null, h('strong', { style: { fontSize: 15 } }, '上下文管理'),
-            h('p', { style: styles.muted }, '配置中心 · DSH 原生压缩 · 分层策略预留')),
+            h('p', { style: styles.muted }, 'billion-context · 内置原生插件 · DSH 会话与工具')),
           h(Button, { onClick: () => void load() }, '刷新')),
         h('div', { style: styles.row },
           tabButton('config', '压缩策略'), tabButton('runtime', '运行状态'), tabButton('rules', '高级规则'), tabButton('history', '压缩历史')),
@@ -276,16 +285,39 @@ window.__ModuleLoader__.load({
         !draft ? h('p', null, '正在读取设置…') : null,
         draft && tab === 'config' ? h(React.Fragment, null,
           h('div', { style: styles.section },
-            h('h3', { style: styles.h3 }, '压缩引擎（目标配置）'),
+            h('h3', { style: styles.h3 }, 'billion-context 原生插件'),
+            h('label', { style: styles.chip },
+              h('input', { type: 'checkbox', 'aria-label': '启用 billion-context 原生插件',
+                checked: !!draft.nativePlugin?.enabled,
+                onChange: e => update(d => {
+                  d.nativePlugin = { ...d.nativePlugin, enabled: e.target.checked }
+                  d.engine = e.target.checked ? 'tiered' : 'basic'
+                  if (e.target.checked) d.tiered.retrievalEnabled = true
+                  return d
+                }) }), ' 启用原生上下文增强'),
+            h('p', { style: styles.muted }, '随镜像内置，无需额外安装或配置代理。保存后重启容器生效；停用后恢复原生压缩。'),
+            h('label', { style: styles.chip },
+              h('input', { type: 'checkbox', 'aria-label': '大工具结果原文回取',
+                checked: !!draft.nativePlugin?.ccr,
+                onChange: e => update(d => ({ ...d, nativePlugin: { ...d.nativePlugin, ccr: e.target.checked } })) }),
+              ' 大工具结果保留原文并按需回取（CCR）'),
+            h('p', { role: 'status', style: styles.muted },
+              remote?.nativePlugin?.restartPending ? '有已保存变更，待重启容器'
+                : remote?.nativePlugin?.bootEnabled ? '本次启动已启用；各预设挂载状态见运行状态'
+                : '本次启动使用 DSH 原生压缩'),
+            h('p', { style: styles.muted }, '算法来源：billion-context / acp-kernel，作者 ranxianglei。')),
+          h('div', { style: styles.section },
+            h('h3', { style: styles.h3 }, '压缩策略'),
             h('div', { style: styles.row }, ...MODES.map(([value, title]) =>
               h('label', { key: value, style: { ...styles.chip, cursor: 'pointer' } },
                 h('input', { type: 'radio', name: 'context-engine', checked: draft.engine === value,
                   onChange: () => setTop('engine', value) }), ' ', title))),
             h('p', { style: styles.muted },
-              '模式选择仅保存目标策略。当前版本未接管实际压缩服务，不能把“关闭”或“分层”当作已生效。')),
+              '总开关开启后，兼容预设按此策略运行；关闭总开关时保留 DSH 原生配置。所有策略变更在重启后应用。')),
           h('div', { style: styles.section },
-            h('div', { style: layout }, h('h3', { style: styles.h3 }, 'DSH 原生压缩参数'),
+            h('div', { style: layout }, h('h3', { style: styles.h3 }, '增强模式的原生压缩参数'),
               h('span', { style: styles.chip }, '均衡配置')),
+            h('p', { style: styles.muted }, '这些参数用于已启用的原生增强；停用增强时使用预设原有配置。'),
             h('div', { style: styles.row },
               h(Field, { label: '触发比例 · ' + percent(current.thresholdRatio) + '%' },
                 h('input', { type: 'range', min: 40, max: 90, step: 5,
@@ -331,15 +363,15 @@ window.__ModuleLoader__.load({
               h('p', { style: styles.muted },
                 '仅为官方公式的预算估算；不代表压缩后的最终比例或已探测到模型窗口。'))),
           h('div', { style: styles.section },
-            h('h3', { style: styles.h3 }, '分层压缩（后续接入）'),
-            h('p', { style: styles.muted }, '先保存 ACP 风格策略；T1/T2/T3、回取与提醒引擎尚未激活。'),
+            h('h3', { style: styles.h3 }, '分层压缩与回取'),
+            h('p', { style: styles.muted }, '原生增强使用 T1/T2/T3、增长提醒和同会话原文回取。媒体及复杂工具消息保留保护边界。'),
             h('div', { style: styles.row },
               h(Field, { label: '增长提醒间隔（Tokens）' },
                 h(Input, { type: 'number', min: 1000, max: 200000, step: 1000,
                   value: draft.tiered.nudgeGrowthTokens,
                   onChange: v => setTiered('nudgeGrowthTokens', Number(v)) })),
-              h(Field, { label: '近期消息保留条数' },
-                h(Input, { type: 'number', min: 0, max: 50,
+                h(Field, { label: '近期消息保留条数（原生安全下限为 2）' },
+                h(Input, { type: 'number', min: 2, max: 50,
                   value: draft.tiered.preserveRecentMessages,
                   onChange: v => setTiered('preserveRecentMessages', Number(v)) })),
               h(Field, { label: '近期内容预算（Tokens）' },
@@ -350,6 +382,7 @@ window.__ModuleLoader__.load({
               ...[['tiers','开启 T1/T2/T3'], ['retrievalEnabled','允许历史回取']].map(([key,label]) =>
                 h('label', { key, style: styles.chip },
                   h('input', { type: 'checkbox', checked: draft.tiered[key],
+                    disabled: key === 'retrievalEnabled' && draft.nativePlugin?.enabled,
                     onChange: e => setTiered(key, e.target.checked) }), ' ', label)))) )
           : null,
         draft && tab === 'rules' ? h('div', { style: styles.section },
@@ -363,15 +396,23 @@ window.__ModuleLoader__.load({
         draft && tab === 'runtime' ? h('div', { style: styles.section },
           h('h3', { style: styles.h3 }, '实际压缩状态'),
           h('p', { role: 'status', style: { ...styles.muted, color: '#b27920' } },
-            '压缩接管尚未验证；当前插件不修改 DSH 压缩服务，实际行为由现有 DSH 和已安装的外部插件决定。'),
+            remote?.nativePlugin?.bootEnabled
+              ? '本次启动已启用原生增强。仅在兼容预设中替换单个压缩器；原生事务、手动压缩与超窗恢复继续保留。'
+              : '本次启动保留 DSH 原生压缩。开启总开关并保存后，重启容器应用。'),
+          remote?.nativePlugin?.reason ? h('p', { role: 'alert', style: styles.muted },
+            '增强未应用：' + nativeReason(remote.nativePlugin.reason) + '。当前保留原生配置。') : null,
+          ...(remote?.nativePlugin?.presets || []).map(p => h('div', { key: 'native-' + p.preset, style: styles.row },
+            h('strong', null, p.preset),
+            h('span', { style: styles.muted }, p.state === 'active' ? '原生增强已挂载'
+              : p.state === 'awaiting-mount' ? '配置已加载，等待预设挂载' : '保留原生配置'),
+            p.reason ? h('span', { style: styles.muted }, nativeReason(p.reason)) : null)),
           h('div', { style: styles.row },
             h('span', { style: styles.chip }, '目标：' + draft.engine),
             h('span', { style: styles.chip }, '实际：' + (remote?.runtime?.effectiveEngine || '未知')),
             h('span', { style: styles.chip },
               remote?.runtime?.restartPending ? '已保存变更，待重新读取' : '无启动后配置差异')),
-          h('p', { style: styles.muted }, '压缩服务接管检查：' +
-            (remote?.ownerAudit?.status === 'conflict-risk' ? '检测到潜在冲突' : '尚未证明唯一所有权') +
-            '；T1/T2/T3 实际接管：未启用'),
+          h('p', { style: styles.muted }, '压缩服务冲突检查：' +
+            (remote?.ownerAudit?.status === 'conflict-risk' ? '检测到潜在冲突' : '完整结果以各预设状态为准')),
           h('p', { style: styles.muted },
             '诊断不能发现所有网关级拦截。即使只看到一个原生压缩插件，也不能据此认定切换安全。'),
           h('p', { style: styles.muted }, '累计观测压缩开始：' + (remote?.events?.['compaction/start'] ?? 0)
@@ -390,9 +431,9 @@ window.__ModuleLoader__.load({
         draft && tab !== 'history' ? h('div', { style: { ...styles.row, position: 'sticky', bottom: 0, zIndex: 1,
           background: 'var(--dsw-alias-bg-primary, white)', borderTop: '1px solid ' + border, padding: '10px 0' } },
           h(Button, { onClick: () => void save(), primary: true, disabled: saving },
-            saving ? '保存中…' : '保存目标策略'),
+            saving ? '保存中…' : '保存设置'),
           h(Button, { onClick: () => void load(), disabled: saving }, '丢弃未保存修改'),
-          h('span', { style: styles.muted }, '持久化至 DSH_HOME；尚未接管运行中引擎'))
+          h('span', { style: styles.muted }, '持久化至 DSH_HOME；重启容器后应用'))
           : null)
     }
     return {

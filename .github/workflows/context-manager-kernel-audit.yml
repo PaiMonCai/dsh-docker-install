@@ -8,6 +8,8 @@ on:
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-native-plugin*
+      - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
       - tests/fixtures/context-manager/**
       - .github/workflows/context-manager-kernel-audit.yml
@@ -19,6 +21,8 @@ on:
       - docker/plugins/dsh-context-manager/**
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-native-plugin*
+      - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
       - tests/fixtures/context-manager/**
       - .github/workflows/context-manager-kernel-audit.yml
@@ -32,6 +36,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-runtime:
+    name: Native Plugin Runtime (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.1'
+      - name: Install pinned published DSH and plugin dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.2
+          npm ci --prefix docker/plugins/dsh-context-manager --ignore-scripts --no-audit --no-fund
+          sudo mkdir -p /usr/local/lib/node_modules/@deepseek-ai /opt/dsh/plugins
+          native_root="$(npm root -g)/@deepseek-ai/dsh"
+          if [[ "$native_root" != /usr/local/lib/node_modules/@deepseek-ai/dsh ]]; then
+            sudo ln -s "$native_root" /usr/local/lib/node_modules/@deepseek-ai/dsh
+          fi
+          sudo ln -s "$PWD/docker/plugins/dsh-context-manager" /opt/dsh/plugins/dsh-context-manager
+      - name: Exercise real native transactions and AgentLoop without provider traffic
+        run: |
+          node tests/test-context-manager-acp-real-region.mjs
+          node tests/test-context-manager-acp-agent-loop.mjs --builtin
+
   audit:
     name: Immutable Audit (${{ matrix.os }})
     strategy:
@@ -56,6 +86,8 @@ jobs:
       - name: Existing Linux context manager regressions
         if: runner.os == 'Linux'
         run: node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
+      - name: Native plugin lifecycle and Settings behavior
+        run: node --test tests/test-context-manager-native-plugin.mjs tests/test-context-manager-native-plugin-ui.cjs
       - name: Build pinned source and audit compatibility
         run: node ci/acp-kernel-audit/run.mjs
       - name: Verify the independently built native distribution

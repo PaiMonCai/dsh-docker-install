@@ -97,13 +97,17 @@ function assertClosedSelectedSteps(session,seqs) {
   }
   if([...open.values()].some(Boolean))throw Error('ACP range intersects an unclosed native step')
 }
-function configFor(session) {
+function configFor(session, policy) {
   // The host remains authoritative for actual routed model capacity and
   // overflow recovery. This is only the kernel's pressure/decision window.
   const window = session.requestContext?.()?.contextWindow
   return defaultConfig(Number.isSafeInteger(window) && window > 1024 ? window : 200000, {
-    preserveRecentMessages: 0,
-    preserveRecentTokens: 0,
+    preserveRecentMessages: policy ? Math.max(2,policy.tiered.preserveRecentMessages) : 0,
+    preserveRecentTokens: policy?.tiered.preserveRecentTokens ?? 0,
+    ...(policy ? { tiers: { enabled: policy.tiered.tiers }, nudge: {
+      growthFloor: policy.tiered.nudgeGrowthTokens, growthCap: policy.tiered.nudgeGrowthTokens,
+      minGrowthFloor: Math.min(20000,policy.tiered.nudgeGrowthTokens),
+    } } : {}),
     compress: { minCompressRange: 128, minSummaryLength: 50, maxSummaryLength: MAX_SUMMARY },
     // Do not apply kernel-only mutations to a DSH Session. CCR, absorb, crush
     // and emergency truncation require their own native arrival-time events.
@@ -139,11 +143,12 @@ function fullSummaryBlock(block) {
     messageCount:block.effectiveMessageIds.length }
 }
 export class AcpRuntime {
-  constructor({ appendRecord, flushIntent, logger } = {}) {
+  constructor({ appendRecord, flushIntent, logger, policyFor } = {}) {
     if (typeof appendRecord !== 'function') throw Error('native appendPluginRecord required')
     this.appendRecord = appendRecord
     this.flushIntent = flushIntent
     this.logger = logger
+    this.policyFor = policyFor
     this.core = createCore()
     this.cache = new WeakMap()
     this.pending = new WeakMap()
@@ -171,7 +176,7 @@ export class AcpRuntime {
       this.cache.set(session,row)
     } else row.observedLogLength=events.length
     const messages = activeMessages(session,row.checkpoints)
-    const config = configFor(session)
+    const config = configFor(session, this.policyFor?.(session))
     const route=session.requestContext?.()
     const key=JSON.stringify([session.surface.contentGeneration,config.modelContextLimit,route?.provider,route?.model])
     if(row.projected?.key===key)return {...row.projected.value,row}
@@ -223,6 +228,7 @@ export class AcpRuntime {
       blockTotal:allBlocks.length,blockOffset,
       nextBlockOffset:blockOffset+blockLimit<allBlocks.length?blockOffset+blockLimit:null,
       tokenEstimate:tokenCount,window:config.modelContextLimit,
+      protection:{recentMessages:Math.max(2,config.preserveRecentMessages),recentTokens:config.preserveRecentTokens},
       pending:!!this.pending.get(session),recoveredFromNativeLog:row.recovered,
       nudgeRecommended:!!nudge?.shouldInject,
       blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),
@@ -243,6 +249,7 @@ export class AcpRuntime {
       throw Error('invalid topic')
     const view = this.view(session)
     const {row,messages,config} = view
+    if (tiered && !config.tiers.enabled) throw Error('higher-tier block merging is disabled by policy')
     let bounds
     try { bounds=resolveBoundaries({startRef,endRef,messages,state:row.state}) }
     catch(error) { throw Error('range must be a current ordered visible span: '+error.message) }
@@ -431,12 +438,14 @@ export class AcpRuntime {
       this.nudgeCache.delete(session)
     }
   }
-  search(session,query,{algorithm='hybrid'}={}) {
+  // The separate options argument is supplied only by the read-only adapter.
+  // It reads validated durable blocks, including ones later hidden by Basic.
+  search(session,query,{algorithm='hybrid'}={}, {historical=false}={}) {
     if(typeof query!=='string'||query.length<2||query.length>160)
       throw Error('query must be 2–160 characters')
-    const {row}=this.view(session)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
     if(typeof algorithm!=='string'||!getSearchAlgorithm(algorithm))throw Error('unknown upstream search algorithm')
-    const active=row.state.blocks.filter(b=>b.active)
+    const active=row.state.blocks.filter(b=>historical||b.active)
     const ranked=searchBlocks(blockDocs({...row.state,blocks:active}),query,{algorithm,limit:10})
     return ranked.map(hit=>({...fullSummaryBlock(active.find(b=>b.blockId===hit.blockId)),score:hit.score}))
   }
@@ -445,14 +454,14 @@ export class AcpRuntime {
    * second copy or ACP's shortened in-memory projection. Only source events
    * already covered by an active ACP Block are accessible.
    */
-  retrieve(session,{blockId,ref,startIndex=0,offset=0,limit=4096}={}) {
+  retrieve(session,{blockId,ref,startIndex=0,offset=0,limit=4096}={}, {historical=false}={}) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
     if(!Number.isSafeInteger(startIndex)||startIndex<0||startIndex>100000
        ||!Number.isSafeInteger(offset)||offset<0||offset>100000000
        ||!Number.isSafeInteger(limit)||limit<1||limit>8192)
       throw Error('invalid ACP original retrieval bounds')
-    const {row}=this.view(session)
-    const block=row.state.blocks.find(b=>b.blockId===blockId&&b.active)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
+    const block=row.state.blocks.find(b=>b.blockId===blockId&&(historical||b.active))
     if(!block)throw Error('unknown or inactive ACP block')
     const originals=block.effectiveMessageIds
       .filter(id=>typeof id==='string'&&/^\d+$/.test(id))
@@ -490,9 +499,9 @@ export class AcpRuntime {
     return {blockId,ref,offset,nextOffset:offset+result.length<fullLength?offset+result.length:null,
       characters:fullLength,text:result,truncated:offset+result.length<fullLength}
   }
-  decompress(session,blockId) {
+  decompress(session,blockId,{historical=false}={}) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
-    const {row}=this.view(session)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
     const block=this.core.decompress(blockId,row.state)
     if(!block)throw Error('unknown ACP block')
     // Non-mutating retrieval: native Session continues using the summary.
