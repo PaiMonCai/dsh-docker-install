@@ -249,8 +249,8 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Docker driver is intentional here: the daemon-built candidate is then
-      # visible as FROM dsh-standard-ci:reverse to the following Docker build.
+      # Load the candidate with the same Buildx path as Standard's audit image.
+      # The following daemon build can then resolve FROM dsh-standard-ci:reverse.
       - name: Build candidate Standard and Reverse together
         if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
         env:
@@ -262,7 +262,7 @@ jobs:
           while sleep 30; do echo "Candidate Standard/Reverse build is still running"; done &
           heartbeat_pid=$!
           trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
-          docker build --pull -f Dockerfile -t dsh-standard-ci:reverse .
+          docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:reverse .
           docker build --pull=false -f reverse/Dockerfile \
             --build-arg BASE_IMAGE=dsh-standard-ci:reverse \
             -t "$REVERSE_IMAGE" .

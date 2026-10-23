@@ -82,6 +82,10 @@ for (const edition of ['research', 'reverse']) {
   }
 }
 assert.match(read('build-research'), /Build candidate Standard and Research together/)
+for (const edition of ['research', 'reverse']) {
+  assert.match(read('build-' + edition), new RegExp('docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:' + edition))
+  assert.match(read('build-' + edition), /docker build --pull=false -f /)
+}
 assert.match(read('build-research'), /- target: research-economics/)
 assert.match(promotion, /concurrency:[\s\S]*cancel-in-progress: false/)
 assert.match(promotion, /queue: max/, 'Pending promotions must not replace each other')
