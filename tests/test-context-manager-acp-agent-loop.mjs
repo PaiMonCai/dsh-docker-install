@@ -47,6 +47,12 @@ class OfflineAdapter extends llm.LlmAdapter {
   return {provider,id:model,name:model,contextWindow:1000000}
  }
  async *stream(request){
+  if(builtin&&request.purpose==='compaction'&&calls>=6) {
+   yield {type:'block-start',index:0,blockType:'text'}
+   yield {type:'block-end',index:0,block:{type:'text',text:'Ordinary native summary after enhancement was disabled.'}}
+   yield {type:'finish',reason:{kind:'stop'}}
+   return
+  }
   const n=calls++
   const events=agent.session.snapshotEvents().filter(e=>e.type==='tool/result')
   const last=events.at(-1)
@@ -112,7 +118,7 @@ try{
  await mount(tools.default,{})
  await mount(agents.default)
  await mount(meter.default)
- await mount(tiered.default,{auto:true,thresholdRatio:.8})
+ const tieredFiber=await mount(tiered.default,{auto:true,thresholdRatio:.8})
  const acpFiber=await mount(acp,builtin?{mode:'builtin'}:undefined)
  await mount(loop.default,{agents:[]})
  ctx.on('session/flush',()=>{})
@@ -156,7 +162,13 @@ try{
   const ref=/dshccr:v2:[a-f0-9]{16}:[0-9]+/.exec(large.content.map(row=>row.text??'').join('\n'))?.[0]
   assert.ok(ref,'native CCR hook must shorten the actual ToolRuntime result only after durable storage')
   await acpFiber.dispose()
+  await tieredFiber.dispose()
   configureNativePlugin(defaults(),{})
+  const basic=await load('@deepseek-ai/dsh-compaction-basic')
+  await mount(basic.default,{auto:true})
+  const checkpoint=agent.session.surface.nodes.find(seq=>agent.session.eventAt(seq)?.data?.source?.kind==='compact-checkpoint')
+  assert.ok(Number.isSafeInteger(checkpoint))
+  await ctx.compaction.compactRegion(checkpoint,checkpoint,agent,new AbortController().signal)
   const {installNativeReaders}=await import('/opt/dsh/plugins/dsh-context-manager/native-readers.js')
   installNativeReaders(agent)
   const fresh=await ctx.agentLoop.create(sessions.SessionId('native-reader-isolated-fresh'),{
@@ -176,13 +188,21 @@ try{
    offset=page.nextOffset
   }
   assert.equal(restored,original)
+  const list=await ctx.tools.execute({callId:'historical-block-list',name:'retrieve',arguments:{blockId:'b1'},
+   agent,signal:new AbortController().signal})
+  assert.equal(list.isError,false,JSON.stringify(list))
+  const source=JSON.parse(list.value).sources[0]
+  const history=await ctx.tools.execute({callId:'historical-block-page',name:'retrieve',arguments:{blockId:'b1',ref:source.ref,limit:8192},
+   agent,signal:new AbortController().signal})
+  assert.equal(history.isError,false,JSON.stringify(history))
+  assert.ok(JSON.parse(history.value).text.includes('Verified original facts'))
   assert.equal(JSON.stringify(agent.session.snapshotEvents()),before)
   const lift=agent.ctx.tools.guard(exec=>exec.name==='retrieve'?'native policy denies retrieval':undefined)
   const denied=await ctx.tools.execute({callId:'reader-denied',name:'retrieve',arguments:{ref},
    agent,signal:new AbortController().signal})
   assert.equal(denied.isError,true)
   lift()
-  process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_PLUGIN_LOOP_PASS labFlags=false ccrToolRuntime=true readerIsolation=true readerPolicyPreserved=true\n')
+  process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_PLUGIN_LOOP_PASS labFlags=false ccrToolRuntime=true readerIsolation=true readerPolicyPreserved=true basicRecompaction=true\n')
  }
 }finally{
  for(const fiber of owned.reverse())await fiber.dispose()

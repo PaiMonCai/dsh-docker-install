@@ -438,12 +438,14 @@ export class AcpRuntime {
       this.nudgeCache.delete(session)
     }
   }
-  search(session,query,{algorithm='hybrid'}={}) {
+  // The separate options argument is supplied only by the read-only adapter.
+  // It reads validated durable blocks, including ones later hidden by Basic.
+  search(session,query,{algorithm='hybrid'}={}, {historical=false}={}) {
     if(typeof query!=='string'||query.length<2||query.length>160)
       throw Error('query must be 2–160 characters')
-    const {row}=this.view(session)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
     if(typeof algorithm!=='string'||!getSearchAlgorithm(algorithm))throw Error('unknown upstream search algorithm')
-    const active=row.state.blocks.filter(b=>b.active)
+    const active=row.state.blocks.filter(b=>historical||b.active)
     const ranked=searchBlocks(blockDocs({...row.state,blocks:active}),query,{algorithm,limit:10})
     return ranked.map(hit=>({...fullSummaryBlock(active.find(b=>b.blockId===hit.blockId)),score:hit.score}))
   }
@@ -452,14 +454,14 @@ export class AcpRuntime {
    * second copy or ACP's shortened in-memory projection. Only source events
    * already covered by an active ACP Block are accessible.
    */
-  retrieve(session,{blockId,ref,startIndex=0,offset=0,limit=4096}={}) {
+  retrieve(session,{blockId,ref,startIndex=0,offset=0,limit=4096}={}, {historical=false}={}) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
     if(!Number.isSafeInteger(startIndex)||startIndex<0||startIndex>100000
        ||!Number.isSafeInteger(offset)||offset<0||offset>100000000
        ||!Number.isSafeInteger(limit)||limit<1||limit>8192)
       throw Error('invalid ACP original retrieval bounds')
-    const {row}=this.view(session)
-    const block=row.state.blocks.find(b=>b.blockId===blockId&&b.active)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
+    const block=row.state.blocks.find(b=>b.blockId===blockId&&(historical||b.active))
     if(!block)throw Error('unknown or inactive ACP block')
     const originals=block.effectiveMessageIds
       .filter(id=>typeof id==='string'&&/^\d+$/.test(id))
@@ -497,9 +499,9 @@ export class AcpRuntime {
     return {blockId,ref,offset,nextOffset:offset+result.length<fullLength?offset+result.length:null,
       characters:fullLength,text:result,truncated:offset+result.length<fullLength}
   }
-  decompress(session,blockId) {
+  decompress(session,blockId,{historical=false}={}) {
     if(!BLOCK.test(blockId))throw Error('invalid ACP block id')
-    const {row}=this.view(session)
+    const row=historical ? {state:recordFrom(session)?.state??createInitialState()} : this.view(session).row
     const block=this.core.decompress(blockId,row.state)
     if(!block)throw Error('unknown ACP block')
     // Non-mutating retrieval: native Session continues using the summary.

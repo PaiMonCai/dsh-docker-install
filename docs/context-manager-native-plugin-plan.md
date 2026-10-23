@@ -47,10 +47,13 @@ Steps 1-3 are implemented: a persisted master switch, additive boot ordering,
 compatible-preset composition, immutable boot policy, scoped historical readers,
 native summary fallback and Settings controls with actual runtime reporting.
 Step 4 has authored native AgentLoop/CCR/policy and container lifecycle checks.
-Exact-head hosted results are pending and will be attached to the PR.
+Exact-head hosted results and delivery completion are maintained on
+[PR #141](https://github.com/PaiMonCai/dsh-docker-install/pull/141), independently
+from this authored plan. The native loop also verifies ordinary Basic
+recompaction after disable followed by historical paging and policy denial.
 
-Local results: 54 targeted lifecycle/UI/existing regressions, 21 pinned-upstream
-regressions and 29 release/parity checks pass. JavaScript and shell syntax checks
+Local results: 15 native lifecycle/UI checks, 23 pinned-upstream regressions and
+29 release/parity checks pass, alongside the existing targeted regressions. JavaScript and shell syntax checks
 pass. The old Linux-only settings tests encounter Windows directory-fsync and
 symlink EPERM errors locally; their required Linux execution remains in CI.
 No local Docker runtime is available. No deployment, new release tag or
