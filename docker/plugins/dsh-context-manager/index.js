@@ -229,12 +229,15 @@ export function apply(ctx) {
         }
         if (method === 'status' && Object.keys(payload).length === 0) {
           const nativePresets = await inspectRuntimePresets(ctx)
+          let observedSettings
+          try { observedSettings = readSettings() }
+          catch { observedSettings = nativeSettings ?? defaults() }
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
-            nativePlugin: nativePluginStatus(readSettings(),nativeSettings,nativeCompositions,nativePresets,nativeReason),
+            nativePlugin: nativePluginStatus(observedSettings,nativeSettings,nativeCompositions,nativePresets,nativeReason),
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
             rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets,
-              nativePluginStatus(readSettings(),nativeSettings,nativeCompositions,nativePresets,nativeReason)),
+              nativePluginStatus(observedSettings,nativeSettings,nativeCompositions,nativePresets,nativeReason)),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard', acp:takeover.acp} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {

@@ -8,6 +8,7 @@ import { configureNativePlugin, nativeBootSettings, adaptNativePreset, nativeOrd
   externalContextPluginPresent, nativePluginStatus } from '../docker/plugins/dsh-context-manager/native-plugin.mjs'
 import { BASIC, MANUAL, TIERED, ACP_TOOLS, GATE } from '../docker/plugins/dsh-context-manager/takeover.mjs'
 import { makeNativeTieredEngine } from '../docker/plugins/dsh-context-manager/tiered-backend.mjs'
+import {apply,ENDPOINT} from '../docker/plugins/dsh-context-manager/index.js'
 
 function enabled() {
   const saved = defaults()
@@ -120,6 +121,27 @@ test('known external plugin manifests are detected without reading credentials',
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { 'billion-context': '*' } }))
   assert.equal(externalContextPluginPresent(home, {}), true)
+})
+
+test('read-only status remains available when persisted settings cannot be read', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'context-native-invalid-'))
+  const old = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  t.after(() => {
+    if (old === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = old
+    rmSync(home, { recursive: true, force: true })
+  })
+  mkdirSync(join(home, 'dsh-docker', 'context-manager'), { recursive: true })
+  writeFileSync(join(home, 'dsh-docker', 'context-manager', 'settings.json'), 'invalid JSON')
+  let rpc
+  apply({ logger: { warn() {} }, on() {}, get() {}, inject(_names, run) {
+    run({ connection: { rpc: { handle(path, handler) { assert.equal(path,ENDPOINT);rpc=handler } } } })
+  } })
+  const status = await rpc('status', {})
+  assert.equal(status.ok, true)
+  assert.equal(status.value.nativePlugin.bootEnabled, false)
+  assert.equal(status.value.nativePlugin.reason, 'startup-incompatible')
+  assert.equal((await rpc('settings', {})).ok, false)
 })
 
 test('runtime distinguishes configured, mounted, skipped and saved pending restart', () => {
