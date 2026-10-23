@@ -168,7 +168,10 @@ try{
   await mount(basic.default,{auto:true})
   const checkpoint=agent.session.surface.nodes.find(seq=>agent.session.eventAt(seq)?.data?.source?.kind==='compact-checkpoint')
   assert.ok(Number.isSafeInteger(checkpoint))
+  const recoveryTurn=agent.session.snapshotEvents().filter(event=>event.type==='turn/start').at(-1).data.turn+1
+  agent.session.append('turn/start',{turn:recoveryTurn})
   await ctx.compaction.compactRegion(checkpoint,checkpoint,agent,new AbortController().signal)
+  agent.session.append('turn/end',{turn:recoveryTurn,reason:{kind:'completed'}})
   const {installNativeReaders}=await import('/opt/dsh/plugins/dsh-context-manager/native-readers.js')
   installNativeReaders(agent)
   const fresh=await ctx.agentLoop.create(sessions.SessionId('native-reader-isolated-fresh'),{
