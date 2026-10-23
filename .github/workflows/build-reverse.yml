@@ -257,6 +257,11 @@ jobs:
           REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
         run: |
           set -euo pipefail
+          # Large daemon exports can be silent for several minutes. Keep the
+          # build observable while retaining docker's exact exit status.
+          while sleep 30; do echo "Candidate Standard/Reverse build is still running"; done &
+          heartbeat_pid=$!
+          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
           docker build --pull -f Dockerfile -t dsh-standard-ci:reverse .
           docker build --pull=false -f reverse/Dockerfile \
             --build-arg BASE_IMAGE=dsh-standard-ci:reverse \

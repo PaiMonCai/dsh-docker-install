@@ -252,6 +252,10 @@ jobs:
           RESEARCH_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          # Preserve progress visibility during large, otherwise silent exports.
+          while sleep 30; do echo "Candidate Standard/Research build is still running"; done &
+          heartbeat_pid=$!
+          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
           docker build --pull -f Dockerfile -t dsh-standard-ci:research .
           docker build --pull=false -f research/Dockerfile --target "$RESEARCH_TARGET" \
             --build-arg BASE_IMAGE=dsh-standard-ci:research \
