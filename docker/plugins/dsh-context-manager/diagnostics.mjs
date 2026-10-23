@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { Console } from 'node:console'
 
 export const LOG_PREFIX = 'DSH_CONTEXT_EVENT '
 const events = {
@@ -29,6 +30,8 @@ const numbers = ['seq', 'startSeq', 'endSeq', 'tier', 'sourceCount', 'summaryCha
 const booleans = ['enabled', 'ccrEnabled', 'changed', 'mounted', 'restartPending', 'known', 'success', 'historical']
 const sharedBudget = { start: null, written: 0, suppressed: 0 }
 const boot = randomBytes(8).toString('hex')
+const pendingLines = new Set()
+const consoleSink = new Console({stdout:process.stdout,stderr:process.stderr,ignoreErrors:true})
 let provenance = {}
 try {
   const source = JSON.parse(readFileSync(new URL('vendor/provenance.json', import.meta.url), 'utf8'))
@@ -53,6 +56,23 @@ export function diagnosticReason(error) {
     if (/compaction|checkpoint|transaction/i.test(message)) return 'native-transaction'
   } catch {}
   return 'unknown'
+}
+
+/** Cordis always buffers logs; this scoped exporter also exposes our own records to Docker. */
+export function installDiagnosticsConsole(ctx, { write = line => consoleSink.error(line) } = {}) {
+  try {
+    if(typeof ctx.logger?.exporter!=='function')return false
+    ctx.logger.exporter({levels:{default:3},colors:false,export(message) {
+      try {
+        const line=message.args?.length===1?message.args[0]:null
+        // Other plugins' messages cannot enter this channel merely by imitating the prefix.
+        if(typeof line!=='string'||!pendingLines.has(line))return
+        const delivery=write(line)
+        if(delivery&&typeof delivery.then==='function')void Promise.resolve(delivery).catch(()=>{})
+      } catch {}
+    }})
+    return true
+  } catch {return false}
 }
 
 /** Metadata-only console logs. A broken or overloaded logger never changes native outcomes. */
@@ -84,14 +104,18 @@ export function createDiagnostics(logger, { level = process.env.DSH_CONTEXT_MANA
           row[name] = name === 'elapsedMs' ? Math.round(value * 1000) / 1000 : value
       }
       for (const name of booleans) if (typeof fields[name] === 'boolean') row[name] = fields[name]
-      if (fields.reason !== undefined) row.reason = reasons.has(fields.reason) ? fields.reason : 'unknown'
+      if (fields.reason === null) row.reason = null
+      else if (fields.reason !== undefined) row.reason = reasons.has(fields.reason) ? fields.reason : 'unknown'
       if (modes.has(fields.mode)) row.mode = fields.mode
       if (tools.has(fields.tool)) row.tool = fields.tool
       if (typeof fields.blockId === 'string' && /^b[1-9][0-9]{0,9}$/.test(fields.blockId)) row.blockId = fields.blockId
       if (['pressure', 'overflow', 'context-overflow', 'manual'].includes(fields.trigger)) row.trigger = fields.trigger
       if (['active', 'awaiting-mount', 'native-unchanged'].includes(fields.state)) row.state = fields.state
       if (budget.suppressed) row.suppressed = budget.suppressed
-      const delivery=write.call(logger, LOG_PREFIX + JSON.stringify(row))
+      const line=LOG_PREFIX+JSON.stringify(row)
+      let delivery
+      pendingLines.add(line)
+      try {delivery=write.call(logger,line)} finally {pendingLines.delete(line)}
       if(delivery&&typeof delivery.then==='function')void Promise.resolve(delivery).catch(()=>{})
       budget.written++; budget.suppressed = 0
       return true

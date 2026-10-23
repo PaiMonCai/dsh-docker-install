@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createDiagnostics, diagnosticReason, LOG_PREFIX } from '../docker/plugins/dsh-context-manager/diagnostics.mjs'
+import { createDiagnostics, diagnosticReason, installDiagnosticsConsole, LOG_PREFIX } from '../docker/plugins/dsh-context-manager/diagnostics.mjs'
 import { AcpRuntime } from '../docker/plugins/dsh-context-manager/acp-runtime.mjs'
 import * as pending from '../docker/plugins/dsh-context-manager/acp-pending.mjs'
 import { offloadCcr } from '../docker/plugins/dsh-context-manager/acp-ccr.mjs'
@@ -15,6 +15,22 @@ function capture() {
   const write=line=>lines.push(line)
   return {logger:{info:write,warn:write,debug:write},lines,rows:()=>lines.map(line=>JSON.parse(line.slice(LOG_PREFIX.length)))}
 }
+
+test('the scoped console exporter forwards only generated records and contains sink failures',async()=>{
+  const exporters=[],lines=[]
+  const logger={exporter:handler=>exporters.push(handler),info(line){for(const handler of exporters)handler.export({args:[line]})}}
+  assert.equal(installDiagnosticsConsole({logger},{write:line=>lines.push(line)}),true)
+  const log=createDiagnostics(logger,{budget:{start:null,written:0,suppressed:0}})
+  logger.info(LOG_PREFIX+'{"schema":"dsh-context-log/v1","content":"SECRET_FORGED_PAYLOAD"}')
+  assert.equal(lines.length,0)
+  assert.equal(log('plugin.boot',{enabled:true}),true)
+  assert.equal(lines.length,1)
+  assert.equal(JSON.parse(lines[0].slice(LOG_PREFIX.length)).enabled,true)
+  installDiagnosticsConsole({logger},{async write(){throw Error('async console unavailable')}})
+  assert.equal(log('plugin.boot',{enabled:false}),true)
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(installDiagnosticsConsole({logger:{exporter(){throw Error('cannot export')}}}),false)
+})
 
 test('diagnostics allow only bounded metadata and fingerprint raw identities',()=>{
   const output=capture()
@@ -31,6 +47,8 @@ test('diagnostics allow only bounded metadata and fingerprint raw identities',()
   assert.ok(!output.lines[0].includes('SECRET'))
   assert.equal(log('toString',{content:'SECRET'}),false)
   assert.equal(diagnosticReason(Error('SECRET disk failed')),'durability')
+  log('request.usage',{known:true,input:10,cached:0,output:2,reason:null})
+  assert.equal(output.rows().at(-1).reason,null)
 })
 
 test('levels, bounded rate and dropped-event accounting never expose discarded payloads',async()=>{

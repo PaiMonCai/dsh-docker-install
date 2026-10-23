@@ -9,7 +9,7 @@ import { installReplaySmoke } from './ci-replay.mjs'
 import { auditOwnership } from './ownership-audit.mjs'
 import { createTakeoverPolicy, isPresetEntry, replacePresetCompactor, GATE } from './takeover.mjs'
 import { configureNativePlugin, adaptNativePreset, externalContextPluginPresent, nativePluginStatus } from './native-plugin.mjs'
-import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
+import {createDiagnostics,diagnosticReason,installDiagnosticsConsole} from './diagnostics.mjs'
 import {normalizeProviderUsage} from './provider-usage.mjs'
 
 export const name = 'dsh-docker-context-manager'
@@ -21,6 +21,7 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  * No policy is applied to a live compaction service until ownership is verified.
  */
 export function apply(ctx) {
+  installDiagnosticsConsole(ctx)
   const log=createDiagnostics(ctx.logger)
   const takeover = createTakeoverPolicy()
   configureNativePlugin(defaults(), {})

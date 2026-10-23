@@ -1,6 +1,8 @@
 # 原生上下文增强运行日志
 
-日志随内置插件输出到 DSH 原生 logger，可从容器日志采集。每条包含固定前缀
+日志随内置插件输出到 DSH 原生 logger；插件通过原生、随生命周期清理的 exporter 将
+自身生成的结构化记录送到容器 stderr，避免仅留在 Cordis 内存缓冲。其他插件仿造前缀
+的消息不会进入此专用输出通道。每条包含固定前缀
 `DSH_CONTEXT_EVENT ` 和一个 `dsh-context-log/v1` JSON 对象。默认记录启停、配置组合、
 实际服务挂载、压缩提交和回退；真实模型效果留到后续环境测试，本轮不发起 Provider 请求。
 
@@ -19,13 +21,13 @@ DSH_CONTEXT_MANAGER_LOG_LEVEL=debug
 相同变量传入容器。debug 事件经普通 info 输出通道投递，不要求另外打开整个 DSH 的 debug。
 
 ```sh
-docker logs --since 30m dsh 2>&1 | grep 'DSH_CONTEXT_EVENT ' > context-events.log
+docker logs --since 30m dsh 2>&1 | grep '^DSH_CONTEXT_EVENT ' > context-events.log
 ```
 
 PowerShell 采集：
 
 ```powershell
-docker logs --since 30m dsh 2>&1 | Select-String 'DSH_CONTEXT_EVENT ' | Set-Content context-events.log
+docker logs --since 30m dsh 2>&1 | Select-String '^DSH_CONTEXT_EVENT ' | Set-Content context-events.log
 ```
 
 `dsh` 替换为实际容器名。日志继续由容器/宿主机已有的轮转策略管理；插件不另建会话或
