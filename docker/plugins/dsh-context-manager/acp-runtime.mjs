@@ -97,13 +97,17 @@ function assertClosedSelectedSteps(session,seqs) {
   }
   if([...open.values()].some(Boolean))throw Error('ACP range intersects an unclosed native step')
 }
-function configFor(session) {
+function configFor(session, policy) {
   // The host remains authoritative for actual routed model capacity and
   // overflow recovery. This is only the kernel's pressure/decision window.
   const window = session.requestContext?.()?.contextWindow
   return defaultConfig(Number.isSafeInteger(window) && window > 1024 ? window : 200000, {
-    preserveRecentMessages: 0,
-    preserveRecentTokens: 0,
+    preserveRecentMessages: policy ? Math.max(2,policy.tiered.preserveRecentMessages) : 0,
+    preserveRecentTokens: policy?.tiered.preserveRecentTokens ?? 0,
+    ...(policy ? { tiers: { enabled: policy.tiered.tiers }, nudge: {
+      growthFloor: policy.tiered.nudgeGrowthTokens, growthCap: policy.tiered.nudgeGrowthTokens,
+      minGrowthFloor: Math.min(20000,policy.tiered.nudgeGrowthTokens),
+    } } : {}),
     compress: { minCompressRange: 128, minSummaryLength: 50, maxSummaryLength: MAX_SUMMARY },
     // Do not apply kernel-only mutations to a DSH Session. CCR, absorb, crush
     // and emergency truncation require their own native arrival-time events.
@@ -139,11 +143,12 @@ function fullSummaryBlock(block) {
     messageCount:block.effectiveMessageIds.length }
 }
 export class AcpRuntime {
-  constructor({ appendRecord, flushIntent, logger } = {}) {
+  constructor({ appendRecord, flushIntent, logger, policyFor } = {}) {
     if (typeof appendRecord !== 'function') throw Error('native appendPluginRecord required')
     this.appendRecord = appendRecord
     this.flushIntent = flushIntent
     this.logger = logger
+    this.policyFor = policyFor
     this.core = createCore()
     this.cache = new WeakMap()
     this.pending = new WeakMap()
@@ -171,7 +176,7 @@ export class AcpRuntime {
       this.cache.set(session,row)
     } else row.observedLogLength=events.length
     const messages = activeMessages(session,row.checkpoints)
-    const config = configFor(session)
+    const config = configFor(session, this.policyFor?.(session))
     const route=session.requestContext?.()
     const key=JSON.stringify([session.surface.contentGeneration,config.modelContextLimit,route?.provider,route?.model])
     if(row.projected?.key===key)return {...row.projected.value,row}
@@ -243,6 +248,7 @@ export class AcpRuntime {
       throw Error('invalid topic')
     const view = this.view(session)
     const {row,messages,config} = view
+    if (tiered && !config.tiers.enabled) throw Error('higher-tier block merging is disabled by policy')
     let bounds
     try { bounds=resolveBoundaries({startRef,endRef,messages,state:row.state}) }
     catch(error) { throw Error('range must be a current ordered visible span: '+error.message) }

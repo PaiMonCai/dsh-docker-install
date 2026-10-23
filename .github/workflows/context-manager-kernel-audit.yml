@@ -56,6 +56,8 @@ jobs:
       - name: Existing Linux context manager regressions
         if: runner.os == 'Linux'
         run: node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
+      - name: Native plugin lifecycle and Settings behavior
+        run: node --test tests/test-context-manager-native-plugin.mjs tests/test-context-manager-native-plugin-ui.cjs
       - name: Build pinned source and audit compatibility
         run: node ci/acp-kernel-audit/run.mjs
       - name: Verify the independently built native distribution

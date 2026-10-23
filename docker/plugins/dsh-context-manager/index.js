@@ -8,6 +8,7 @@ import { indexCompactions, publicIndex, summaryDetail, originalPage } from './hi
 import { installReplaySmoke } from './ci-replay.mjs'
 import { auditOwnership } from './ownership-audit.mjs'
 import { createTakeoverPolicy, isPresetEntry, replacePresetCompactor, GATE } from './takeover.mjs'
+import { configureNativePlugin, adaptNativePreset, externalContextPluginPresent, nativePluginStatus } from './native-plugin.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
@@ -19,6 +20,21 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  */
 export function apply(ctx) {
   const takeover = createTakeoverPolicy()
+  configureNativePlugin(defaults(), {})
+  let nativeSettings = null
+  let nativeReason = null
+  let nativeRequested = false
+  const nativeCompositions = new Map()
+  try {
+    const saved = readSettings()
+    nativeRequested = saved.nativePlugin.enabled
+    if (nativeRequested && externalContextPluginPresent()) throw Error('external-context-plugin')
+    nativeSettings = configureNativePlugin(saved)
+    if (nativeRequested && !nativeSettings) nativeReason = 'startup-disabled'
+  } catch {
+    nativeReason = 'startup-incompatible'
+    ctx.logger?.warn?.('Native context plugin unavailable; preserving the original DSH compaction configuration')
+  }
   let takeoverEvidence = null
   const probe = makeProbe()
   // Inert unless a disposable CI container explicitly enables the replay
@@ -32,18 +48,32 @@ export function apply(ctx) {
   let bootRevision = null
   try { bootRevision = settingsRevision(readSettings()) }
   catch { ctx.logger?.warn?.('Context Manager settings unavailable at boot; native compaction unchanged') }
+  const runtimeReport = (settings, revision, inventory) => {
+    const native = nativePluginStatus(settings,nativeSettings,nativeCompositions,inventory,nativeReason)
+    const active = native.presets.some(row=>row.mounted)
+    return { applied: active, effectiveEngine: active ? 'native-acp'
+      : nativeSettings ? 'awaiting-native-preset' : 'upstream-unmanaged',
+      reason: nativeSettings ? 'native-plugin-boot-composition'
+        : takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
+      restartPending: bootRevision !== null && revision !== bootRevision,
+      bootRevisionObserved: bootRevision !== null, globalHostOwnershipVerified: false }
+  }
   ctx.on('internal/config', function (_raw, next) {
     const resolved = next()
-    const transformed = takeover.active && isPresetEntry(this?.entry)
+    const transformed = nativeSettings && isPresetEntry(this?.entry)
+      ? adaptNativePreset(resolved, nativeSettings) : takeover.active && isPresetEntry(this?.entry)
       ? replacePresetCompactor(resolved,takeover.settings,takeover.target,{acp:takeover.acp}) : {changed:false,config:resolved}
-    if(transformed.changed) takeoverEvidence=transformed.evidence
+    if (nativeSettings && isPresetEntry(this?.entry)) nativeCompositions.set(resolved.id, {
+      preset: resolved.id, changed: transformed.changed, reason: transformed.reason,
+    })
+    if(transformed.changed && !nativeSettings) takeoverEvidence=transformed.evidence
     try { probe.observeConfig(this?.entry, transformed.config) }
     catch (error) { ctx.logger?.warn?.('context-manager preset probe failed: ' + String(error?.message || error)) }
     return transformed.config
   }, { global: true })
   // Gate selected preset until this middleware is registered. No service
   // exists in default deployment, and this does not insert a compactor.
-  if(takeover.active) {
+  if(takeover.active || nativeRequested) {
     if(typeof ctx.reflect?.provide!=='function')
       throw Error('native preset gate unavailable; refusing tiered activation')
     ctx.reflect.provide(GATE,true)
@@ -54,11 +84,23 @@ export function apply(ctx) {
     catch (error) { ctx.logger?.warn?.('context-manager event probe failed: ' + String(error?.message || error)) }
   }, { global: true })
 
+  // A disabled plugin must not strand references already written to a Session.
+  // Fresh native Sessions acquire no extra tools, prompts or compaction owner.
+  ctx.on('agent/created', async ({agent}) => {
+    if (!agent?.session?.snapshotEvents?.().some(event =>
+      event.type.startsWith('plugin:dsh-docker-context-manager/'))) return
+    try {
+      const {installNativeReaders} = await import('./native-readers.js')
+      installNativeReaders(agent)
+    } catch { ctx.logger?.warn?.('Historical context reader could not be attached to this Agent') }
+  }, { global: true })
+
   // CI-only real startup proof: this listener never creates sessions or
   // mounts agents. The Reverse runtime's own preset smoke handles mounting.
   const requireMounted = process.env.DSH_CONTEXT_MANAGER_CI_REQUIRE_MOUNTED === '1'
   const expected = process.env.DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS
     ?.split(',').filter(x => /^[A-Za-z0-9_.:-]{1,100}$/.test(x)) ?? []
+  const nativeCheck = process.env.DSH_CONTEXT_MANAGER_CI_NATIVE_STATE
   if (expected.length && typeof ctx.effect === 'function') {
     ctx.effect(() => {
       let stopped = false
@@ -69,13 +111,22 @@ export function apply(ctx) {
         checking = true
         try {
           const inventory = await inspectRuntimePresets(ctx)
-          if (inventory.available && expected.every(p => inventory.presets.some(row =>
+          const nativeReady = nativeCheck === 'enabled'
+            ? expected.every(id => nativePluginStatus(readSettings(),nativeSettings,nativeCompositions,inventory,nativeReason)
+              .presets.some(row=>row.preset===id&&row.state==='active'))
+            : nativeCheck === 'disabled' ? !nativeSettings && expected.every(id=>{
+              const row=inventory.presets?.find(p=>p.id===id)
+              return row?.basic?.configured===1&&row?.tiered?.configured===0
+                &&row?.acp?.configured===0&&row?.manual?.configured===1
+            }) : true
+          if (nativeReady && inventory.available && expected.every(p => inventory.presets.some(row =>
             row.id === p && (!requireMounted || row.mounted)))) {
             const result = expected.map(p => {
               const row = inventory.presets.find(item => item.id === p)
               return p + ':' + (row.mounted ? 'mounted' : 'declared')
             }).join(',')
             process.stdout.write('DSH_CONTEXT_MANAGER_CI_READY ' + result + '\n')
+            if(nativeCheck)process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_PLUGIN_READY '+nativeCheck+'\n')
             stopped = true; clearInterval(timer)
           } else if (++checks >= 80) {
             process.stderr.write('DSH_CONTEXT_MANAGER_CI_FAILED missing runtime preset inventory\n')
@@ -179,9 +230,11 @@ export function apply(ctx) {
         if (method === 'status' && Object.keys(payload).length === 0) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
+            nativePlugin: nativePluginStatus(readSettings(),nativeSettings,nativeCompositions,nativePresets,nativeReason),
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
-            rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets),
+            rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets,
+              nativePluginStatus(readSettings(),nativeSettings,nativeCompositions,nativePresets,nativeReason)),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard', acp:takeover.acp} : {mode:'disabled'} } }
         }
         if (method === 'settings' && Object.keys(payload).length === 0) {
@@ -190,27 +243,23 @@ export function apply(ctx) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
+            nativePlugin: nativePluginStatus(settings,nativeSettings,nativeCompositions,nativePresets,nativeReason),
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
-            rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets),
+            rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets,
+              nativePluginStatus(settings,nativeSettings,nativeCompositions,nativePresets,nativeReason)),
             tieredTakeover: takeover.active ? {mode:'lab-only', changed:!!takeoverEvidence, preset:'standard'} : {mode:'disabled'},
-            runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
-              restartPending: bootRevision !== null && revision !== bootRevision,
-              bootRevisionObserved: bootRevision !== null,
-              globalHostOwnershipVerified: false },
+            runtime: runtimeReport(settings,revision,nativePresets),
           } }
         }
         if (method === 'save' && Object.keys(payload).length === 2
           && Object.hasOwn(payload, 'settings') && Object.hasOwn(payload, 'revision')) {
           const settings = writeSettings(payload.settings, payload.revision)
           const revision = settingsRevision(settings)
+          const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: { settings, revision,
-            runtime: { applied: false, effectiveEngine: 'upstream-unmanaged',
-              reason: takeover.active ? 'single-preset-lab-attempt; ownership-not-certified' : 'phase2-configuration-only',
-              restartPending: bootRevision !== null && revision !== bootRevision,
-              bootRevisionObserved: bootRevision !== null,
-              globalHostOwnershipVerified: false } } }
+            nativePlugin: nativePluginStatus(settings,nativeSettings,nativeCompositions,nativePresets,nativeReason),
+            runtime: runtimeReport(settings,revision,nativePresets) } }
         }
         if (method === 'resolve' && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'target')) {
           const target = payload.target
@@ -227,6 +276,7 @@ export function apply(ctx) {
         const message = String(error?.message ?? error)
         // Avoid returning untrusted filesystem paths or raw exceptions to Web.
         const friendly = /settings changed/.test(message) ? '配置已被其他页面修改，请刷新后保存'
+          : /requires original retrieval/.test(message) ? '启用原生增强时，所有规则都需要开启历史回取'
           : /invalid|unsupported|missing|duplicate|ratio|retention|revision|override|policy|target|method|range|history changed/i.test(message)
             ? message.slice(0, 180) : '上下文管理配置不可用；请检查容器日志'
         return { ok: false, error: { code: 'invalid_request', message: friendly } }

@@ -290,6 +290,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
 
+      - name: Verify built-in native context plugin lifecycle
+        if: github.event_name == 'pull_request'
+        env:
+          AUDIT_IMAGE: ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+        run: bash tests/test-context-manager-native-plugin.sh "$AUDIT_IMAGE" standard
+
       - name: Report Research image footprint
         if: github.event_name == 'pull_request'
         shell: bash

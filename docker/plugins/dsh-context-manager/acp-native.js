@@ -8,6 +8,8 @@ import { AcpRuntime } from './acp-runtime.mjs'
 import { offloadCcr, retrieveCcr } from './acp-ccr.mjs'
 import {nativeGuidance,nativeCompressDescription,nativeCompressParameters} from './acp-prompts.mjs'
 import {readSessionCacheLedger} from './cache-ledger.mjs'
+import {nativeBootSettings,sessionPreset} from './native-plugin.mjs'
+import {resolvePolicy} from './policy.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const [{defineTool},{appendPluginRecord},{expandAssistantStream,isTokenDelta}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href),
@@ -18,9 +20,15 @@ export const name='dsh-context-manager-acp'
 export const inject=['tools','compaction','sessions','systemPrompt']
 function textOutput() {return {schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]}}
 function printable(value) {return JSON.stringify(value)}
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  const nativePolicy = config.mode === 'builtin' ? nativeBootSettings() : null
+  if (config.mode === 'builtin' && !nativePolicy) throw Error('native context plugin was not enabled at boot')
   const runtime=new AcpRuntime({appendRecord:appendPluginRecord,
-    flushIntent:session=>ctx.sessions.flush(session),logger:ctx.logger})
+    flushIntent:session=>ctx.sessions.flush(session),logger:ctx.logger,
+    ...(nativePolicy ? {policyFor:session=>{
+      const route=session.requestContext?.()??{}
+      return resolvePolicy(nativePolicy,{agentId:sessionPreset(session),provider:route.provider,model:route.model})
+    }} : {})})
   ctx.systemPrompt.context({name:'acp-native-upstream-rules',order:79,text:()=>nativeGuidance})
   ctx.systemPrompt.context({
     name:'acp-model-pressure-guidance',order:80,
@@ -102,7 +110,7 @@ export function apply(ctx) {
     {ref:{type:'string',required:true},offset:{type:'integer'},limit:{type:'integer'}},
     (args,exec)=>retrieveCcr(exec.agent.session,args))
 
-  if(process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1'){
+  if(nativePolicy ? nativePolicy.nativePlugin.ccr : process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1'){
     ctx.on('tools/post-execute',async(exec,result,next)=>{
       const decision=await next()
       // Preserve the decisions of all other policies, including denials.

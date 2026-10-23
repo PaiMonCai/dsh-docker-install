@@ -2,6 +2,7 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   schema: 2,
   engine: 'basic',
+  nativePlugin: { enabled: false, ccr: true },
   basic: { auto: true, thresholdRatio: 0.75, retainRatio: 0.20, headroomTokens: 65536 },
   tiered: { nudgeGrowthTokens: 30000, preserveRecentMessages: 5,
     preserveRecentTokens: 8000, tiers: true, retrievalEnabled: true },
@@ -90,14 +91,23 @@ function overrides(value, kind) {
   })
 }
 export function normalizeSettings(data) {
-  object(data, ['schema','engine','basic','tiered','agentPolicies','modelPolicies'], 'settings')
+  object(data, ['schema','engine','nativePlugin','basic','tiered','agentPolicies','modelPolicies'], 'settings')
   if (data.schema !== 2) throw Error('unsupported settings schema')
-  return {
+  // Old schema-v2 files expressed policy intentions only. Never activate them.
+  const nativePlugin = data.nativePlugin ?? { enabled: false, ccr: true }
+  object(nativePlugin, ['enabled', 'ccr'], 'native plugin')
+  const normalized = {
     schema: 2, engine: engine(data.engine, 'engine'),
+    nativePlugin: { enabled: bool(nativePlugin.enabled, 'native plugin enabled'),
+      ccr: bool(nativePlugin.ccr, 'native plugin ccr') },
     basic: validateBasic(data.basic), tiered: validateTiered(data.tiered),
     agentPolicies: overrides(data.agentPolicies, 'agent'),
     modelPolicies: overrides(data.modelPolicies, 'model'),
   }
+  if (normalized.nativePlugin.enabled && (!normalized.tiered.retrievalEnabled
+    || [...normalized.agentPolicies, ...normalized.modelPolicies].some(row => row.tiered?.retrievalEnabled === false)))
+    throw Error('native plugin requires original retrieval enabled')
+  return normalized
 }
 export function defaults() { return structuredClone(DEFAULT_SETTINGS) }
 export function resolvePolicy(data, { agentId, provider, model } = {}) {

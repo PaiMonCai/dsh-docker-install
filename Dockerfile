@@ -215,6 +215,7 @@ COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
 RUN npm ci --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --ignore-scripts --no-audit --no-fund
 COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
+COPY docker/context-manager-native-prepare.mjs /opt/dsh/context-manager-native-prepare.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -296,6 +297,7 @@ COPY tests/test-context-manager-acp-tools.mjs /opt/dsh/test-context-manager-acp-
 RUN node /opt/dsh/test-context-manager-acp-tools.mjs
 COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
 RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs --builtin
 COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
 RUN node /opt/dsh/test-context-manager-ccr.mjs
 COPY tests/test-context-manager-acp-fork.mjs /opt/dsh/test-context-manager-acp-fork.mjs

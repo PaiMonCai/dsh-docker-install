@@ -9,6 +9,8 @@
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
+import {configureNativePlugin} from '/opt/dsh/plugins/dsh-context-manager/native-plugin.mjs'
+import {defaults} from '/opt/dsh/plugins/dsh-context-manager/policy.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const load=p=>import(pathToFileURL(rq.resolve(p)).href)
 const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp]=await Promise.all([
@@ -21,13 +23,20 @@ const [cordis,llm,sessions,projections,system,tools,agents,loop,meter,tiered,acp
  import('/opt/dsh/plugins/dsh-context-manager/acp-native.js'),
 ])
 const oldGate=process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
-process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED='1'
+const builtin=process.argv.includes('--builtin')
+if (builtin) {
+ const saved=defaults();saved.engine='tiered';saved.nativePlugin.enabled=true
+ saved.tiered.preserveRecentMessages=2;saved.tiered.preserveRecentTokens=0
+ delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED
+ configureNativePlugin(saved,{})
+} else process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED='1'
 const ctx=new cordis.Context()
 const owned=[]
 async function mount(plugin,config){
  const fiber=ctx.plugin(plugin,config)
  await fiber
  owned.push(fiber)
+ return fiber
 }
 let agent=null
 const visited=[]
@@ -104,7 +113,7 @@ try{
  await mount(agents.default)
  await mount(meter.default)
  await mount(tiered.default,{auto:true,thresholdRatio:.8})
- await mount(acp)
+ const acpFiber=await mount(acp,builtin?{mode:'builtin'}:undefined)
  await mount(loop.default,{agents:[]})
  ctx.on('session/flush',()=>{})
  ctx.llm.registerAdapter(['offline'],new OfflineAdapter())
@@ -137,6 +146,44 @@ try{
  assert.equal(events.filter(e=>e.type==='compaction/start').length,1)
  assert.equal(events.filter(e=>e.type==='compaction/summary').length,1)
  process.stdout.write('DSH_CONTEXT_MANAGER_ACP_AGENT_LOOP_PASS tools=5 turns=1 nativeCompaction=1 replayable=true cacheLedger=true\n')
+ if(builtin) {
+  const original='Exact native ToolRuntime CCR evidence. '.repeat(1800)
+  ctx.tools.register(tools.defineTool({name:'native_large_result',description:'Offline CCR fixture',parameters:{},
+   output:{schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]},execute:()=>original}))
+  const large=await ctx.tools.execute({callId:'native-ccr-real-pipeline',name:'native_large_result',arguments:{},
+   agent,signal:new AbortController().signal})
+  assert.equal(large.isError,false)
+  const ref=/dshccr:v2:[a-f0-9]{16}:[0-9]+/.exec(large.content.map(row=>row.text??'').join('\n'))?.[0]
+  assert.ok(ref,'native CCR hook must shorten the actual ToolRuntime result only after durable storage')
+  await acpFiber.dispose()
+  configureNativePlugin(defaults(),{})
+  const {installNativeReaders}=await import('/opt/dsh/plugins/dsh-context-manager/native-readers.js')
+  installNativeReaders(agent)
+  const fresh=await ctx.agentLoop.create(sessions.SessionId('native-reader-isolated-fresh'),{
+   provider:'offline',model:'offline',maxTokens:1024,
+  })
+  assert.ok(ctx.tools.schemas(agent).some(row=>row.name==='retrieve'))
+  assert.ok(!ctx.tools.schemas(agent).some(row=>row.name==='compress'))
+  assert.ok(!ctx.tools.schemas(fresh).some(row=>row.name==='retrieve'))
+  const before=JSON.stringify(agent.session.snapshotEvents())
+  let restored='',offset=0
+  for(;;) {
+   const result=await ctx.tools.execute({callId:'reader-page-'+offset,name:'retrieve',arguments:{ref,offset,limit:8192},
+    agent,signal:new AbortController().signal})
+   assert.equal(result.isError,false,JSON.stringify(result))
+   const page=JSON.parse(result.value);restored+=page.content
+   if(page.nextOffset===null)break
+   offset=page.nextOffset
+  }
+  assert.equal(restored,original)
+  assert.equal(JSON.stringify(agent.session.snapshotEvents()),before)
+  const lift=agent.ctx.tools.guard(exec=>exec.name==='retrieve'?'native policy denies retrieval':undefined)
+  const denied=await ctx.tools.execute({callId:'reader-denied',name:'retrieve',arguments:{ref},
+   agent,signal:new AbortController().signal})
+  assert.equal(denied.isError,true)
+  lift()
+  process.stdout.write('DSH_CONTEXT_MANAGER_NATIVE_PLUGIN_LOOP_PASS labFlags=false ccrToolRuntime=true readerIsolation=true readerPolicyPreserved=true\n')
+ }
 }finally{
  for(const fiber of owned.reverse())await fiber.dispose()
  if(oldGate===undefined)delete process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED

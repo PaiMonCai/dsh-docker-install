@@ -133,10 +133,10 @@ test('phase 2 UI exposes strategy controls, clear pending state and scope inputs
   const client = read('docker/plugins/dsh-context-manager/client.js')
   for (const phrase of [
     '压缩策略', '运行状态', '高级规则', '触发比例', '保留近期历史',
-    'agentPolicies', 'modelPolicies', '保存目标策略', '上游',
+    'agentPolicies', 'modelPolicies', '保存设置', '上游',
   ].slice(0, -1)) assert.ok(client.includes(phrase), 'missing UI: ' + phrase)
   assert.match(client, /runtime\?\.effectiveEngine/)
-  assert.match(client, /当前版本未接管实际压缩服务/)
+  assert.match(client, /重启容器后应用/)
   assert.match(read('docker/plugins/dsh-context-manager/index.js'), /phase2-configuration-only/)
   assert.match(read('Dockerfile'), /context-manager\/policy\.mjs/)
   assert.match(read('Dockerfile'), /context-manager\/storage\.mjs/)

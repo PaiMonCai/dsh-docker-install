@@ -11,6 +11,7 @@ import { buildTierPrompt, chooseTier, getSummaryText, verifyTierSummary } from '
 import { readSettings } from './storage.mjs'
 import { resolvePolicy } from './policy.mjs'
 import { currentAcpSummary, hasQueuedAcpSummary } from './acp-pending.mjs'
+import { nativeBootSettings, sessionPreset } from './native-plugin.mjs'
 
 function targetFrom(agent) {
   const routed=agent?.session?.requestHeader?.()?.config
@@ -20,7 +21,7 @@ function targetFrom(agent) {
   throw Error('tiered summarization requires a routed provider/model')
 }
 function scopeFrom(agent, target) {
-  return {agentId:agent?.session?.header?.agentPreset, provider:target.provider,model:target.model}
+  return {agentId:sessionPreset(agent?.session), provider:target.provider,model:target.model}
 }
 function stageTarget(config, target) {
   const exact=config?.modelPolicies?.find(p=>p.provider===target.provider && p.model===target.model)
@@ -41,9 +42,11 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
     throw Error('native DSH compaction and LLM assembler unavailable')
   return class DshTieredCompactionEngine extends BasicEngine {
     constructor(ctx, config={}) {
-      if (process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1')
+      const nativePolicy = nativeBootSettings()
+      if (!nativePolicy && process.env.DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED!=='1')
         throw Error('tiered backend requires explicit owner verification; not enabled')
       super(ctx,config)
+      this.nativePolicy = nativePolicy
     }
     // Preserve the upstream pressure and context-overflow recovery state
     // machine. A model-authored ACP proposal owns the NEXT safe step; skip
@@ -60,12 +63,22 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       const proposal=currentAcpSummary(agent.session)
       if(proposal) return { summary:[{type:'text',text:proposal.summary}],
         provider:target.provider,model:target.model }
-      const policy=resolvePolicy(readSettings(),scopeFrom(agent,target))
+      const policy=resolvePolicy(this.nativePolicy ?? readSettings(),scopeFrom(agent,target))
       if (policy.engine!=='tiered') return super.summarize(input,agent,signal)
+      try { return await this.summarizeTiered(input,agent,signal,policy,target) }
+      catch (error) {
+        signal?.throwIfAborted?.()
+        if (!this.nativePolicy) throw error
+        this.ctx.logger?.warn?.('Context enhancement summarization failed; using native DSH summarization')
+        return super.summarize(input,agent,signal)
+      }
+    }
+    async summarizeTiered(input,agent,signal,policy,target) {
       const checkpointRows=agent.session?.surface?.nodes
         ?.map(seq=>agent.session.eventAt(seq)?.data)
         .filter(row=>row?.source?.kind==='compact-checkpoint') ?? []
       const stage=chooseTier(agent.session?.surface?.nodes ? checkpointRows : input?.messages)
+      if (this.nativePolicy && !policy.tiered.tiers) stage.tier='T1'
       const route=stageTarget(this.config,target)
       const options={
         provider:route.provider,model:route.model,

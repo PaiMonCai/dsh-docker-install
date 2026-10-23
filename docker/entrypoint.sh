@@ -168,6 +168,17 @@ run_web() {
     # Migrate only legacy bundled plugin selections; dependencies, third-party
     # selection and pnpm-lock.yaml stay untouched, with a manifest backup.
     prepare_native_web_plugins
+    # Built-in context plugin uses the persisted Settings switch. The generated
+    # patch only adds dependency gates and preserves each preset's inject list.
+    # A preparation failure leaves the original DSH owner available.
+    local context_native_patch
+    if context_native_patch="$(node /opt/dsh/context-manager-native-prepare.mjs "${args[@]}")"; then
+        if [[ -n "$context_native_patch" ]]; then
+            args+=(--patch "$context_native_patch")
+        fi
+    else
+        export DSH_CONTEXT_MANAGER_NATIVE_ACTIVE=0
+    fi
     # No more launcher flags after here: --no-open, --port, and --trusted-host
     # all belong to the Web application rather than the top-level DSH CLI.
     args+=(--no-open)

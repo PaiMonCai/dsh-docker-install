@@ -43,6 +43,7 @@
 | [项目结构与维护](project-layout.md) | 目录职责、配置来源、生成文件与按改动选择检查 |
 | [内置 Web 插件接入规范](builtin-plugin-contract.md) | 原生 `--patch` 加载、插件开关、Icon Dock 契约与验收 |
 | [Context Manager 上游优先原生化方案](context-manager-upstream-first-plan.md) | billion-context Kernel 复用路线、版本迁移、分阶段 PR、验收门禁与回滚 |
+| [billion-context 内置原生插件](context-manager-native-plugin.md) | 设置页启停、重启应用、原生回退、历史回取与验收 |
 | [Context Manager M0 审计](context-manager-m0-audit.md) | 固定来源、实际发布包/API 差异、旧日志回放与升级阻断结论 |
 | [ACP 上游功能对照矩阵](context-manager-upstream-parity-matrix.md) | 模块 Reuse / Adapt / Do not port 决策和代码归属 |
 | [推理等级插件实现说明](../docker/plugins/dsh-reasoning-editor/README.md) | 同一 `reasoningEfforts` 字段、批量保存与加载方式 |
