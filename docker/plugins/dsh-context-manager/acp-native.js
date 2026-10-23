@@ -10,6 +10,7 @@ import {nativeGuidance,nativeCompressDescription,nativeCompressParameters} from 
 import {readSessionCacheLedger} from './cache-ledger.mjs'
 import {nativeBootSettings,sessionPreset} from './native-plugin.mjs'
 import {resolvePolicy} from './policy.mjs'
+import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
 const rq=createRequire('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/package.json')
 const [{defineTool},{appendPluginRecord},{expandAssistantStream,isTokenDelta}]=await Promise.all([
   import(pathToFileURL(rq.resolve('@deepseek-ai/dsh-tools')).href),
@@ -21,6 +22,7 @@ export const inject=['tools','compaction','sessions','systemPrompt']
 function textOutput() {return {schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]}}
 function printable(value) {return JSON.stringify(value)}
 export function apply(ctx, config = {}) {
+  const log=createDiagnostics(ctx.logger)
   const nativePolicy = config.mode === 'builtin' ? nativeBootSettings() : null
   if (config.mode === 'builtin' && !nativePolicy) throw Error('native context plugin was not enabled at boot')
   const runtime=new AcpRuntime({appendRecord:appendPluginRecord,
@@ -36,7 +38,7 @@ export function apply(ctx, config = {}) {
       try{
         return context.agent?.session ? runtime.nudgeMessage(context.agent.session) : ''
       }catch(error){
-        ctx.logger?.warn?.('ACP nudge unavailable: '+String(error?.message??error))
+        log('observation.failed',{session:context.agent?.session,reason:diagnosticReason(error)})
         return ''
       }
     },
@@ -44,9 +46,18 @@ export function apply(ctx, config = {}) {
   const tool=(name,description,parameters,execute)=>{
     ctx.tools.register(defineTool({name,description,parameters,output:textOutput(),
       async execute(args,exec) {
-        exec.signal?.throwIfAborted?.()
-        if(!exec.agent?.session)throw Error('ACP requires a live DSH Session')
-        return printable(await execute(args,exec))
+        const started=performance.now()
+        try {
+          exec.signal?.throwIfAborted?.()
+          if(!exec.agent?.session)throw Error('ACP requires a live DSH Session')
+          const result=printable(await execute(args,exec))
+          log('tool.completed',{session:exec.agent.session,callId:exec.callId,tool:name,elapsedMs:performance.now()-started})
+          return result
+        } catch(error) {
+          log('tool.refused',{session:exec.agent?.session,callId:exec.callId,tool:name,
+            reason:diagnosticReason(error),elapsedMs:performance.now()-started})
+          throw error
+        }
       },
     }))
   }
@@ -114,8 +125,10 @@ export function apply(ctx, config = {}) {
     ctx.on('tools/post-execute',async(exec,result,next)=>{
       const decision=await next()
       // Preserve the decisions of all other policies, including denials.
-      if(decision.kind!=='accept'||decision.content!==undefined||decision.value!==undefined)
+      if(decision.kind!=='accept'||decision.content!==undefined||decision.value!==undefined) {
+        log('ccr.skipped',{session:exec.agent?.session,callId:exec.callId,reason:'policy-preserved'})
         return decision
+      }
       const offload=await offloadCcr(exec,result,{
         appendRecord:appendPluginRecord,flush:session=>ctx.sessions.flush(session),
         logger:ctx.logger,
@@ -132,8 +145,10 @@ export function apply(ctx, config = {}) {
   ctx.on('agent/pre-step',async ({agent,signal},next)=>{
     if(agent?.session){
       try { await runtime.processPending(agent,ctx.compaction,signal) }
-      catch(error) {ctx.logger?.warn?.('ACP proposal was not committed: '+String(error?.message??error))}
+      catch(error) {log('observation.failed',{session:agent.session,reason:diagnosticReason(error)})}
     }
     return next()
   })
+  log('tools.mounted',{mode:nativePolicy?'builtin':'lab',ccrEnabled:nativePolicy
+    ?nativePolicy.nativePlugin.ccr:process.env.DSH_CONTEXT_MANAGER_CCR_ACTIVE==='1'})
 }

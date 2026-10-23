@@ -14,6 +14,7 @@ import {nativePrompts,nativeNudgeSections} from './acp-prompts.mjs'
 import { withAcpSummary,queueAcpSummary,clearQueuedAcpSummary,
   acquireAcpProcessing,ownsAcpProcessing,releaseAcpProcessing } from './acp-pending.mjs'
 import { replayAcpState,INTENT_EVENT,STATE_EVENT } from './acp-recovery.mjs'
+import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
 export { INTENT_EVENT, STATE_EVENT } from './acp-recovery.mjs'
 
 const MAX_ORIGINAL = 4500
@@ -148,6 +149,7 @@ export class AcpRuntime {
     this.appendRecord = appendRecord
     this.flushIntent = flushIntent
     this.logger = logger
+    this.log = createDiagnostics(logger)
     this.policyFor = policyFor
     this.core = createCore()
     this.cache = new WeakMap()
@@ -307,6 +309,8 @@ export class AcpRuntime {
     queueAcpSummary(session,proposal,lease)
     this.pending.set(session,proposal)
     this.nudgeCache.delete(session)
+    this.log('acp.proposed',{session,blockId:proposal.newBlock.blockId,startSeq:firstSeq,endSeq:lastSeq,tier:proposal.newBlock.tier,
+      sourceCount:span.length,summaryChars:proposal.summary.length})
     return {accepted:true,mode:'next-agent-step',startRef,endRef,
       block:proposal.newBlock.blockId,tier:proposal.newBlock.tier,
       advice:'Proposal is executed at the next safe DSH agent/pre-step; call acp_status to verify.'}
@@ -370,6 +374,7 @@ export class AcpRuntime {
     const proposal=this.pending.get(session)
     if(!proposal)return null
     if(!ownsAcpProcessing(session,lease))throw Error('native ACP processing lease required')
+    const started=performance.now()
     try {
       signal?.throwIfAborted?.()
       // Do not act on a changed context or stale ref mapping.
@@ -428,9 +433,12 @@ export class AcpRuntime {
       current.row.settled=lastResult
       current.row.recovered=false
       delete current.row.projected
+      this.log('acp.committed',{session,blockId:proposal.newBlock.blockId,compactionId:result.compactionId,
+        seq:result.summarySeq,startSeq:start,endSeq:end,tier:proposal.newBlock.tier,
+        summaryChars:proposal.summary.length,elapsedMs:performance.now()-started})
       return lastResult
     } catch(error) {
-      this.logger?.warn?.('native ACP proposal refused: '+String(error?.message??error))
+      this.log('acp.refused',{session,reason:diagnosticReason(error),elapsedMs:performance.now()-started})
       throw error
     } finally {
       this.pending.delete(session)

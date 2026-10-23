@@ -173,10 +173,12 @@ test('native enhancement failure falls back to the original summarizer; cancella
   }
   class Blocks { push() {} blocks() { return [{ type: 'text', text: 'invalid' }] } }
   const Engine = makeNativeTieredEngine(Basic, { BlockAssembler: Blocks })
-  const engine = new Engine({ llm: { async *stream() {} } }, {})
+  const lines=[]
+  const engine = new Engine({ logger:{info:line=>lines.push(line),warn:line=>lines.push(line)}, llm: { async *stream() {} } }, {})
   const agent = { options: { provider: 'original', model: 'original' }, session: { toolHistory: () => [] } }
   assert.equal((await engine.summarize({ messages: [] }, agent)).summary[0].text, 'native original summary')
   assert.equal(originalCalls, 1)
+  assert.ok(lines.some(line=>line.includes('"event":"summary.fallback"')&&line.includes('"reason":"summary-invalid"')))
   const controller = new AbortController(); controller.abort()
   await assert.rejects(engine.summarize({ messages: [] }, agent, controller.signal), /abort/i)
   assert.equal(originalCalls, 1)

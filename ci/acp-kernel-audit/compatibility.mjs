@@ -14,7 +14,7 @@ export async function loadAdapter(kernelRoot, directory) {
   const plugin = resolve(directory, 'plugin')
   await mkdir(plugin, { recursive: true })
   for (const name of ['acp-runtime.mjs', 'acp-pending.mjs', 'acp-recovery.mjs',
-    'acp-ccr.mjs', 'content-store-port.mjs', 'acp-prompts.mjs', 'history-index.mjs']) {
+    'acp-ccr.mjs', 'content-store-port.mjs', 'acp-prompts.mjs', 'history-index.mjs', 'diagnostics.mjs']) {
     await cp(resolve(repo, 'docker/plugins/dsh-context-manager', name), resolve(plugin, name))
   }
   const target = resolve(plugin, 'node_modules/acp-kernel')

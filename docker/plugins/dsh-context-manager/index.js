@@ -9,6 +9,8 @@ import { installReplaySmoke } from './ci-replay.mjs'
 import { auditOwnership } from './ownership-audit.mjs'
 import { createTakeoverPolicy, isPresetEntry, replacePresetCompactor, GATE } from './takeover.mjs'
 import { configureNativePlugin, adaptNativePreset, externalContextPluginPresent, nativePluginStatus } from './native-plugin.mjs'
+import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
+import {normalizeProviderUsage} from './provider-usage.mjs'
 
 export const name = 'dsh-docker-context-manager'
 export const inject = []
@@ -19,6 +21,7 @@ export const ENDPOINT = '/dsh-docker-context-manager'
  * No policy is applied to a live compaction service until ownership is verified.
  */
 export function apply(ctx) {
+  const log=createDiagnostics(ctx.logger)
   const takeover = createTakeoverPolicy()
   configureNativePlugin(defaults(), {})
   let nativeSettings = null
@@ -37,6 +40,23 @@ export function apply(ctx) {
   }
   let takeoverEvidence = null
   const probe = makeProbe()
+  log('plugin.boot',{enabled:!!nativeSettings,ccrEnabled:!!nativeSettings?.nativePlugin.ccr,
+    mode:nativeSettings?'builtin':takeover.active?'lab':'native',...(nativeReason?{reason:nativeReason}:{})})
+  let observedSignature=null
+  const observedNativeStatus=(settings,inventory)=>{
+    const value=nativePluginStatus(settings,nativeSettings,nativeCompositions,inventory,nativeReason)
+    try {
+      const signature=JSON.stringify(value)
+      if(signature!==observedSignature) {
+        observedSignature=signature
+        for(const row of value.presets.slice(0,64))log('preset.observed',{
+          preset:row.preset,mounted:row.mounted,state:row.state,restartPending:value.restartPending,
+          ...(row.reason?{reason:row.reason}:{}),
+        })
+      }
+    } catch { log('observation.failed',{reason:'unknown'}) }
+    return value
+  }
   // Inert unless a disposable CI container explicitly enables the replay
   // smoke; never writes real user sessions or enables live compaction.
   installReplaySmoke(ctx)
@@ -66,6 +86,10 @@ export function apply(ctx) {
     if (nativeSettings && isPresetEntry(this?.entry)) nativeCompositions.set(resolved.id, {
       preset: resolved.id, changed: transformed.changed, reason: transformed.reason,
     })
+    if(nativeSettings&&isPresetEntry(this?.entry))log('preset.composed',{
+      preset:resolved.id,changed:transformed.changed,mode:transformed.changed?'native-acp':'native',
+      ...(transformed.reason?{reason:transformed.reason}:{}),
+    })
     if(transformed.changed && !nativeSettings) takeoverEvidence=transformed.evidence
     try { probe.observeConfig(this?.entry, transformed.config) }
     catch (error) { ctx.logger?.warn?.('context-manager preset probe failed: ' + String(error?.message || error)) }
@@ -80,8 +104,25 @@ export function apply(ctx) {
   }
 
   ctx.on('session/event', (session, event) => {
-    try { probe.observeEvent(session, event) }
-    catch (error) { ctx.logger?.warn?.('context-manager event probe failed: ' + String(error?.message || error)) }
+    try {
+      probe.observeEvent(session, event)
+      if(event?.type==='compaction/end')log('compaction.closed',{
+        session,seq:event.seq,compactionId:event.data?.compactionId,success:event.data?.error===undefined,
+      })
+      if(event?.type==='assistant/attempt')log('request.attempt',{
+        session,seq:event.seq,historical:event.seq<(session.firstLiveSeq??0),
+      })
+      if(event?.type==='assistant/message') {
+        const source=event.data.message?.source
+        log('request.usage',{session,seq:event.seq,provider:source?.provider,model:source?.model,
+          historical:event.seq<(session.firstLiveSeq??0),
+          ...normalizeProviderUsage(event.data.usage)})
+      }
+      if(event?.type==='compaction/summary')log('summary.usage',{
+        session,seq:event.seq,compactionId:event.data?.compactionId,provider:event.data?.provider,
+        model:event.data?.model,historical:event.seq<(session.firstLiveSeq??0),...normalizeProviderUsage(event.data?.usage),
+      })
+    } catch (error) { log('observation.failed',{session,reason:diagnosticReason(error)}) }
   }, { global: true })
 
   // A disabled plugin must not strand references already written to a Session.
@@ -233,7 +274,7 @@ export function apply(ctx) {
           try { observedSettings = readSettings() }
           catch { observedSettings = nativeSettings ?? defaults() }
           return { ok: true, value: { ...probe.snapshot(ctx), nativePresets,
-            nativePlugin: nativePluginStatus(observedSettings,nativeSettings,nativeCompositions,nativePresets,nativeReason),
+            nativePlugin: observedNativeStatus(observedSettings,nativePresets),
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
             rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets,
@@ -246,7 +287,7 @@ export function apply(ctx) {
           const nativePresets = await inspectRuntimePresets(ctx)
           return { ok: true, value: {
             settings, revision, nativePresets, events: probe.snapshot(ctx).events,
-            nativePlugin: nativePluginStatus(settings,nativeSettings,nativeCompositions,nativePresets,nativeReason),
+            nativePlugin: observedNativeStatus(settings,nativePresets),
             ownerAudit: auditOwnership(nativePresets, probe.snapshot(ctx).hostCompaction),
             experimentalRuntime: labReadiness(takeover,takeoverEvidence,nativePresets),
             rollout:rolloutReadiness(takeover,takeoverEvidence,nativePresets,

@@ -10,6 +10,7 @@ on:
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
       - tests/test-context-manager-comparison.mjs
+      - tests/test-context-manager-diagnostics.mjs
       - tests/test-context-manager-native-plugin*
       - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
@@ -25,6 +26,7 @@ on:
       - tests/test-context-manager-kernel-audit.mjs
       - tests/test-context-manager-upstream.mjs
       - tests/test-context-manager-comparison.mjs
+      - tests/test-context-manager-diagnostics.mjs
       - tests/test-context-manager-native-plugin*
       - tests/test-context-manager-acp-agent-loop.mjs
       - tests/lib/context-manager-legacy-probe.mjs
@@ -101,6 +103,7 @@ jobs:
           node ci/acp-kernel-audit/build-native.mjs --check
           node --test tests/test-context-manager-upstream.mjs
           node --test tests/test-context-manager-comparison.mjs
+          node --test tests/test-context-manager-diagnostics.mjs
       - name: Report upgrade decision separately from audit execution
         if: always()
         shell: bash

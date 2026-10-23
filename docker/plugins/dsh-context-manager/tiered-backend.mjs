@@ -12,6 +12,7 @@ import { readSettings } from './storage.mjs'
 import { resolvePolicy } from './policy.mjs'
 import { currentAcpSummary, hasQueuedAcpSummary } from './acp-pending.mjs'
 import { nativeBootSettings, sessionPreset } from './native-plugin.mjs'
+import {createDiagnostics,diagnosticReason} from './diagnostics.mjs'
 
 function targetFrom(agent) {
   const routed=agent?.session?.requestHeader?.()?.config
@@ -47,6 +48,8 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
         throw Error('tiered backend requires explicit owner verification; not enabled')
       super(ctx,config)
       this.nativePolicy = nativePolicy
+      this.log=createDiagnostics(ctx.logger)
+      this.log('engine.mounted',{mode:nativePolicy?'builtin':'lab'})
     }
     // Preserve the upstream pressure and context-overflow recovery state
     // machine. A model-authored ACP proposal owns the NEXT safe step; skip
@@ -54,7 +57,11 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
     // Never suppress context-overflow recovery (it may rescue a failed model
     // response independently). No second CompactionEngine is registered.
     async compactIfNeeded(agent,trigger,signal) {
-      if(trigger==='pressure' && hasQueuedAcpSummary(agent?.session))return null
+      this.log('engine.trigger',{session:agent?.session,preset:sessionPreset(agent?.session),trigger})
+      if(trigger==='pressure' && hasQueuedAcpSummary(agent?.session)) {
+        this.log('engine.deferred',{session:agent?.session,trigger})
+        return null
+      }
       return super.compactIfNeeded(agent,trigger,signal)
     }
     async summarize(input, agent, signal) {
@@ -65,11 +72,15 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
         provider:target.provider,model:target.model }
       const policy=resolvePolicy(this.nativePolicy ?? readSettings(),scopeFrom(agent,target))
       if (policy.engine!=='tiered') return super.summarize(input,agent,signal)
+      const started=performance.now()
       try { return await this.summarizeTiered(input,agent,signal,policy,target) }
       catch (error) {
-        signal?.throwIfAborted?.()
+        if(signal?.aborted) {
+          this.log('summary.cancelled',{session:agent.session,reason:'cancelled',elapsedMs:performance.now()-started})
+          signal.throwIfAborted()
+        }
         if (!this.nativePolicy) throw error
-        this.ctx.logger?.warn?.('Context enhancement summarization failed; using native DSH summarization')
+        this.log('summary.fallback',{session:agent.session,reason:diagnosticReason(error),elapsedMs:performance.now()-started})
         return super.summarize(input,agent,signal)
       }
     }
@@ -80,6 +91,8 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       const stage=chooseTier(agent.session?.surface?.nodes ? checkpointRows : input?.messages)
       if (this.nativePolicy && !policy.tiered.tiers) stage.tier='T1'
       const route=stageTarget(this.config,target)
+      const started=performance.now()
+      this.log('summary.started',{session:agent.session,provider:route.provider,model:route.model,tier:Number(stage.tier.slice(1))})
       const options={
         provider:route.provider,model:route.model,
         messages:[...(input?.messages ?? []), {role:'user',content:[{
@@ -100,6 +113,8 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       const summaryText=getSummaryText(rawOutput)
       verifyTierSummary(summaryText, stage.tier)
       const summary=[{type:'text',text:summaryText.trim()}]
+      this.log('summary.completed',{session:agent.session,provider:route.provider,model:route.model,
+        tier:Number(stage.tier.slice(1)),summaryChars:summaryText.trim().length,elapsedMs:performance.now()-started})
       return {
         summary,rawOutput,llmStreamCall:true,
         provider:options.provider,model:options.model,maxTokens:options.maxTokens,

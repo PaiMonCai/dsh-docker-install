@@ -86,5 +86,6 @@ node ci/context-manager-comparison.mjs report D:/my-project/context-comparison-0
 任务失败或质量不通过时，不输出节省比例。时长是完整任务耗时，不是首 token 延迟。
 两次重复仅提供可复查样本，不构成普遍性能结论；报告始终不授予生产准入。
 
-当前已完成材料与报告器，真实 Provider 对照尚未执行。后续需要先确定模型、可用实例
-和费用上限，才有真实节费、长会话质量与外部插件差异的测量结果。
+当前已完成材料与报告器，真实 Provider 对照尚未执行。按本轮要求，先补齐
+[结构化运行日志](context-manager-diagnostics.md)，后续在真实环境中测试。日志相关的
+本地针对性检查合计 52/52；完整升级、日志与镜像 CI 以最新提交的最终结果另行记录。
