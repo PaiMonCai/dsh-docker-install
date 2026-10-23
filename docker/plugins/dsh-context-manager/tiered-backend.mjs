@@ -77,8 +77,8 @@ export function makeNativeTieredEngine(BasicEngine, {BlockAssembler}) {
       catch (error) {
         if(signal?.aborted) {
           this.log('summary.cancelled',{session:agent.session,reason:'cancelled',elapsedMs:performance.now()-started})
-          signal.throwIfAborted()
         }
+        signal?.throwIfAborted?.()
         if (!this.nativePolicy) throw error
         this.log('summary.fallback',{session:agent.session,reason:diagnosticReason(error),elapsedMs:performance.now()-started})
         return super.summarize(input,agent,signal)
