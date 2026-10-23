@@ -51,7 +51,7 @@ export function apply(ctx, config = {}) {
     }))
   }
   tool('acp_status',
-    'Page native Session message and block references in current surface order (earliest first). Call before acp_compress. Use nextRefOffset or nextBlockOffset to fetch subsequent pages. Do not invent refs.',
+    'Page native Session message and block references in current surface order (earliest first). Call before compression and preserve the protection.recentMessages and protection.recentTokens tail. Use nextRefOffset or nextBlockOffset to fetch subsequent pages. Do not invent refs.',
     {offset:{type:'integer'},limit:{type:'integer'},blockOffset:{type:'integer'},blockLimit:{type:'integer'}},
     (args,exec)=>runtime.status(exec.agent.session,args))
   tool('acp_cache',

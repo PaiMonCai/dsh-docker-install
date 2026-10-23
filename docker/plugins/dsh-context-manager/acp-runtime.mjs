@@ -228,6 +228,7 @@ export class AcpRuntime {
       blockTotal:allBlocks.length,blockOffset,
       nextBlockOffset:blockOffset+blockLimit<allBlocks.length?blockOffset+blockLimit:null,
       tokenEstimate:tokenCount,window:config.modelContextLimit,
+      protection:{recentMessages:Math.max(2,config.preserveRecentMessages),recentTokens:config.preserveRecentTokens},
       pending:!!this.pending.get(session),recoveredFromNativeLog:row.recovered,
       nudgeRecommended:!!nudge?.shouldInject,
       blocks:allBlocks.slice(blockOffset,blockOffset+blockLimit).map(fullSummaryBlock),

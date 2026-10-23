@@ -12,6 +12,7 @@ import * as pending from '../docker/plugins/dsh-context-manager/acp-pending.mjs'
 import { transaction } from './lib/context-manager-legacy-probe.mjs'
 import {normalizeProviderUsage,readSessionCacheLedger} from '../docker/plugins/dsh-context-manager/cache-ledger.mjs'
 import {rolloutReadiness} from '../docker/plugins/dsh-context-manager/rollout-readiness.mjs'
+import {defaults} from '../docker/plugins/dsh-context-manager/policy.mjs'
 
 test('native kernel distribution is pinned to the verified source and lockfile', async () => {
   const root = new URL('../docker/plugins/dsh-context-manager/', import.meta.url)
@@ -22,6 +23,24 @@ test('native kernel distribution is pinned to the verified source and lockfile',
   assert.equal(lock.packages['node_modules/acp-kernel'].integrity, provenance.integrity)
   assert.equal(provenance.upstream.commit, 'bc4a3f87e2dc98e82df6f707d362e75492fdf3d1')
   assert.equal(provenance.reproducibleCleanBuild, true)
+})
+
+test('native policy exposes and enforces the configured recent context and growth threshold', () => {
+  const session=populated('native-configured-protection')
+  const saved=defaults()
+  saved.tiered.preserveRecentMessages=4
+  saved.tiered.preserveRecentTokens=0
+  saved.tiered.nudgeGrowthTokens=12345
+  const runtime=new AcpRuntime({appendRecord:appendPluginRecord,policyFor:()=>saved})
+  const status=runtime.status(session)
+  assert.deepEqual(status.protection,{recentMessages:4,recentTokens:0})
+  const config=runtime.view(session).config
+  assert.equal(config.nudge.growthFloor,12345)
+  assert.equal(config.nudge.growthCap,12345)
+  const args={startRef:status.refs[0].ref,endRef:status.refs[3].ref,
+    summary:'Preserve all original evidence and the four most recent messages according to the configured native policy. '.repeat(3)}
+  assert.throws(()=>runtime.propose(session,args),/protected|kernel rejected/)
+  assert.equal(runtime.propose(session,{...args,endRef:status.refs[2].ref}).accepted,true)
 })
 
 function populated(id, content) {

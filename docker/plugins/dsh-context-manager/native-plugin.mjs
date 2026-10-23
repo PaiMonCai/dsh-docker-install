@@ -145,6 +145,8 @@ export function nativePluginStatus(settings, boot, compositions, inventory, reas
       && !live?.broken && !live?.rowLimitReached && live?.tiered?.active === 1
       && live?.basic?.active === 0 && live?.external?.configured === 0
       && live?.manual?.active === 1 && live?.acp?.active === 1
+      && live?.tiered?.configured === 1 && live?.basic?.configured === 0
+      && live?.manual?.configured === 1 && live?.acp?.configured === 1
       && ['tiered', 'basic', 'external', 'manual', 'acp'].every(key => !live?.[key]?.conditional)
     return { preset: row.preset, state: active ? 'active' : row.changed ? 'awaiting-mount' : 'native-unchanged',
       reason: row.reason ?? null, configured: row.changed, mounted: !!active }
