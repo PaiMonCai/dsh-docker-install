@@ -310,7 +310,7 @@ test('Reverse keeps Standard image-owned Web plugins and compose toggles in pari
  assert.match(workflow,/reverse-web-parity\.cjs compare/)
  assert.match(workflow,/verify-runtime \/tmp\/standard-web-plugins\.json/)
  assert.match(workflow,/Detect changed Standard base on PR/)
- assert.match(workflow,/docker buildx build --pull --load --platform linux\/amd64 -f Dockerfile -t dsh-standard-ci:reverse/)
+ assert.match(workflow,/docker buildx build --pull --load --platform "linux\/\$BUILD_ARCH" -f Dockerfile -t dsh-standard-ci:reverse/)
  assert.match(workflow,/docker\/plugins\/\*\*/)
 
  assert.match(workflow,/client-graph/)
@@ -322,7 +322,7 @@ test('Reverse validates dynamically discovered Standard clients before a release
  const ignore = read('.dockerignore')
  const standard = read('.github/workflows/build.yml')
  assert.ok(workflow.indexOf('Compare every inherited Standard plugin') >= 0)
- assert.ok(workflow.indexOf('Publish multi-arch Reverse only after passing runtime parity') >
+ assert.ok(workflow.indexOf('Publish native Reverse candidate after passing runtime parity') >
    workflow.indexOf('Boot Web and assert Reverse Agent registration'))
  assert.match(workflow,/Build Reverse release audit image before any GHCR push/)
  assert.match(workflow,/Build candidate Standard and Reverse together/)
