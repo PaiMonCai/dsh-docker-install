@@ -156,7 +156,15 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.run_reverse == 'true'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     outputs:
       candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
     timeout-minutes: 90
@@ -165,6 +173,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Require a native runner for REA process ownership checks
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          actual="$(dpkg --print-architecture)"
+          [[ "$actual" == "$EXPECTED_ARCH" ]] || { echo "::error::Expected native $EXPECTED_ARCH, got $actual"; exit 1; }
       - name: Reserve disk for candidate base and derived layers
         if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
         run: |
@@ -247,7 +262,6 @@ jobs:
           RELEASE_BASE: ${{ needs.prepare.outputs.base_image }}
         run: echo "image=$RELEASE_BASE" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       # Load the candidate with the same Buildx path as Standard's audit image.
@@ -256,6 +270,7 @@ jobs:
         if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
         env:
           REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
+          BUILD_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           # Large daemon exports can be silent for several minutes. Keep the
@@ -263,7 +278,7 @@ jobs:
           while sleep 30; do echo "Candidate Standard/Reverse build is still running"; done &
           heartbeat_pid=$!
           trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
-          docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:reverse .
+          docker buildx build --pull --load --platform "linux/$BUILD_ARCH" -f Dockerfile -t dsh-standard-ci:reverse .
           docker build --pull=false -f reverse/Dockerfile \
             --build-arg BASE_IMAGE=dsh-standard-ci:reverse \
             -t "$REVERSE_IMAGE" .
@@ -281,31 +296,15 @@ jobs:
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           pull: true
           push: false
           load: true
           build-args: |
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
           tags: ${{ steps.vars.outputs.image }}:reverse
-          cache-from: type=gha,scope=dsh-reverse
-          cache-to: type=gha,mode=max,scope=dsh-reverse
-
-      # Catch architecture-specific failures in the actual release Dockerfile on PRs.
-      # Previous PR smoke only exercised amd64, while release arm64 failed in
-      # report-reader-mcp/smoke.py under QEMU. Keep this a non-publishing gate.
-      - name: Validate ARM64 Reverse Docker build on PR
-        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate != 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: reverse/Dockerfile
-          platforms: linux/arm64
-          pull: true
-          push: false
-          build-args: |
-            BASE_IMAGE=${{ steps.effective_base.outputs.image }}
-          cache-from: type=gha,scope=dsh-reverse
+          cache-from: type=gha,scope=dsh-reverse-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=dsh-reverse-${{ matrix.arch }}
 
       - name: Build Reverse release audit image before any GHCR push
         if: github.event_name != 'pull_request'
@@ -313,15 +312,15 @@ jobs:
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           pull: true
           push: false
           load: true
           build-args: |
             BASE_IMAGE=${{ steps.effective_base.outputs.image }}
           tags: dsh-reverse-ci:audit
-          cache-from: type=gha,scope=dsh-reverse
-          # Only the multi-platform build replaces the shared release cache.
+          cache-from: type=gha,scope=dsh-reverse-${{ matrix.arch }}
+          # Only the publication build replaces this architecture's release cache.
 
       - name: Select image for plugin and runtime audit
         id: audit_image
@@ -530,15 +529,15 @@ jobs:
           echo "::error::Reverse session/create not confirmed in running DSH"
           exit 1
 
-      # Never push a multi-arch Reverse tag before the exact inherited Standard
-      # plugin set and real authenticated Chromium UI have passed the audit.
-      - name: Publish multi-arch Reverse only after passing runtime parity
+      # Each native image must pass the full runtime/browser audit before push.
+      # The combined candidate is created only after both matrix jobs succeed.
+      - name: Publish native Reverse candidate after passing runtime parity
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: reverse/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           pull: true
           push: true
           load: false
@@ -553,17 +552,40 @@ jobs:
             io.caicailo.dsh.channels=${{ needs.prepare.outputs.channels }}
             io.caicailo.dsh.release.track=${{ needs.prepare.outputs.track }}
             io.caicailo.dsh.release.tag=${{ needs.prepare.outputs.release_tag }}
-          tags: ${{ needs.prepare.outputs.image }}:candidate-reverse-${{ needs.prepare.outputs.candidate_suffix }}
-          cache-from: type=gha,scope=dsh-reverse
-          cache-to: type=gha,mode=max,scope=dsh-reverse
+          tags: ${{ needs.prepare.outputs.image }}:candidate-reverse-${{ needs.prepare.outputs.candidate_suffix }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=dsh-reverse-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=dsh-reverse-${{ matrix.arch }}
+
+  assemble:
+    needs: [prepare, build]
+    if: github.event_name != 'pull_request' && needs.prepare.outputs.run_reverse == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_suffix: ${{ needs.prepare.outputs.candidate_suffix }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble audited native images into the multi-arch candidate
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          SUFFIX: ${{ needs.prepare.outputs.candidate_suffix }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --tag "$IMAGE:candidate-reverse-$SUFFIX" \
+            "$IMAGE:candidate-reverse-$SUFFIX-amd64" \
+            "$IMAGE:candidate-reverse-$SUFFIX-arm64"
 
   promote:
-    needs: build
+    needs: assemble
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/promote-release.yml
     with:
       edition: reverse
-      candidate_suffix: ${{ needs.build.outputs.candidate_suffix }}
+      candidate_suffix: ${{ needs.assemble.outputs.candidate_suffix }}
     permissions:
       contents: read
       packages: write

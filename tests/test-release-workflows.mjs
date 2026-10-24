@@ -65,7 +65,7 @@ for (const edition of ['research', 'reverse']) {
   assert.match(job(downstream, 'build'), /io\.caicailo\.dsh\.release\.track=\$\{\{ needs\.prepare\.outputs\.track/)
   assert.match(job(downstream, 'build'), /io\.caicailo\.dsh\.release\.tag=\$\{\{ needs\.prepare\.outputs\.release_tag/)
   assert.match(job(downstream, 'build'), /candidate_suffix: \$\{\{ needs\.prepare\.outputs\.candidate_suffix/)
-  assert.match(job(downstream, 'promote'), /needs: build/)
+  assert.match(job(downstream, 'promote'), new RegExp('needs: ' + (edition === 'reverse' ? 'assemble' : 'build')))
   const queue = job(base, 'dispatch-' + edition)
   assert.match(queue, /needs: promote/)
   assert.match(queue, /uses: \.\/\.github\/workflows\/dispatch-edition\.yml/)
@@ -83,9 +83,31 @@ for (const edition of ['research', 'reverse']) {
 }
 assert.match(read('build-research'), /Build candidate Standard and Research together/)
 for (const edition of ['research', 'reverse']) {
-  assert.match(read('build-' + edition), new RegExp('docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:' + edition))
+  const platform = edition === 'reverse' ? '"linux/\\$BUILD_ARCH"' : 'linux/amd64'
+  assert.match(read('build-' + edition), new RegExp('docker buildx build --pull --load --platform ' + platform + ' -f Dockerfile -t dsh-standard-ci:' + edition))
   assert.match(read('build-' + edition), /docker build --pull=false -f /)
 }
+const reverse = read('build-reverse')
+const nativeBuild = job(reverse, 'build')
+assert.match(nativeBuild, /arch: amd64\n            runner: ubuntu-24\.04\n/)
+assert.match(nativeBuild, /arch: arm64\n            runner: ubuntu-24\.04-arm\n/)
+assert.match(nativeBuild, /runs-on: \$\{\{ matrix\.runner \}\}/)
+assert.match(nativeBuild, /fail-fast: false/)
+assert.doesNotMatch(reverse, /setup-qemu-action/)
+for (const match of nativeBuild.matchAll(/platforms: (.+)/g)) {
+  assert.equal(match[1], 'linux/${{ matrix.arch }}', 'Native runner must build only its own architecture')
+}
+assert.match(nativeBuild, /cache-to: type=gha,mode=max,scope=dsh-reverse-\$\{\{ matrix\.arch \}\}/)
+const publish = step(nativeBuild, 'Publish native Reverse candidate after passing runtime parity')
+assert.match(publish, /candidate-reverse-\$\{\{ needs\.prepare\.outputs\.candidate_suffix \}\}-\$\{\{ matrix\.arch \}\}/)
+assert.ok(nativeBuild.indexOf('Boot Web and assert Reverse Agent registration') < nativeBuild.indexOf(publish))
+const assemble = job(reverse, 'assemble')
+assert.match(assemble, /needs: \[prepare, build\]/)
+assert.doesNotMatch(assemble, /always\(\)|continue-on-error/)
+assert.match(assemble, /github\.event_name != 'pull_request'/)
+assert.match(assemble, /imagetools create --tag "\$IMAGE:candidate-reverse-\$SUFFIX"/)
+for (const arch of ['amd64', 'arm64']) assert.ok(assemble.includes('"$IMAGE:candidate-reverse-$SUFFIX-' + arch + '"'))
+assert.match(job(reverse, 'promote'), /candidate_suffix: \$\{\{ needs\.assemble\.outputs\.candidate_suffix/)
 assert.match(read('build-research'), /- target: research-economics/)
 assert.match(promotion, /concurrency:[\s\S]*cancel-in-progress: false/)
 assert.match(promotion, /queue: max/, 'Pending promotions must not replace each other')
