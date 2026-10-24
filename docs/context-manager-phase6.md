@@ -27,6 +27,7 @@ bundles, gateway routing or competing compactor:
 2. Set all of:
    ```
    DSH_CONTEXT_MANAGER_TIERED_ACTIVE=1
+   DSH_GLOBAL_COMPACTION=false
    DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED=1
    DSH_CONTEXT_MANAGER_NO_EXTERNAL_PROXY=1
    ```
