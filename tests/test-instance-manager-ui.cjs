@@ -114,7 +114,7 @@ test('plugin summary is a compact description without controls or polling; detai
   await f.settle()
   const detail = f.entry({ view: 'detail' })
   assert.match(text(detail), /当前 DSH 版本/)
-  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 7)
+  assert.equal(nodes(detail, node => node.props.role === 'tab').length, 8)
   assert.equal(f.calls, 1)
 })
 
@@ -175,7 +175,7 @@ test('sidebar separates status, single-instance scope, versions, network and dia
   let tree = f.entry({ view: 'detail' })
   const tabs = nodes(tree, n => n.props.role === 'tab')
   assert.deepEqual(tabs.map(n => text(n).trim()), ['总览', '实例', '版本与更新', '网络与服务',
-    '配置与诊断', '任务记录', '运行日志'])
+    '配置与诊断', '备份与恢复', '任务记录', '运行日志'])
   assert.equal(tabs[0].props['aria-selected'], true)
   assert.match(text(tree), /当前 DSH 版本|健康检查/)
   const instance = tabs[1]
@@ -298,10 +298,10 @@ test('failed registry checks remain visible in details', async () => {
   assert.match(text(f.entry({ view: 'detail' })), /更新检查失败：registry unavailable/)
 })
 
-test('live runtime logs are reachable from manager and the dedicated shortcut is registered', async () => {
+test('live runtime logs remain inside instance manager without an independent shortcut', async () => {
   const f = harness()
-  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'
-    && entry.label === '运行日志' && entry.icon === 'terminal'))
+  assert.ok(f.shortcuts.some(entry => entry.id === 'dsh-docker.instance-manager'))
+  assert.equal(f.shortcuts.some(entry => entry.id === 'dsh-docker.runtime-logs'), false)
   f.data.status.logs = '[INFO] DSH booted\n[WARN] retry network\n[ERROR] failed request'
   f.data.status.logsUpdatedAt = new Date().toISOString()
   f.entry({ view: 'detail' })
@@ -381,4 +381,56 @@ test('SSE subscription receives snapshots and appends, deduplicates and reconnec
   tree = f.entry({ view: 'detail' })
   assert.equal(f.sources.length, 2)
   assert.equal(source.closed, true)
+})
+
+
+test('backup page supports archive selection, upload and typed new-instance confirmation', async () => {
+  const f = harness()
+  const file = 'dsh-full-20261020-120000.dshbak'
+  f.data.status.backup = { files: [{ file, kind: 'saved', size: 5120,
+    createdAt: new Date().toISOString() }], schedule: { enabled: false, cadence: 'daily', keep: 7 } }
+  f.data.status.management = { schema: 1, operations: [
+    'backup-export', 'backup-verify', 'backup-import', 'backup-auto-on', 'backup-auto-off',
+  ] }
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '备份与恢复')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /导出完整备份/)
+  assert.match(text(tree), /上传到服务器/)
+  assert.match(text(tree), /自动备份计划/)
+  assert.match(text(tree), /dsh-full-20261020-120000.dshbak/)
+  assert.ok(nodes(tree, n => n.type === 'a' && n.props.download === file).length)
+  nodes(tree, n => n.props['aria-label'] === '待恢复归档')[0].props.onChange({ target: { value: file } })
+  nodes(tree, n => n.props['aria-label'] === '新实例 ID')[0].props.onChange({ target: { value: 'restored' } })
+  tree = f.entry({ view: 'detail' })
+  const start = nodes(tree, n => n.type === 'button' && text(n).trim() === '导入并创建新实例')[0]
+  assert.equal(start.props.disabled, false)
+  start.props.onClick()
+  tree = f.entry({ view: 'detail' })
+  assert.match(text(tree), /确认操作 ·\s+导入新实例/)
+  const confirm = nodes(tree, n => n.type === 'button' && text(n).includes('确认导入新实例'))[0]
+  assert.equal(confirm.props.disabled, true, 'must type exact target ID')
+  nodes(tree, n => n.props['aria-label'] === '输入新实例 ID 确认导入')[0]
+    .props.onChange({ target: { value: 'restored' } })
+  tree = f.entry({ view: 'detail' })
+  assert.equal(nodes(tree, n => n.type === 'button' && text(n).includes('确认导入新实例'))[0].props.disabled, false)
+})
+
+test('backup page fails closed for old host executors', async () => {
+  const f = harness()
+  f.data.status.backup = { files: [], schedule: { enabled: false, cadence: 'daily', keep: 7 } }
+  f.entry({ view: 'detail' }); await f.settle()
+  let tree = f.entry({ view: 'detail' })
+  nodes(tree, n => n.props.role === 'tab' && text(n).trim() === '备份与恢复')[0].props.onClick()
+  tree = f.entry({ view: 'detail' })
+  // Even after selecting a valid file, old workers must not accept uploads.
+  nodes(tree, n => n.props['aria-label'] === '选择本地完整备份文件')[0]
+    .props.onChange({ target: { files: [{ name: 'test.dshbak', size: 100 }] } })
+  tree = f.entry({ view: 'detail' })
+  for (const label of ['导出完整备份', '上传到服务器', '保存并开启自动备份']) {
+    const control = nodes(tree, n => n.type === 'button' && text(n).trim() === label)[0]
+    assert.ok(control, 'missing button ' + label)
+    assert.equal(control.props.disabled, true, 'old host must not allow ' + label)
+  }
 })

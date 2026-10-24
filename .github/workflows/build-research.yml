@@ -7,7 +7,7 @@ on:
       - research/**
       - .github/workflows/build-research.yml
   pull_request:
-    branches: [main]
+    branches: [main, chore/context-manager-m0-audit, 'feat/context-manager-*']
     paths:
       - research/**
       - .github/workflows/build-research.yml
@@ -174,6 +174,15 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Reserve disk for candidate base and derived layers
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+          free -h
+
       - name: Validate Research scripts
         run: |
           bash -n research/bin/research-init
@@ -243,7 +252,11 @@ jobs:
           RESEARCH_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          docker build --pull -f Dockerfile -t dsh-standard-ci:research .
+          # Preserve progress visibility during large, otherwise silent exports.
+          while sleep 30; do echo "Candidate Standard/Research build is still running"; done &
+          heartbeat_pid=$!
+          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
+          docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:research .
           docker build --pull=false -f research/Dockerfile --target "$RESEARCH_TARGET" \
             --build-arg BASE_IMAGE=dsh-standard-ci:research \
             --build-arg RESEARCH_VERSION="$RESEARCH_VERSION" -t "$AUDIT_IMAGE" .
@@ -281,11 +294,18 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
 
+      - name: Verify built-in native context plugin lifecycle
+        if: github.event_name == 'pull_request'
+        env:
+          AUDIT_IMAGE: ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+        run: bash tests/test-context-manager-native-plugin.sh "$AUDIT_IMAGE" standard
+
       - name: Report Research image footprint
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           AUDIT_IMAGE: ${{ steps.img.outputs.name }}:${{ matrix.tag }}
+          CANDIDATE: ${{ needs.prepare.outputs.candidate }}
         run: |
           set -euo pipefail
           bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
@@ -293,7 +313,8 @@ jobs:
           paths="$(docker run --rm --entrypoint bash "$AUDIT_IMAGE" -lc \
             'du -sh /opt/dsh-research/venv /usr/share/texlive /usr/local/go /ms-playwright /tmp/dsh-cache 2>/dev/null || true')"
           baseline=""
-          if docker pull "$AUDIT_IMAGE" >/dev/null 2>&1; then
+          # Keep the candidate tag and disk budget for the actual PR image.
+          if [[ "$CANDIDATE" != true ]] && docker pull "$AUDIT_IMAGE" >/dev/null 2>&1; then
             baseline_bytes="$(docker image inspect "$AUDIT_IMAGE" --format '{{.Size}}')"
             baseline_mib="$(awk -v b="$baseline_bytes" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
             baseline="- Current published tag (local uncompressed): **${baseline_mib} MiB** (${baseline_bytes} bytes)"

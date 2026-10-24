@@ -9,7 +9,7 @@ on:
       - ci/reverse-web-parity.cjs
       - .dockerignore
   pull_request:
-    branches: [main]
+    branches: [main, chore/context-manager-m0-audit, 'feat/context-manager-*']
     paths:
       - reverse/**
       - docker-compose.reverse.yml
@@ -165,6 +165,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Reserve disk for candidate base and derived layers
+        if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+          free -h
       - name: Validate reverse isolation and bundled Skills
         run: |
           set -euo pipefail
@@ -217,7 +225,9 @@ jobs:
           node --test tests/test-global-compaction.cjs
           node --test tests/test-plugin-doctor.cjs
           node --test tests/test-reverse-plugin-parity.cjs
-          node --test tests/test-bili-domain-ui.cjs
+          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
+          node --test tests/test-context-manager-native-plugin.mjs tests/test-context-manager-native-plugin-ui.cjs
+          bash -n tests/test-context-manager-native-replay.sh
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs
           docker compose -f docker-compose.reverse.yml config --quiet
@@ -240,15 +250,20 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Docker driver is intentional here: the daemon-built candidate is then
-      # visible as FROM dsh-standard-ci:reverse to the following Docker build.
+      # Load the candidate with the same Buildx path as Standard's audit image.
+      # The following daemon build can then resolve FROM dsh-standard-ci:reverse.
       - name: Build candidate Standard and Reverse together
         if: github.event_name == 'pull_request' && needs.prepare.outputs.candidate == 'true'
         env:
           REVERSE_IMAGE: ${{ steps.vars.outputs.image }}:reverse
         run: |
           set -euo pipefail
-          docker build --pull -f Dockerfile -t dsh-standard-ci:reverse .
+          # Large daemon exports can be silent for several minutes. Keep the
+          # build observable while retaining docker's exact exit status.
+          while sleep 30; do echo "Candidate Standard/Reverse build is still running"; done &
+          heartbeat_pid=$!
+          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
+          docker buildx build --pull --load --platform linux/amd64 -f Dockerfile -t dsh-standard-ci:reverse .
           docker build --pull=false -f reverse/Dockerfile \
             --build-arg BASE_IMAGE=dsh-standard-ci:reverse \
             -t "$REVERSE_IMAGE" .
@@ -357,7 +372,7 @@ jobs:
             grep -Fq wasm-host-import /tmp/reverse-knowledge.json
             reverse-ghidra --help >/dev/null
             test -f /opt/ghidra/support/analyzeHeadless
-            npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.4.0"
+            npm ls -g --depth=0 rea-agents | grep -F "rea-agents@6.7.0"
             for skill in universal-reverse-core binary-triage ghidra-headless electron-javascript-analysis reverse-evidence-report gdb-native-debugging frida-runtime-instrumentation javascript-deobfuscation network-protocol-reconstruction firmware-static-analysis; do
               test -s "/opt/dsh-reverse/skills/$skill/SKILL.md"
             done
@@ -386,6 +401,20 @@ jobs:
             test ! -e /opt/dsh-reverse/purge-ui
           '
 
+      - name: Verify native Reverse Session cold replay across Docker recreation
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${{ steps.audit_image.outputs.name }}
+        shell: bash
+        run: bash tests/test-context-manager-native-replay.sh "$IMAGE" reverse-engineering
+
+      - name: Verify native context plugin lifecycle on Reverse Standard preset
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${{ steps.audit_image.outputs.name }}
+        shell: bash
+        run: bash tests/test-context-manager-native-plugin.sh "$IMAGE" standard
+
       - name: Boot Web and assert Reverse Agent registration
         env:
           IMAGE: ${{ steps.audit_image.outputs.name }}
@@ -402,6 +431,9 @@ jobs:
           # an append_native_web_patch env switch, so parity env cannot infer it.
           docker run -d --name "$name" \
             -e DSH_REVERSE_CI_VERIFY_PRESET=1 \
+            -e DSH_CONTEXT_MANAGER_PROBE=true \
+            -e DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=reverse-engineering,reverse-report-reader \
+            -e DSH_CONTEXT_MANAGER_CI_REQUIRE_MOUNTED=1 \
             -e DSH_SEARCH_ENABLED=true "${plugin_args[@]}" "$IMAGE" >/dev/null
           for i in {1..100}; do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" != true ]]; then
@@ -411,6 +443,18 @@ jobs:
               docker logs "$name"; exit 1
             fi
             if docker logs "$name" 2>&1 | grep -Fq "DSH_REVERSE_CI_SESSION_CREATED"; then
+              context_ready=""
+              for _ in {1..60}; do
+                context_ready="$(docker logs "$name" 2>&1 | grep 'DSH_CONTEXT_MANAGER_CI_READY' | tail -1 || true)"
+                [[ -n "$context_ready" ]] && break
+                sleep 1
+              done
+              if [[ -z "$context_ready" ]]; then
+                docker logs "$name"
+                echo "::error::Reverse Context Manager runtime inventory unavailable"
+                exit 1
+              fi
+              echo "$context_ready"
               for health_attempt in {1..70}; do
                 health="$(docker inspect --format '{{.State.Health.Status}}' "$name")"
                 [[ "$health" == healthy ]] && break

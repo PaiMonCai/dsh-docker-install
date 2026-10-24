@@ -45,7 +45,7 @@ RUN git init /opt/dsh/searxng-src \
 
 FROM ubuntu-base
 
-ARG DSH_VERSION=0.2.1-rc.2
+ARG DSH_VERSION=0.2.1-rc.3
 ARG PNPM_VERSION=11.7.0
 ARG GO_VERSION=1.27.1
 ARG TARGETARCH
@@ -76,7 +76,6 @@ COPY docker/patch-connection-rpc-routes.js /usr/local/bin/patch-connection-rpc-r
 COPY docker/patch-web-launch-token.js /usr/local/bin/patch-web-launch-token.js
 COPY docker/patch-workspace-picker-home.js /usr/local/bin/patch-workspace-picker-home.js
 COPY docker/patch-plugin-hub-origin.js /usr/local/bin/patch-plugin-hub-origin.js
-COPY docker/patch-bili-client-ui.js /usr/local/bin/patch-bili-client-ui.js
 COPY docker/patch-dsh-market-container-restart.js /usr/local/bin/patch-dsh-market-container-restart.js
 
 RUN apt-get update \
@@ -210,11 +209,14 @@ COPY docker/plugins/dsh-web-search/ /opt/dsh/plugins/dsh-web-search/
 COPY docker/plugins/dsh-reasoning-editor/ /opt/dsh/plugins/dsh-reasoning-editor/
 COPY docker/plugins/dsh-session-manager/dsh-session-manager /usr/local/bin/dsh-session-manager
 COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
-COPY docker/plugins/dsh-bili-ui-bridge/ /opt/dsh/plugins/dsh-bili-ui-bridge/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
 COPY docker/plugins/dsh-global-compaction/ /opt/dsh/plugins/dsh-global-compaction/
+COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
+RUN npm ci --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --ignore-scripts --no-audit --no-fund
+COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
+COPY docker/context-manager-native-prepare.mjs /opt/dsh/context-manager-native-prepare.mjs
 COPY docker/dsh-web-manager.py /opt/dsh/host/web-manager.py
 COPY docker/apply-session-deletions.sh /usr/local/bin/apply-dsh-session-deletions
 COPY docker/dsh-bind.patch.yml /opt/dsh/dsh-bind.patch.yml
@@ -259,11 +261,67 @@ RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/core.mjs \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/permissions.mjs \
  && node --check /opt/dsh/plugins/dsh-prompt-manager/client.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/index.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/native-inventory.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/policy.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/storage.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-core.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-backend.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/tiered-native.js \
+ && node --check /opt/dsh/plugins/dsh-context-manager/history-index.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/ci-replay.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/ownership-audit.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/takeover.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-pending.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-runtime.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-ccr.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/lab-readiness.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-recovery.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/acp-native.js \
+ && node --check /opt/dsh/context-manager-tiered-preflight.mjs \
+ && node --check /opt/dsh/plugins/dsh-context-manager/client.js \
  && node --check /opt/dsh/plugins/dsh-icon-dock/client.js \
- && node --check /opt/dsh/plugins/dsh-bili-ui-bridge/index.js \
- && node --check /usr/local/bin/patch-bili-client-ui.js \
  && node --check /usr/local/bin/prepare-dsh-native-web-plugins.js \
  && chmod 0755 /usr/local/bin/apply-dsh-session-deletions /usr/local/bin/dsh-session-manager /usr/local/bin/dsh-entrypoint /usr/local/bin/patch-dsh-market-container-restart.js
+
+# Verify the real upstream /compact command dispatches to the unique service.
+COPY tests/test-context-manager-native-compact.mjs /opt/dsh/test-context-manager-native-compact.mjs
+RUN node /opt/dsh/test-context-manager-native-compact.mjs
+COPY tests/test-context-manager-native-transaction.mjs /opt/dsh/test-context-manager-native-transaction.mjs
+RUN node /opt/dsh/test-context-manager-native-transaction.mjs
+COPY tests/test-context-manager-acp-native.mjs /opt/dsh/test-context-manager-acp-native.mjs
+RUN node /opt/dsh/test-context-manager-acp-native.mjs
+COPY tests/lib/context-manager-legacy-probe.mjs /opt/dsh/test-lib/context-manager-legacy-probe.mjs
+COPY tests/fixtures/context-manager/acp-0.0.101-session.json /opt/dsh/test-fixtures/acp-0.0.101-session.json
+COPY tests/fixtures/context-manager/acp-0.0.147-session.json /opt/dsh/test-fixtures/acp-0.0.147-session.json
+COPY tests/test-context-manager-m0-native.mjs /opt/dsh/test-context-manager-m0-native.mjs
+RUN node /opt/dsh/test-context-manager-m0-native.mjs
+COPY tests/test-context-manager-acp-real-region.mjs /opt/dsh/test-context-manager-acp-real-region.mjs
+RUN node /opt/dsh/test-context-manager-acp-real-region.mjs
+COPY tests/test-context-manager-acp-t3.mjs /opt/dsh/test-context-manager-acp-t3.mjs
+RUN node /opt/dsh/test-context-manager-acp-t3.mjs
+COPY tests/test-context-manager-acp-tools.mjs /opt/dsh/test-context-manager-acp-tools.mjs
+RUN node /opt/dsh/test-context-manager-acp-tools.mjs
+COPY tests/test-context-manager-acp-agent-loop.mjs /opt/dsh/test-context-manager-acp-agent-loop.mjs
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs --builtin
+RUN node /opt/dsh/test-context-manager-acp-agent-loop.mjs --builtin --canonical
+COPY tests/test-context-manager-ccr.mjs /opt/dsh/test-context-manager-ccr.mjs
+RUN node /opt/dsh/test-context-manager-ccr.mjs
+COPY tests/test-context-manager-acp-fork.mjs /opt/dsh/test-context-manager-acp-fork.mjs
+RUN node /opt/dsh/test-context-manager-acp-fork.mjs
+COPY tests/test-context-manager-acp-benchmark.mjs /opt/dsh/test-context-manager-acp-benchmark.mjs
+RUN node /opt/dsh/test-context-manager-acp-benchmark.mjs
+COPY tests/test-context-manager-external-preflight.mjs /opt/dsh/test-context-manager-external-preflight.mjs
+RUN node /opt/dsh/test-context-manager-external-preflight.mjs
+
+# Import native summary candidate without mounting another compression owner.
+RUN node --input-type=module -e "const m = await import('/opt/dsh/plugins/dsh-context-manager/tiered-native.js'); if (typeof m.default !== 'function') throw Error('tiered backend export missing')"
+RUN set -eu; home="$(mktemp -d)"; \
+    DSH_HOME="$home" dsh --profile web --patch /opt/dsh/plugins/dsh-context-manager/cordis.patch.yml --dump-config > /tmp/dsh-context-manager-config.yml; \
+    grep -q 'id: dsh-docker-context-manager' /tmp/dsh-context-manager-config.yml; \
+    rm -rf "$home" /tmp/dsh-context-manager-config.yml
 
 ENV CHROME_BIN=/usr/local/bin/chromium \
     CHROMIUM_PATH=/usr/local/bin/chromium

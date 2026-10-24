@@ -4,7 +4,7 @@ services:
       context: .
       args:
         # 与 Dockerfile 中的默认值保持一致；升级时改这里（check-update 工作流会自动维护）。
-        DSH_VERSION: "0.2.1-rc.2"
+        DSH_VERSION: "0.2.1-rc.3"
         # 固定 pnpm 版本，与镜像 Dockerfile 默认值保持一致。
         PNPM_VERSION: "11.7.0"
         # auto=自动检测国内网络并切镜像源；yes/no 强制指定
@@ -30,8 +30,6 @@ services:
       # 可选：具体容器内网卡 IP；留空由入口自动选择。不可使用 0.0.0.0/::。
       DSH_BIND_HOST: "${DSH_BIND_HOST:-}"
       DSH_TRUSTED_HOSTS: "${DSH_TRUSTED_HOSTS:-}"
-      # billion-context：通过既有 DSH 域名和登录状态访问设置页，不暴露本地 18787。
-      DSH_BILI_UI_BRIDGE: "${DSH_BILI_UI_BRIDGE:-true}"
       # dsh-whale-widget 的非回环写权限。与 Trusted Hosts、浏览器认证是独立门禁，默认必须留空。
       # 仅在确需通过域名/局域网修改 Whale 配置时显式填写，例如 "dsh.example.com"。
       DSHW_ADMIN_HOSTS: "${DSHW_ADMIN_HOSTS:-}"
@@ -45,6 +43,13 @@ services:
       DSH_PROMPT_MANAGER: "${DSH_PROMPT_MANAGER:-true}"
       # Default-on Web fallback for custom presets; set false to disable.
       DSH_GLOBAL_COMPACTION: "${DSH_GLOBAL_COMPACTION:-true}"
+      DSH_CONTEXT_MANAGER_PROBE: "${DSH_CONTEXT_MANAGER_PROBE:-true}"
+      DSH_CONTEXT_MANAGER_LOG_LEVEL: "${DSH_CONTEXT_MANAGER_LOG_LEVEL:-info}"
+      DSH_CONTEXT_MANAGER_TIERED_ACTIVE: "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}"
+      DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED: "${DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED:-0}"
+      DSH_CONTEXT_MANAGER_ACP_ACTIVE: "${DSH_CONTEXT_MANAGER_ACP_ACTIVE:-0}"
+      DSH_CONTEXT_MANAGER_CCR_ACTIVE: "${DSH_CONTEXT_MANAGER_CCR_ACTIVE:-0}"
+      DSH_CONTEXT_MANAGER_NO_EXTERNAL_PROXY: "${DSH_CONTEXT_MANAGER_NO_EXTERNAL_PROXY:-0}"
       # Search is opt-in; bundled SearXNG starts only when selected as provider.
       DSH_SEARCH_ENABLED: "${DSH_SEARCH_ENABLED:-false}"
       DSH_SEARCH_SEARXNG_URL: "http://127.0.0.1:18788"

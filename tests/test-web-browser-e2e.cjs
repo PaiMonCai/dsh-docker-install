@@ -110,7 +110,7 @@ async function run() {
   const manager = page.getByRole('dialog', { name: 'DSH 管理中心', exact: true })
   await manager.waitFor({ state: 'visible', timeout })
   const managerPages = ['总览', '实例', '版本与更新', '网络与服务',
-    '配置与诊断', '任务记录', '运行日志']
+    '配置与诊断', '备份与恢复', '任务记录', '运行日志']
   for (const title of managerPages) {
     assert.equal(await manager.getByRole('tab', { name: title, exact: true }).count(), 1,
       'management console is missing page: ' + title)
@@ -215,13 +215,41 @@ async function run() {
   assert.equal(await settingsDialog.getByRole('checkbox', { name: '启用全局附加指令' }).isChecked(), false)
   assert.equal(await promptText.inputValue(), 'CI literal {{unknown_variable}}')
 
+  // Context Manager: real authenticated settings RPC, persistence, and
+  // default-denied original-source retrieval on the native Web settings page.
+  await settingsDialog.getByRole('button', { name: '上下文管理', exact: true }).click({ timeout })
+  const tieredGoal = settingsDialog.getByRole('radio', { name: 'billion-context 原生增强' })
+  await tieredGoal.waitFor({ state: 'visible', timeout })
+  const nativeSwitch = settingsDialog.getByRole('checkbox', { name: '启用 billion-context 原生插件', exact: true })
+  assert.equal(await nativeSwitch.isChecked(), false)
+  await nativeSwitch.check()
+  assert.equal(await tieredGoal.isChecked(), true)
+  await settingsDialog.getByRole('button', { name: '保存设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '设置已保存' }).waitFor({ timeout })
+  await settingsDialog.getByRole('status').filter({ hasText: '有已保存变更，待重启容器' }).waitFor({ timeout })
+  await settingsDialog.getByRole('button', { name: '提示词与执行', exact: true }).click()
+  await settingsDialog.getByRole('button', { name: '上下文管理', exact: true }).click()
+  assert.equal(await tieredGoal.isChecked(), true, 'context policy did not persist after remount')
+  assert.equal(await nativeSwitch.isChecked(), true)
+  await settingsDialog.getByRole('button', { name: '运行状态', exact: true }).click()
+  await settingsDialog.getByText('实际：upstream-unmanaged').waitFor({ state: 'visible', timeout })
+  await settingsDialog.getByRole('button', { name: '压缩策略', exact: true }).click()
+  await nativeSwitch.uncheck()
+  assert.equal(await settingsDialog.getByRole('radio', { name: 'DSH 原生' }).isChecked(), true)
+  await settingsDialog.getByRole('button', { name: '保存设置', exact: true }).click()
+  await settingsDialog.getByRole('status').filter({ hasText: '设置已保存' }).waitFor({ timeout })
+  await settingsDialog.getByRole('button', { name: '压缩历史', exact: true }).click()
+  await settingsDialog.getByText('原文读取默认关闭。单用户管理部署可设置', { exact: false })
+    .waitFor({ state: 'visible', timeout })
+  assert.equal(await settingsDialog.getByRole('button', { name: '按需回取原文（前 5 条）' }).count(), 0)
+
   // A collapsed sidebar may show 2x2 with overflow. The exact UI control
   // varies upstream, but our own responsive dock can be checked after a
   // viewport resize without relying on internal DOM classes.
   assert.ok(clientErrors.filter(s => /dsh-docker-icon-dock|renderIcon|sidebar/i.test(s)).length === 0,
     'browser reported sidebar/plugin errors: ' + clientErrors.join('; '))
 
-  console.log('Browser E2E PASS: native dock, 5x2 More, actions, persistence, editor, prompt settings RPC')
+  console.log('Browser E2E PASS: native dock, context policy + locked-down history, authenticated RPC and persistence')
 }
 
 run().catch(async error => {

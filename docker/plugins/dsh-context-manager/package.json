@@ -1,0 +1,32 @@
+{
+  "name": "dsh-docker-context-manager",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Native DSH context management and opt-in ACP kernel tooling",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "acp-kernel": "file:vendor/acp-kernel-0.0.160-dsh.a2d8cb9b.1.tgz"
+  }
+}

@@ -55,7 +55,9 @@ function snapshot(pluginRoot = PLUGIN_ROOT, entrypointPath = ENTRYPOINT) {
     // A strictly explicit image-owned marker distinguishes headless server
     // routes from browser modules. Do not require fake client.js scripts.
     const serverOnly = manifest.dshDockerServerOnly === true
-    if (web && serverOnly) throw Error('conflicting plugin capabilities: ' + entry.name)
+    // Native configuration overlays reuse upstream services and have no module.
+    const patchOnly = manifest.dshDockerPatchOnly === true
+    if ([web, serverOnly, patchOnly].filter(Boolean).length > 1) throw Error('conflicting plugin capabilities: ' + entry.name)
     const files = listFiles(dir)
     if (web) {
       for (const name of ['package.json', 'client.js', 'index.js', 'cordis.patch.yml']) {
@@ -69,13 +71,16 @@ function snapshot(pluginRoot = PLUGIN_ROOT, entrypointPath = ENTRYPOINT) {
         if (!files.some(f => f.path === name)) throw Error('incomplete server-only plugin: ' + entry.name + '/' + name)
       }
     }
-    plugins.push({ directory: entry.name, id: manifest.name, web, serverOnly, files })
+    if (patchOnly && !files.some(f => f.path === 'cordis.patch.yml')) {
+      throw Error('incomplete configuration overlay: ' + entry.name + '/cordis.patch.yml')
+    }
+    plugins.push({ directory: entry.name, id: manifest.name, web, serverOnly, patchOnly, files })
   }
   if (!plugins.some(p => p.web)) throw Error('no Web client plugins discovered')
   for (const overlay of overlays) {
     const dir = overlay.path.slice('/opt/dsh/plugins/'.length).split('/')[0]
-    if (!plugins.some(p => p.directory === dir && (p.web || p.serverOnly))) {
-      throw Error('launcher references missing Web or server-only plugin: ' + overlay.path)
+    if (!plugins.some(p => p.directory === dir && (p.web || p.serverOnly || p.patchOnly))) {
+      throw Error('launcher references missing Web, server-only or configuration overlay: ' + overlay.path)
     }
   }
   if (new Set(plugins.map(p => p.id)).size !== plugins.length) throw Error('duplicate plugin package IDs')
@@ -92,6 +97,7 @@ function compare(expected, actual) {
     assert.equal(found.id, plugin.id, 'plugin identity changed: ' + plugin.directory)
     assert.equal(found.web, plugin.web, 'plugin Web capability changed: ' + plugin.id)
     assert.equal(found.serverOnly, plugin.serverOnly, 'plugin server capability changed: ' + plugin.id)
+    assert.equal(found.patchOnly, plugin.patchOnly, 'plugin configuration capability changed: ' + plugin.id)
     assert.deepEqual(found.files, plugin.files, 'Reverse changed inherited Standard plugin files: ' + plugin.id)
   }
   assert.deepEqual(actual.plugins.map(p => p.directory), expected.plugins.map(p => p.directory),

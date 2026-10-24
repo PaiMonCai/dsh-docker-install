@@ -68,23 +68,60 @@ test('dynamic launcher parser rejects unsupported switches and duplicate patches
   assert.throws(() => declaredPatches(item + item), /duplicate native Web patch declaration/)
 })
 
-test('explicit server-only bundled extension is audited without a fake browser client',t=>{
+test('server-only future extension is audited without a fake browser client',t=>{
  const f=fixture(t)
  f.add('alpha')
- const dir=path.join(f.pluginRoot,'bili-ui-bridge')
+ const dir=path.join(f.pluginRoot,'server-only-adapter')
  fs.mkdirSync(dir)
  fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({
-   name:'dsh-docker-bili-ui-bridge',dshDockerServerOnly:true
+   name:'dsh-docker-server-only-adapter',dshDockerServerOnly:true
  }))
- for(const name of ['index.js','cordis.patch.yml'])fs.writeFileSync(path.join(dir,name),'// bridge\n')
+ for(const name of ['index.js','cordis.patch.yml'])fs.writeFileSync(path.join(dir,name),'// server-only\n')
  fs.appendFileSync(f.launcher,
-   'append_native_web_patch "/opt/dsh/plugins/bili-ui-bridge/cordis.patch.yml" "true" "Bili Bridge"\n')
+   'append_native_web_patch "/opt/dsh/plugins/server-only-adapter/cordis.patch.yml" "true" "Server Only"\n')
  const before=f.take()
- const bridge=before.plugins.find(p=>p.directory==='bili-ui-bridge')
- assert.equal(bridge.web,false)
- assert.equal(bridge.serverOnly,true)
- assert.ok(bridge.files.every(x=>x.path!=='client.js'))
+ const adapter=before.plugins.find(p=>p.directory==='server-only-adapter')
+ assert.equal(adapter.web,false)
+ assert.equal(adapter.serverOnly,true)
+ assert.ok(adapter.files.every(x=>x.path!=='client.js'))
  compare(before,f.take())
  fs.writeFileSync(path.join(dir,'index.js'),'tampered')
  assert.throws(()=>compare(before,f.take()),/changed inherited Standard plugin files/)
+})
+
+test('native compaction configuration is inventoried and hashed without a fake plugin module', t => {
+  const f = fixture(t)
+  f.add('alpha')
+  const name = 'dsh-global-compaction'
+  const bundled = path.join(__dirname, '../docker/plugins', name)
+  const dir = path.join(f.pluginRoot, name)
+  fs.cpSync(bundled, dir, { recursive: true })
+  fs.appendFileSync(f.launcher, 'append_native_web_patch "/opt/dsh/plugins/' + name +
+    '/cordis.patch.yml" "${DSH_GLOBAL_COMPACTION:-true}" "Native compaction"\n')
+  const before = f.take()
+  const overlay = before.plugins.find(p => p.directory === name)
+  assert.equal(overlay.id, 'dsh-docker-global-compaction')
+  assert.equal(overlay.patchOnly, true)
+  assert.equal(overlay.web, false)
+  assert.equal(overlay.serverOnly, false)
+  assert.deepEqual(overlay.files.map(f => f.path), ['cordis.patch.yml', 'package.json'])
+  compare(before, f.take())
+  fs.appendFileSync(path.join(dir, 'cordis.patch.yml'), '\n# changed\n')
+  assert.throws(() => compare(before, f.take()), /changed inherited Standard plugin files/)
+  fs.unlinkSync(path.join(dir, 'cordis.patch.yml'))
+  assert.throws(() => f.take(), /incomplete configuration overlay/)
+})
+
+test('configuration-only capability cannot disguise a Web or server plugin', t => {
+  const f = fixture(t)
+  f.add('alpha')
+  const file = path.join(f.pluginRoot, 'alpha/package.json')
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'))
+  manifest.dshDockerPatchOnly = true
+  fs.writeFileSync(file, JSON.stringify(manifest))
+  assert.throws(() => f.take(), /conflicting plugin capabilities/)
+  delete manifest.dsh
+  manifest.dshDockerServerOnly = true
+  fs.writeFileSync(file, JSON.stringify(manifest))
+  assert.throws(() => f.take(), /conflicting plugin capabilities/)
 })

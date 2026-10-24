@@ -7,6 +7,7 @@ on:
       - docker/dsh-web-manager.py
       - docker/plugins/dsh-instance-manager/**
       - tests/test-instance-manager.mjs
+      - tests/test-web-backup-transfer.mjs
       - tests/test-management-operations.mjs
       - docker/management-operations.json
       - tests/test-instance-manager-ui.cjs
@@ -15,6 +16,10 @@ on:
       - tests/test-dshd-web-switch.sh
       - tests/test-dshd-rescue-menu.sh
       - tests/test-dshd-interactive.sh
+      - docker/dsh-portable-backup.py
+      - tests/test-portable-backup.py
+      - tests/test-install-bootstrap.sh
+      - install.sh
       - .github/workflows/instance-manager-tests.yml
   push:
     branches: [main]
@@ -23,6 +28,7 @@ on:
       - docker/dsh-web-manager.py
       - docker/plugins/dsh-instance-manager/**
       - tests/test-instance-manager.mjs
+      - tests/test-web-backup-transfer.mjs
       - tests/test-management-operations.mjs
       - docker/management-operations.json
       - tests/test-instance-manager-ui.cjs
@@ -31,6 +37,10 @@ on:
       - tests/test-dshd-web-switch.sh
       - tests/test-dshd-rescue-menu.sh
       - tests/test-dshd-interactive.sh
+      - docker/dsh-portable-backup.py
+      - tests/test-portable-backup.py
+      - tests/test-install-bootstrap.sh
+      - install.sh
       - .github/workflows/instance-manager-tests.yml
   workflow_dispatch:
 
@@ -48,13 +58,16 @@ jobs:
       - name: Validate host executor and Web bridge
         run: |
           bash -n dshd
+          bash -n install.sh
+          bash tests/test-install-bootstrap.sh
           bash tests/test-dshd-web-management.sh
           bash tests/test-dshd-web-switch.sh
           bash tests/test-dshd-rescue-menu.sh
           bash tests/test-dshd-interactive.sh
           python3 tests/test-web-manager.py
+          python3 tests/test-portable-backup.py
           node --check docker/plugins/dsh-instance-manager/client.js
-          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs
+          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-plugin-doctor.cjs tests/test-reverse-plugin-parity.cjs tests/test-web-backup-transfer.mjs
       - name: Exercise existing lifecycle and proxy behavior
         run: |
           bash tests/test-dshd-rollback.sh

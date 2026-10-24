@@ -60,16 +60,6 @@
       "strategy": "source rewrite",
       "validation": "market patch self-test and restart smoke",
       "exitCriteria": "Upstream container-aware restart support"
-    },
-    {
-      "id": "billion-context-domain-ui",
-      "file": "docker/patch-bili-client-ui.js",
-      "risk": "medium",
-      "phase": "runtime-profile",
-      "dependency": "optional third-party billion-context dsh-native-client.js",
-      "strategy": "guarded UI-only rewrite with backup and opt-out",
-      "validation": "billion-context Node browser bridge tests and authenticated reverse-proxy smoke",
-      "exitCriteria": "third-party DSH native client supports same-origin embedded UI"
     }
   ]
 }

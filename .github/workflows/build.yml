@@ -23,7 +23,7 @@ on:
       - .github/workflows/promote-release.yml
       - .github/workflows/dispatch-edition.yml
   pull_request:
-    branches: [main]
+    branches: [main, chore/context-manager-m0-audit, 'feat/context-manager-*']
     paths:
       - Dockerfile
       - .dockerignore
@@ -103,12 +103,19 @@ jobs:
         run: |
           bash -n dshd
           bash -n install.sh
+          bash -n tests/test-install-bootstrap.sh
+          bash tests/test-install-bootstrap.sh
           bash tests/test-dshd-web-management.sh
           bash tests/test-dshd-web-switch.sh
           python3 tests/test-web-manager.py
-          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs
+          python3 tests/test-portable-backup.py
+          node --test tests/test-management-operations.mjs tests/test-instance-manager.mjs tests/test-instance-manager-ui.cjs tests/test-web-backup-transfer.mjs
           node --check docker/plugins/dsh-instance-manager/client.js
           node --test tests/test-prompt-manager.mjs tests/test-prompt-manager-ui.cjs
+          node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
+          node --test tests/test-context-manager-native-plugin.mjs tests/test-context-manager-native-plugin-ui.cjs
+          bash -n tests/test-context-manager-native-plugin.sh
+          bash -n tests/test-context-manager-native-replay.sh
           bash -n tests/test-dshd-storage.sh
           bash tests/test-dshd-storage.sh
           bash tests/test-dshd-rollback.sh
@@ -144,7 +151,6 @@ jobs:
           node --check tests/test-web-browser-e2e.cjs
           node --test tests/test-web-browser-onboarding.cjs
           node tests/test-connection-rpc-routes.js
-          node --test tests/test-bili-domain-ui.cjs
           node --test tests/test-remote-settings-patch.cjs
           node --test tests/test-upstream-patches.cjs
           node --test tests/test-reverse-plugin-parity.cjs
@@ -181,17 +187,6 @@ jobs:
           bash tests/test-dshd-reverse-install.sh
           node --test tests/test-reverse-edition.cjs
           node tests/test-semver-max.mjs
-
-      - name: Verify published billion-context domain UI adapter
-        run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
-          archive="$(npm pack 'billion-context@0.1.197' --ignore-scripts --silent --pack-destination "$tmp")"
-          tar -xzf "$tmp/$archive" -C "$tmp"
-          DSH_BILI_PACKAGE_ROOT="$tmp/package" node --test tests/test-bili-published-client.cjs
-          npm install --prefix "$tmp/router" --ignore-scripts --no-audit --no-fund '@deepseek-ai/dsh-host-webserver@0.2.1-alpha.4'
-          DSH_WEBSERVER_PACKAGE_ROOT="$tmp/router/node_modules/@deepseek-ai/dsh-host-webserver" node --test tests/test-bili-published-router.cjs
 
       # Regression for upstream 0.2.1-alpha.3, where Host persistence is native.
       # Test the published bundle rather than assuming source and bundle match.
@@ -294,6 +289,9 @@ jobs:
           tags: dsh-ci:pr
           cache-from: type=gha
           # Keep the previous ARM64 cache until the multi-platform export.
+
+      - name: Round-trip portable full-instance backup in real Docker
+        run: sudo env "PATH=$PATH" bash tests/test-portable-backup-docker.sh
 
       - name: Exercise Web managed restart and transactional replacement
         run: sudo env "PATH=$PATH" bash tests/test-instance-manager-runtime.sh dsh-ci:pr
@@ -430,7 +428,9 @@ jobs:
           }
           trap cleanup EXIT
           docker volume create "$token_volume" >/dev/null
-          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 dsh-ci:pr
+          docker run -d --name "$name" -v "$token_volume:/root/.dsh" -p 127.0.0.1::3080 \
+            -e DSH_CONTEXT_MANAGER_PROBE=true \
+            -e DSH_CONTEXT_MANAGER_CI_EXPECT_PRESETS=standard dsh-ci:pr
           mapped_port="$(docker port "$name" 3080/tcp | head -n 1)"
           mapped_port="${mapped_port##*:}"
           [[ "$mapped_port" =~ ^[0-9]+$ ]]
@@ -471,6 +471,18 @@ jobs:
             exit 1
           fi
           echo "DSH Docker healthcheck reports healthy"
+          context_ready=""
+          for _ in {1..50}; do
+            context_ready="$(docker logs "$name" 2>&1 | grep 'DSH_CONTEXT_MANAGER_CI_READY' | tail -1 || true)"
+            [[ -n "$context_ready" ]] && break
+            sleep 1
+          done
+          if [[ -z "$context_ready" ]]; then
+            echo "::error::Context Manager runtime inventory unavailable"
+            docker logs "$name" | tail -100
+            exit 1
+          fi
+          echo "$context_ready"
 
           # Native bundled Web plugins must be loaded from the immutable
           # image patch files, not Profile dependencies or pnpm state.
@@ -627,6 +639,26 @@ jobs:
 
 
 
+
+      - name: Verify native Session cold replay across Docker recreation
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-native-replay.sh dsh-ci:pr standard
+
+      - name: Verify isolated single-owner Tiered Standard preset
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-tiered-lab.sh dsh-ci:pr
+
+      - name: Verify active Tiered + ACP Standard preset in disposable CI Web
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-acp-lab.sh dsh-ci:pr
+
+      - name: Verify built-in native context plugin enable-disable-reenable lifecycle
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: bash tests/test-context-manager-native-plugin.sh dsh-ci:pr standard
 
       - name: Report image footprint
         if: github.event_name == 'pull_request'

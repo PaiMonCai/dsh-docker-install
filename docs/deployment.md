@@ -591,3 +591,8 @@ DSH_HOME="$(mktemp -d)" dsh --profile web \
 
 确认三个 host 插件为 `disabled: false` 后，仍需在新会话检验 `/compact`，并使用允许摘要的模型线路
 验证真正的压缩调用、错误处理和长上下文自动触发。不能仅以 `--dump-config` 成功认定溢出已修复。
+
+启用 `DSH_CONTEXT_MANAGER_TIERED_ACTIVE=1` 的单引擎实验时，必须显式设置
+`DSH_GLOBAL_COMPACTION=false`。启动器会在实验预检与持久 Profile 迁移之前拒绝两者同时开启，
+避免在 preset 内的 owner 替换事务之外额外创建 host compactor。普通 preset 内置压缩与
+host fallback 的重复监听，以及真实模型和外部网关行为，仍需独立运行验收。

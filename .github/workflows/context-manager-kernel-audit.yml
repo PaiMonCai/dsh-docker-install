@@ -1,0 +1,134 @@
+name: Context Manager Kernel Audit
+
+on:
+  pull_request:
+    paths:
+      - .gitattributes
+      - ci/acp-kernel-audit/**
+      - ci/context-manager-comparison.mjs
+      - docker/plugins/dsh-context-manager/**
+      - tests/test-context-manager-kernel-audit.mjs
+      - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-comparison.mjs
+      - tests/test-context-manager-diagnostics.mjs
+      - tests/test-context-manager-native-plugin*
+      - tests/test-context-manager-acp-agent-loop.mjs
+      - tests/lib/context-manager-legacy-probe.mjs
+      - tests/fixtures/context-manager/**
+      - .github/workflows/context-manager-kernel-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - .gitattributes
+      - ci/acp-kernel-audit/**
+      - ci/context-manager-comparison.mjs
+      - docker/plugins/dsh-context-manager/**
+      - tests/test-context-manager-kernel-audit.mjs
+      - tests/test-context-manager-upstream.mjs
+      - tests/test-context-manager-comparison.mjs
+      - tests/test-context-manager-diagnostics.mjs
+      - tests/test-context-manager-native-plugin*
+      - tests/test-context-manager-acp-agent-loop.mjs
+      - tests/lib/context-manager-legacy-probe.mjs
+      - tests/fixtures/context-manager/**
+      - .github/workflows/context-manager-kernel-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-runtime:
+    name: Native Plugin Runtime (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.1'
+      - name: Install pinned published DSH and plugin dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.2
+          npm ci --prefix docker/plugins/dsh-context-manager --ignore-scripts --no-audit --no-fund
+          sudo mkdir -p /usr/local/lib/node_modules/@deepseek-ai /opt/dsh/plugins
+          native_root="$(npm root -g)/@deepseek-ai/dsh"
+          if [[ "$native_root" != /usr/local/lib/node_modules/@deepseek-ai/dsh ]]; then
+            sudo ln -s "$native_root" /usr/local/lib/node_modules/@deepseek-ai/dsh
+          fi
+          sudo ln -s "$PWD/docker/plugins/dsh-context-manager" /opt/dsh/plugins/dsh-context-manager
+      - name: Exercise real native transactions and AgentLoop without provider traffic
+        run: |
+          node tests/test-context-manager-acp-real-region.mjs
+          node tests/test-context-manager-acp-agent-loop.mjs --builtin
+          node tests/test-context-manager-acp-agent-loop.mjs --builtin --canonical
+
+  audit:
+    name: Immutable Audit (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.1'
+          cache: npm
+          cache-dependency-path: ci/acp-kernel-audit/package-lock.json
+      - name: Install locked audit dependencies (no runtime upgrade)
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix ci/acp-kernel-audit
+      - name: Existing Linux context manager regressions
+        if: runner.os == 'Linux'
+        run: node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs
+      - name: Native plugin lifecycle and Settings behavior
+        run: node --test tests/test-context-manager-native-plugin.mjs tests/test-context-manager-native-plugin-ui.cjs
+      - name: Build pinned source and audit compatibility
+        run: node ci/acp-kernel-audit/run.mjs
+      - name: Verify the independently built native distribution
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix docker/plugins/dsh-context-manager
+          node ci/acp-kernel-audit/build-native.mjs --check
+          node --test tests/test-context-manager-upstream.mjs
+          node --test tests/test-context-manager-comparison.mjs
+          node --test tests/test-context-manager-diagnostics.mjs
+      - name: Report upgrade decision separately from audit execution
+        if: always()
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import {readFile} from 'node:fs/promises'
+          const path='ci/acp-kernel-audit/node_modules/.cache/m0-output/evidence.json'
+          try {
+            const e=JSON.parse(await readFile(path,'utf8'))
+            console.log('## M0 audit executed; upgrade remains blocked')
+            console.log('Source build exit code: '+e.build.exitCode)
+            console.log('Upstream test exit code: '+e.upstreamTestsExitCode)
+            console.log('Legacy regression exit code: '+e.legacyRegressionExitCode)
+            console.log('\nBlockers:\n'+e.decision.reasons.map(r=>'- '+r).join('\n'))
+            console.log('\nA green audit job confirms evidence collection, not candidate production readiness.')
+          } catch {
+            console.log('M0 evidence collection failed; inspect job logs. No upgrade is approved.')
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: context-manager-m0-${{ matrix.os }}
+          path: |
+            ci/acp-kernel-audit/node_modules/.cache/m0-output
+            ci/acp-kernel-audit/node_modules/.cache/native-output
+          include-hidden-files: true
+          if-no-files-found: error

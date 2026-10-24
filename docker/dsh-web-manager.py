@@ -4,6 +4,7 @@ import argparse
 from collections import deque
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,10 @@ import time
 import uuid
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+UPLOAD_FILE = re.compile(r"upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.dshbak\Z")
+BACKUP_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dshbak\Z")
+NEW_INSTANCE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+MAX_WEB_ARCHIVE = 1024 * 1024 * 1024  # 1 GiB upload cap
 JOB = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 ACTIONS = {
     "check": [], "update": ["update"], "restart": ["restart"],
@@ -33,12 +38,15 @@ ACTIONS = {
     "diagnose-plugins": ["doctor", "plugins", "--json"],
     "dashboard-start": ["dashboard", "start"],
     "dashboard-stop": ["dashboard", "stop"],
+    "backup-export": ["backup", "export"],
+    "backup-auto-off": ["backup", "auto", "off"],
 }
 
 # Phase 1: the host remains the authority. Expose only names that the
 # executor actually knows; this is metadata, not an executable command list.
 OPERATION_CONTRACT_VERSION = 1
-SUPPORTED_OPERATIONS = tuple(sorted((*ACTIONS, "settings", "proxy-use", "proxy-add", "proxy-subscribe")))
+SUPPORTED_OPERATIONS = tuple(sorted((*ACTIONS, "settings", "proxy-use", "proxy-add", "proxy-subscribe",
+                                     "backup-verify", "backup-import", "backup-auto-on")))
 
 
 def now():
@@ -98,6 +106,12 @@ def command_for(action, arguments):
         if not isinstance(url, str) or len(url) > 8192 or re.search(r"[\x00-\x20\x7f]", url) or not re.match(schemes, url):
             raise ValueError("invalid proxy address")
         return ["proxy", "subscribe" if action == "proxy-subscribe" else "add", name, url]
+    if action == "backup-verify" and set(arguments) == {"file"} and isinstance(arguments["file"], str) and BACKUP_FILE.fullmatch(arguments["file"]):
+        return ["backup", "verify", arguments["file"]]
+    if action == "backup-import" and set(arguments) == {"file", "instance"} and isinstance(arguments["file"], str) and BACKUP_FILE.fullmatch(arguments["file"]) and isinstance(arguments["instance"], str) and NEW_INSTANCE.fullmatch(arguments["instance"]) and arguments["instance"] != "default":
+        return ["backup", "import", arguments["file"], arguments["instance"]]
+    if action == "backup-auto-on" and set(arguments) == {"cadence", "keep"} and arguments["cadence"] in ("daily", "weekly") and type(arguments["keep"]) is int and 1 <= arguments["keep"] <= 90:
+        return ["backup", "auto", "on", arguments["cadence"], str(arguments["keep"])]
     raise ValueError("unsupported operation")
 
 
@@ -122,7 +136,9 @@ class Manager:
         self.bridge = self.state / "web-management"
         self.requests, self.results = self.bridge / "requests", self.bridge / "results"
         self.private = self.state / "web-management-private"
-        for directory in (self.bridge, self.requests, self.results, self.private):
+        self.backups = self.state / "backups"
+        self.uploads = self.bridge / "uploads"
+        for directory in (self.bridge, self.requests, self.results, self.private, self.backups, self.uploads):
             if directory.is_symlink():
                 raise ValueError("unsafe management directory")
             directory.mkdir(mode=0o700, exist_ok=True)
@@ -274,13 +290,63 @@ class Manager:
         if self.log_thread:
             self.log_thread.join(timeout=3)
 
+    def list_backups(self):
+        entries = []
+        for directory, kind in ((self.backups, "saved"), (self.uploads, "uploaded")):
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if not BACKUP_FILE.fullmatch(path.name):
+                    continue
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:  # timer pruning an expired snapshot
+                    continue
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                entries.append({"file": path.name, "kind": kind,
+                                "size": info.st_size,
+                                "createdAt": datetime.datetime.fromtimestamp(info.st_mtime, datetime.timezone.utc).isoformat()})
+        return sorted(entries, key=lambda row: row["createdAt"], reverse=True)[:50]
+
+    def backup_schedule(self):
+        hash_id = hashlib.sha256(str(self.state).encode()).hexdigest()[:12]
+        prefix = "dshd-backup-" + hash_id
+        timer = Path("/etc/systemd/system") / (prefix + ".timer")
+        service = Path("/etc/systemd/system") / (prefix + ".service")
+        result = {"enabled": False, "cadence": "daily", "keep": 7}
+        if timer.is_file() and not timer.is_symlink() and service.is_file() and not service.is_symlink():
+            try:
+                schedule = timer.read_text(encoding="utf-8")[:8192]
+                settings = service.read_text(encoding="utf-8")[:8192]
+                cadence = re.search(r"(?m)^OnCalendar=(daily|weekly)$", schedule)
+                keep = re.search(r"(?m)^Environment=DSHD_AUTO_BACKUP_KEEP=(\d+)$", settings)
+                if cadence and keep and 1 <= int(keep.group(1)) <= 90:
+                    result.update(enabled=True, cadence=cadence.group(1), keep=int(keep.group(1)))
+            except OSError:
+                pass
+        return result
+
+    def archive_path(self, filename):
+        if not isinstance(filename, str) or not BACKUP_FILE.fullmatch(filename):
+            raise ValueError("invalid archive filename")
+        directory = self.uploads if UPLOAD_FILE.fullmatch(filename) else self.backups
+        path = directory / filename
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+            raise ValueError("archive missing or unsafe")
+        if directory == self.uploads and info.st_size > MAX_WEB_ARCHIVE:
+            raise ValueError("uploaded archive exceeds 1 GiB")
+        return path
+
     def snapshot(self):
         description = self.describe()
         snapshot = {"schema": 1, "heartbeat": now(), "instance": description,
                     "management": {"schema": OPERATION_CONTRACT_VERSION,
                                    "operations": list(SUPPORTED_OPERATIONS)},
                     "settings": self.settings, "release": self.release, "container": None,
-                    "proxy": {"nodes": [], "running": False}, "logs": ""}
+                    "proxy": {"nodes": [], "running": False}, "logs": "",
+                    "backup": {"files": self.list_backups(), "schedule": self.backup_schedule()}}
         try:
             container = self.inspect(description["name"])
             image = json.loads(self.run(["docker", "image", "inspect", container["Image"]]))[0]
@@ -361,6 +427,9 @@ class Manager:
             self.next_check = time.monotonic() + self.settings["checkInterval"]
             return
         command = command_for(action, arguments)
+        if action in ("backup-verify", "backup-import"):
+            # Browser controls a bounded filename, never absolute host paths.
+            command[2] = str(self.archive_path(arguments["file"]))
         if action == "check":
             self.check()
             return

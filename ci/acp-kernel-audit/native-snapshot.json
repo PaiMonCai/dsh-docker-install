@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "observedOn": "2026-10-23",
+  "baseline": {
+    "version": "0.0.147-dsh.bc4a3f87.1",
+    "artifact": "acp-kernel-0.0.147-dsh.bc4a3f87.1.tgz",
+    "sha256": "0c06b3b85d69eea1d2bd22b7f5a274aae4301c2134848f7d1edf2e18c1557a04",
+    "integrity": "sha512-b/x+kmj+h30eg9fI6Q0omg3KtxUGSlNRQZmYNu1we1dkLJSHQAPxZk8jKkzRdLR5vticJBrFYhF039h1uvk+CQ==",
+    "upstreamCommit": "bc4a3f87e2dc98e82df6f707d362e75492fdf3d1"
+  },
+  "candidate": {
+    "repository": "ranxianglei/billion-context",
+    "commit": "a2d8cb9b2e5060978d130b9cebc3e41b1506a0db",
+    "sourceVersion": "0.0.160",
+    "kernelTree": "3944bd2f58654d0b9f5de4483bfb05853f1faf71",
+    "archiveRoot": "ranxianglei-billion-context-a2d8cb9",
+    "sha256": {
+      "kernel/package.json": "99733232ea992ef0db00de78b3d60270907e085729d6ba704bde7465a84188d8",
+      "kernel/package-lock.json": "203377067cbdb4d307e27601050949031246d386f08b48732584b8f2324c99b2",
+      "kernel/LICENSE": "5f82d3c8724c30a0ece8819b23babc4587a50eddf350273c6c8f0c936bad2a74",
+      "LICENSE": "f27574cd3f4b0b4877da2869953945d66d76a665e7ebb9320a5e87aa76f7ab58"
+    }
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/context-manager/acp-0.0.101-session.json",
+      "sha256": "ce23e0d13355e9cf932f5a7ee2e2f40c377441663ac4c23d7505c51ce51d1edd"
+    },
+    {
+      "path": "tests/fixtures/context-manager/acp-0.0.147-session.json",
+      "sha256": "bd4f44194f8eb9be49de3ea0ff3352f1f4b6a1f26488798b736f1fb746155a42"
+    }
+  ]
+}

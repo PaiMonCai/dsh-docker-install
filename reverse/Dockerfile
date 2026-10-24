@@ -3,7 +3,7 @@
 ARG BASE_IMAGE=ghcr.io/paimoncai/dsh-docker-install:latest
 FROM ${BASE_IMAGE}
 ARG TARGETARCH
-ARG REA_VERSION=6.4.0
+ARG REA_VERSION=6.7.0
 ARG GHIDRA_VERSION=12.1.4
 ARG GHIDRA_RELEASE_DATE=20260921
 ARG GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
@@ -33,6 +33,9 @@ RUN npm install --global --no-audit --no-fund "rea-agents@${REA_VERSION}" \
  && command -v rea \
  && npm ls --global --depth=0 rea-agents | grep -F "rea-agents@${REA_VERSION}" \
  && rm -rf "${NPM_CONFIG_CACHE}"
+
+COPY reverse/rea-smoke.mjs /opt/dsh-reverse/rea-smoke.mjs
+RUN node /opt/dsh-reverse/rea-smoke.mjs "${REA_VERSION}"
 
 RUN uv venv --seed /opt/dsh-reverse/venv \
  && UV_NO_CACHE=1 uv pip install --python /opt/dsh-reverse/venv/bin/python \
@@ -71,7 +74,7 @@ RUN set -eux; \
     rm -f /tmp/jadx.zip; \
     jadx --version
 
-# REA 6.4.0 uses the audited JADX headless MCP fat JAR (separate from CLI).
+# REA uses the audited JADX headless MCP fat JAR (separate from CLI).
 RUN set -eux; \
     mkdir -p /opt/jadx-headless-mcp; \
     curl -fsSL --retry 4 \

@@ -39,6 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 
 安装后输入 `dshd` 打开六分类菜单，或直接执行：
 
+完整实例备份与迁移：`dshd backup export [FILE]` 导出数据、工作区、配置及自定义挂载，`dshd backup import FILE NEW_ID` 在新实例中恢复；支持 `dshd backup auto on daily 7` 设置每日保留 7 份。详见 [完整实例备份与恢复](docs/portable-backup.md)。
+
 ```bash
 dshd status
 dshd logs
@@ -77,7 +79,7 @@ Reverse 使用独立容器和数据卷，可通过 `bash install.sh reverse` 或
 | 功能 | 入口与行为 | 说明 |
 |---|---|---|
 | 实例管理 | 快捷栏 / 插件 → 实例管理；更新、重启、回滚、sing-box | [宿主机后台与恢复](docs/web-management.md) |
-| 运行日志 | 快捷栏 / 实例管理 → 运行日志；SSE、重连、搜索和筛选 | [日志与升级](docs/web-management.md#运行日志) |
+| 运行日志 | 实例管理 → 运行日志（不再创建独立快捷入口）；SSE、重连、搜索和筛选 | [日志与升级](docs/web-management.md#运行日志) |
 | 提示词与执行 | 设置 → 提示词与执行；附加指令、会话权限、工具禁用名单 | [配置与边界](docs/prompt-manager.md) |
 | 会话管理 | 会话勾选批量移入回收站；回收站搜索、恢复、永久删除 | [会话与删除语义](docs/runtime.md#web-会话管理删除--永久删除--回收站) |
 | 自定义模型推理等级 | 原生模型表单与 Composer；额外提供 Provider 内批量编辑 | [原生兼容与映射](docs/reasoning-editor.md) |

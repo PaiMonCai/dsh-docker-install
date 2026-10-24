@@ -38,3 +38,12 @@ test('both image compose variants expose opt-out without rewriting user profiles
   assert.match(read('docs/deployment.md'), /allowDshCompaction/)
   assert.match(read('docs/deployment.md'), /dsh_compaction_refused/)
 })
+
+test('the lab single-owner gate rejects a competing host compactor before preflight', () => {
+  const source = read('docker/entrypoint.sh')
+  const pilot = source.slice(source.indexOf('if [[ "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}" == "1" ]]'))
+  const guard = pilot.indexOf('Tiered 单引擎实验要求 DSH_GLOBAL_COMPACTION=false')
+  assert.ok(guard > 0 && guard < pilot.indexOf('node /opt/dsh/context-manager-tiered-preflight.mjs'))
+  assert.match(pilot, /0\|false\|no\|off\|disabled\) ;;/)
+  assert.match(pilot, /DSH_GLOBAL_COMPACTION=false"; return 1/)
+})

@@ -74,8 +74,11 @@ test('Report reader has a separate native composition with reading tools only', 
 })
 test('Reverse pins the published analysis engines',()=>{
  const f=read('reverse/Dockerfile')
- for(const token of ['REA_VERSION=6.4.0','GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db','JADX_MCP_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75','REA_JADX_MCP_JAR','JADX_SHA256=8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec','pwntools==4.15.0','frida-tools==14.11.0','gdb-multiarch','apktool'])assert.ok(f.includes(token),token)
+ for(const token of ['REA_VERSION=6.7.0','GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db','JADX_MCP_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75','REA_JADX_MCP_JAR','JADX_SHA256=8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec','pwntools==4.15.0','frida-tools==14.11.0','gdb-multiarch','apktool'])assert.ok(f.includes(token),token)
  assert.doesNotMatch(f,/apt-get install[^\n]*ida-pro|hopper/)
+ assert.match(f,/COPY reverse\/rea-smoke\.mjs \/opt\/dsh-reverse\/rea-smoke\.mjs/)
+ assert.ok(f.includes('RUN node /opt/dsh-reverse/rea-smoke.mjs "${REA_VERSION}"'))
+ assert.match(read('.github/workflows/build-reverse.yml'),/rea-agents@6\.7\.0/)
 })
 test('Ten reverse Skills include universal core, exclude legacy Android and preserve user edits',async t=>{
  const {pathToFileURL}=require('node:url')
@@ -307,7 +310,7 @@ test('Reverse keeps Standard image-owned Web plugins and compose toggles in pari
  assert.match(workflow,/reverse-web-parity\.cjs compare/)
  assert.match(workflow,/verify-runtime \/tmp\/standard-web-plugins\.json/)
  assert.match(workflow,/Detect changed Standard base on PR/)
- assert.match(workflow,/docker build --pull -f Dockerfile -t dsh-standard-ci:reverse/)
+ assert.match(workflow,/docker buildx build --pull --load --platform linux\/amd64 -f Dockerfile -t dsh-standard-ci:reverse/)
  assert.match(workflow,/docker\/plugins\/\*\*/)
 
  assert.match(workflow,/client-graph/)
