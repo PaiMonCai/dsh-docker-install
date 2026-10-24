@@ -212,6 +212,7 @@ COPY docker/plugins/dsh-icon-dock/ /opt/dsh/plugins/dsh-icon-dock/
 COPY docker/plugins/dsh-session-manager-web/ /opt/dsh/plugins/dsh-session-manager-web/
 COPY docker/plugins/dsh-instance-manager/ /opt/dsh/plugins/dsh-instance-manager/
 COPY docker/plugins/dsh-prompt-manager/ /opt/dsh/plugins/dsh-prompt-manager/
+COPY docker/plugins/dsh-global-compaction/ /opt/dsh/plugins/dsh-global-compaction/
 COPY docker/plugins/dsh-context-manager/ /opt/dsh/plugins/dsh-context-manager/
 RUN npm ci --prefix /opt/dsh/plugins/dsh-context-manager --omit=dev --ignore-scripts --no-audit --no-fund
 COPY docker/context-manager-tiered-preflight.mjs /opt/dsh/context-manager-tiered-preflight.mjs
@@ -230,6 +231,12 @@ COPY tests/web-browser-onboarding.cjs /usr/local/bin/web-browser-onboarding.cjs
 COPY docker/dsh-web-token.js /usr/local/bin/dsh-web-token.js
 COPY docker/prepare-native-web-plugins.js /usr/local/bin/prepare-dsh-native-web-plugins.js
 COPY docker/entrypoint.sh /usr/local/bin/dsh-entrypoint
+# Verify overlay compatibility against the DSH version actually baked in the image.
+RUN DSH_HOME="$(mktemp -d)" dsh --profile web \
+      --patch /opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml \
+      --dump-config > /tmp/dsh-global-compaction-config.yml \
+ && node -e 'const s=require("node:fs").readFileSync("/tmp/dsh-global-compaction-config.yml","utf8");for(const id of ["compaction-basic","command-compact","tool-result-pruner"]){const i=s.indexOf("id: "+id);const sample=i<0?"<missing>":s.slice(i,i+700);if(i<0||!/disabled:\s*false/.test(sample)){console.error("DSH native compaction config excerpt for "+id+":\n"+sample);throw Error("Host compaction not enabled: "+id)}}' \
+ && rm -f /tmp/dsh-global-compaction-config.yml
 RUN node --check /usr/local/bin/resolve-dsh-bind-host \
  && node --check /usr/local/bin/dsh-healthcheck.js \
  && node --check /usr/local/bin/test-dsh-core-routes.js \

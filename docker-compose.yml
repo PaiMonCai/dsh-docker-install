@@ -41,6 +41,8 @@ services:
       DSH_SESSION_MANAGER_WEB: "${DSH_SESSION_MANAGER_WEB:-true}"
       # 原生提示词与执行设置页；附加指令和工具禁用名单初始均关闭。
       DSH_PROMPT_MANAGER: "${DSH_PROMPT_MANAGER:-true}"
+      # Default-on Web fallback for custom presets; set false to disable.
+      DSH_GLOBAL_COMPACTION: "${DSH_GLOBAL_COMPACTION:-true}"
       DSH_CONTEXT_MANAGER_PROBE: "${DSH_CONTEXT_MANAGER_PROBE:-true}"
       DSH_CONTEXT_MANAGER_LOG_LEVEL: "${DSH_CONTEXT_MANAGER_LOG_LEVEL:-info}"
       DSH_CONTEXT_MANAGER_TIERED_ACTIVE: "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}"

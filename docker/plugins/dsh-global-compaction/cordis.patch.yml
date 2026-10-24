@@ -1,0 +1,17 @@
+# Image-owned host-level compaction fallback for all Web Agent presets.
+# This is loaded last by dsh-entrypoint; disable with DSH_GLOBAL_COMPACTION=false.
+- id: compaction-basic
+  disabled: false
+  config:
+    auto: true
+    thresholdRatio: 0.8
+    headroomTokens: 65536
+    retainRatio: 0.16
+- id: command-compact
+  disabled: false
+- id: tool-result-pruner
+  disabled: false
+  config:
+    thresholdChars: 8192
+    headChars: 4096
+    tailChars: 1024

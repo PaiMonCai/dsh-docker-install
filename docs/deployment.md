@@ -560,3 +560,39 @@ Plugin Hub 升级覆盖 node_modules 后，下一次 `dshd restart` / `dshd recr
 它属于 DSH 核心 Connection API；正常无 Cookie 请求应该返回 `401 unauthorized`，
 而不是 `405`。若出现 405，按 [内置文件面板 405 回归检测](ci.md#内置文件面板-405-回归检测)
 分别测试 Docker 本机端口和域名反代端口，依据哪个入口返回 405 确定根因。
+
+## Web Agent 的原生上下文压缩
+
+Standard / Reverse 镜像默认启用 image-owned host 级压缩补丁 `/opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml`：
+包含 `compaction-basic`（自动压缩）、`command-compact`（`/compact` 命令）和 `tool-result-pruner`。它在
+Web 的其他 `--patch` 之后、`--no-open` 之前加载，可以覆盖上游 Web bundle 的 host 级 `disabled: true`，
+而且无需更改 `$DSH_HOME` 下的持久用户 profile。内置 preset 原有的局部压缩 group 保留。
+
+- `DSH_GLOBAL_COMPACTION=true`（默认）开启 host fallback，覆盖 Reverse 与后来新增的自定义 preset；
+  `DSH_GLOBAL_COMPACTION=false` 禁用该镜像层。关闭后，上游内置 preset 仍可使用各自的局部压缩。
+- 已运行的 Web Host 需要重建／重启容器以重新组装服务。历史会话不应被假定已自动重新装载；
+  建议用新建会话检验命令注册和压缩事件。
+- 内置 preset 的局部监听器可能与 host fallback 共存。静态配置合成通过不等于已证明运行时一定不会
+  双重触发；遇到重复摘要、重复命令或其它兼容问题，可关闭全局 fallback 并报告 DSH 版本及日志。
+- 模型预算需满足 `contextWindow - maxTokens - headroomTokens > 0`。例如
+  `contextWindow: 500000` 与 `maxTokens: 500000` 的组合没有可用空间；
+  应在用户 profile 里调小 `maxTokens`（如先评估 `131072`），而不是让镜像覆盖完整 provider 配置。
+- 某些 billion-context / bili 网关线路会返回 `422 dsh_compaction_refused`，
+  需要上游网关允许 `allowDshCompaction` 或选用支持 DSH 原生摘要的线路；镜像无法绕过这个拒绝。
+- 大上下文窗口和较大的输出预留可能让自动压缩阈值非常靠后，短会话看不到自动压缩不一定是故障。
+
+镜像内可先验证配置合成（不会调用模型）：
+
+```bash
+DSH_HOME="$(mktemp -d)" dsh --profile web \
+  --patch /opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml \
+  --dump-config
+```
+
+确认三个 host 插件为 `disabled: false` 后，仍需在新会话检验 `/compact`，并使用允许摘要的模型线路
+验证真正的压缩调用、错误处理和长上下文自动触发。不能仅以 `--dump-config` 成功认定溢出已修复。
+
+启用 `DSH_CONTEXT_MANAGER_TIERED_ACTIVE=1` 的单引擎实验时，必须显式设置
+`DSH_GLOBAL_COMPACTION=false`。启动器会在实验预检与持久 Profile 迁移之前拒绝两者同时开启，
+避免在 preset 内的 owner 替换事务之外额外创建 host compactor。普通 preset 内置压缩与
+host fallback 的重复监听，以及真实模型和外部网关行为，仍需独立运行验收。

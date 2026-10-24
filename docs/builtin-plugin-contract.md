@@ -14,6 +14,10 @@
 仅服务端的扩展无需 `client.js`，可通过 `package.json` 的 `dshDockerServerOnly`
 标记供诊断工具识别。当前 Standard 镜像不预装此类桥接插件；Reverse、Research 专用扩展留在各自目录。
 
+仅重用上游服务的配置补丁使用 `dshDockerPatchOnly: true` 和稳定的包名，并包含
+`cordis.patch.yml`，无需伪造 `index.js` 或浏览器客户端。此标记与 Web、仅服务端能力互斥。
+Standard/Reverse 一致性扫描仍校验启动器注册、完整文件清单和内容哈希；缺失补丁或内容变化会失败。
+
 **新增插件不是直接向用户 Profile 执行 `dsh plugin add`。** 由镜像 Dockerfile 打包，经容器启动脚本的 `append_native_web_patch` 使用官方 `dsh web --patch` 机制装载；全部启动器 `--patch` 参数必须放在 Web 应用的 `--no-open`、`--port` 等选项之前。新插件需有明确环境开关与默认值，且在 CI 中验证启用/禁用行为。
 
 插件必须允许完全禁用，不得因自身可选服务不可用使核心 DSH Web 无法使用；但必需插件文件缺失属于镜像构建错误，应明确失败。

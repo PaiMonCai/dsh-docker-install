@@ -135,6 +135,13 @@ run_web() {
         return 1
     fi
     if [[ "${DSH_CONTEXT_MANAGER_TIERED_ACTIVE:-0}" == "1" ]]; then
+        # The pilot replaces one preset-local engine; a host fallback would add
+        # another compactor outside that owner transaction.
+        local global_compaction="${DSH_GLOBAL_COMPACTION:-true}"
+        case "${global_compaction,,}" in
+            0|false|no|off|disabled) ;;
+            *) log "Tiered 单引擎实验要求 DSH_GLOBAL_COMPACTION=false"; return 1 ;;
+        esac
         node /opt/dsh/context-manager-tiered-preflight.mjs
         append_native_web_patch "/opt/dsh/plugins/dsh-context-manager/cordis.tiered-lab.patch.yml" "true" "实验性单引擎接管"
     fi
@@ -164,6 +171,10 @@ run_web() {
     if [[ -n "${DSH_REVERSE_AGENT_PATCH:-}" ]]; then
         append_native_web_patch "${DSH_REVERSE_AGENT_PATCH}" "true" "Reverse Edition Agent"
     fi
+
+    # Last launcher overlay: restore host-level native compaction for every Web preset.
+    # The switch provides an escape hatch if upstream preset-scoped listeners conflict.
+    append_native_web_patch "/opt/dsh/plugins/dsh-global-compaction/cordis.patch.yml" "${DSH_GLOBAL_COMPACTION:-true}" "全局原生上下文压缩"
 
     # Migrate only legacy bundled plugin selections; dependencies, third-party
     # selection and pnpm-lock.yaml stay untouched, with a manifest backup.

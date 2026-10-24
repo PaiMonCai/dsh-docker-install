@@ -237,6 +237,7 @@ jobs:
           bash -n ci/reverse-push-gate.sh
           bash tests/test-reverse-release-gate.sh
           node --test tests/test-reverse-edition.cjs
+          node --test tests/test-global-compaction.cjs
           node --test tests/test-plugin-doctor.cjs
           node --test tests/test-reverse-plugin-parity.cjs
           node --test tests/test-context-manager-phase1.mjs tests/test-context-manager-phase2.mjs tests/test-context-manager-phase3.mjs tests/test-context-manager-phase4.mjs tests/test-context-manager-phase5.mjs tests/test-context-manager-phase6.mjs tests/test-context-manager-phase7.mjs tests/test-context-manager-phase8-11.mjs tests/test-context-manager-acp-auto.mjs

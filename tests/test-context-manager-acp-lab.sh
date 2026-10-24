@@ -16,6 +16,7 @@ docker run --rm -v "$volume:/root/.dsh" "$image" node --input-type=module -e '
  writeSettings(config,settingsRevision(readSettings()))
 ' >/dev/null
 docker run -d --name "$name" -v "$volume:/root/.dsh" \
+  -e DSH_GLOBAL_COMPACTION=false \
   -e DSH_CONTEXT_MANAGER_PROBE=true \
   -e DSH_CONTEXT_MANAGER_TIERED_ACTIVE=1 \
   -e DSH_CONTEXT_MANAGER_TIERED_OWNER_TESTED=1 \

@@ -72,9 +72,13 @@ promotion reuses the original candidate rather than assuming it was built in
 the new run attempt. A failed Research matrix item can be rebuilt while retaining
 the other successful item; promotion requires both targets to succeed.
 
-Standard and Reverse amd64 audits only import the shared release cache. The
-multi-platform build exports it afterwards, preserving ARM64 entries between
-runs. The updater sets `skip_dispatch: true`; other triggers dispatch by default,
+Standard amd64 audits only import the shared release cache; its multi-platform
+build exports it afterwards, preserving ARM64 entries between runs. Reverse
+builds and runs its complete runtime/browser audits on native Ubuntu 24.04
+AMD64 and ARM64 runners, with separate architecture caches. Each runner pushes
+its audited architecture candidate; the assembly job creates the combined index
+only after both succeed, and the existing promotion contract validates it.
+The updater sets `skip_dispatch: true`; other triggers dispatch by default,
 including push events where workflow inputs are absent.
 
 ## Automatic updates and recovery
@@ -130,6 +134,7 @@ authentication errors, partial releases, stale promotion and rerun behavior.
 The Quarto test executes the actual native Dockerfile branch with failed,
 empty-output and successful renderers.
 
-Multi-platform container builds and runtime acceptance still run in CI. This
-pipeline does not lock all Python dependencies or provide native ARM64 runners;
-those are separate reproducibility and runtime-coverage improvements.
+Multi-platform container builds and runtime acceptance still run in CI. Reverse
+uses native ARM64 runners for its process-ownership and browser checks; Standard
+and Research retain their existing build/runtime coverage. This pipeline does
+not lock all Python dependencies.

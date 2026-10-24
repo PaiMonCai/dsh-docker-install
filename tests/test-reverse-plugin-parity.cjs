@@ -88,3 +88,40 @@ test('server-only future extension is audited without a fake browser client',t=>
  fs.writeFileSync(path.join(dir,'index.js'),'tampered')
  assert.throws(()=>compare(before,f.take()),/changed inherited Standard plugin files/)
 })
+
+test('native compaction configuration is inventoried and hashed without a fake plugin module', t => {
+  const f = fixture(t)
+  f.add('alpha')
+  const name = 'dsh-global-compaction'
+  const bundled = path.join(__dirname, '../docker/plugins', name)
+  const dir = path.join(f.pluginRoot, name)
+  fs.cpSync(bundled, dir, { recursive: true })
+  fs.appendFileSync(f.launcher, 'append_native_web_patch "/opt/dsh/plugins/' + name +
+    '/cordis.patch.yml" "${DSH_GLOBAL_COMPACTION:-true}" "Native compaction"\n')
+  const before = f.take()
+  const overlay = before.plugins.find(p => p.directory === name)
+  assert.equal(overlay.id, 'dsh-docker-global-compaction')
+  assert.equal(overlay.patchOnly, true)
+  assert.equal(overlay.web, false)
+  assert.equal(overlay.serverOnly, false)
+  assert.deepEqual(overlay.files.map(f => f.path), ['cordis.patch.yml', 'package.json'])
+  compare(before, f.take())
+  fs.appendFileSync(path.join(dir, 'cordis.patch.yml'), '\n# changed\n')
+  assert.throws(() => compare(before, f.take()), /changed inherited Standard plugin files/)
+  fs.unlinkSync(path.join(dir, 'cordis.patch.yml'))
+  assert.throws(() => f.take(), /incomplete configuration overlay/)
+})
+
+test('configuration-only capability cannot disguise a Web or server plugin', t => {
+  const f = fixture(t)
+  f.add('alpha')
+  const file = path.join(f.pluginRoot, 'alpha/package.json')
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'))
+  manifest.dshDockerPatchOnly = true
+  fs.writeFileSync(file, JSON.stringify(manifest))
+  assert.throws(() => f.take(), /conflicting plugin capabilities/)
+  delete manifest.dsh
+  manifest.dshDockerServerOnly = true
+  fs.writeFileSync(file, JSON.stringify(manifest))
+  assert.throws(() => f.take(), /conflicting plugin capabilities/)
+})
