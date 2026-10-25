@@ -4,6 +4,9 @@
 
 ## 安装
 
+首次运行 `bash install.sh` 时可选择 `3) Reverse`。该选项调用独立 Reverse
+安装流程，不会将 Standard 的配置或存储改成逆向版。也可使用以下直接入口：
+
 ```bash
 bash install.sh reverse
 # 或已安装 dshd 的用户
