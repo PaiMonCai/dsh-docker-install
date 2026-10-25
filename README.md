@@ -70,7 +70,9 @@ dshd -i econ logs
 或用 `dshd edition standard` 返回 Standard。Research 提供 Dataset → Pipeline → Run → Result → Artifact → Paper 工作流；
 Agent 使用工具，底层 `research-*` CLI 保留为稳定接口。详见 [Research 指南](research/README.md)。
 
-Reverse 使用独立容器和数据卷，可通过 `bash install.sh reverse` 或 `dshd reverse install` 安装。
+首次运行 `bash install.sh` 可选择 `3) Reverse`，进入隔离的逆向版安装流程。
+也可通过 `bash install.sh reverse` 或 `dshd reverse install` 直接安装；Reverse 使用独立容器和数据卷。
+安装向导支持序号选择、默认项和保存前摘要，可返回修改或取消；入口帮助为 `bash install.sh --help`。
 它继承 Standard 公共插件，增加逆向 Agent、报告解读、提示词预设与分析工具；不包含 dsh-purge。
 详见 [Reverse 指南](docs/reverse-edition.md) 和 [多实例管理](docs/multi-instance.md)。
 

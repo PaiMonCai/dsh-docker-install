@@ -21,12 +21,25 @@ curl -fsSL https://raw.githubusercontent.com/PaiMonCai/dsh-docker-install/main/i
 - 检测 Linux 发行版、Docker 命令和 Docker daemon；
 - 未安装 Docker 时询问是否自动安装；
 - 检测 GitHub Raw、GHCR、Docker Hub 以及网络区域特征；
+- 首次安装可选择 Standard、Research 或 Reverse；选择 Reverse 会转入独立实例安装流程，使用隔离配置、端口和数据目录；
 - **首次安装强制明确填写 Docker 容器名和 Web UI 宿主机端口**（不再直接回车使用默认值）；
 - 交互配置监听地址、工作区、持久化存储、Trusted Hosts，并选择 DeepSeek 官方 API 或自定义 Base URL，再配置 API Key；
 - 拉取镜像失败时按候选源自动回退，并允许输入自定义镜像；
 - 创建持久化目录和工作区；新安装默认使用 `/opt/dsh/data -> /root/.dsh` 与 `/opt/dsh/workspace -> /workspace`（非 root 为 `~/dsh/...`），同时保留 named volume 兼容模式；
 - 询问是否开启 **Docker 项目管理模式**；开启后 DSH 可通过宿主机 Docker Socket 构建、部署和测试 Docker 应用；
 - 将管理器安装为 `/usr/local/bin/dshd`，以后直接输入 `dshd` 管理。
+
+安装向导中的版本、访问方式、存储模式、API 接入和资源预设均可输入序号；
+回车采用方括号中的默认项，输错会重新询问。「是／否」确认使用 `1/2`，也兼容 `y/n`。
+容器名和端口仍需明确填写；目录、域名、密钥及自定义资源大小保留文字输入。
+
+高级配置默认保留当前值，新安装使用推荐资源设置；选择自定义后才展开时区、缓存、
+Whale 权限及内存设置。API Key 的输入不回显，已有密钥回车保留，清空需明确选择。
+保存前显示不含密钥的配置摘要，可选择开始、返回修改或取消。配置输入阶段取消或 EOF
+不会保存本次修改，也不会拉取应用镜像或创建应用容器。
+
+`bash install.sh --help` 可查看入口帮助。选择 Reverse 时，独立的工作区、数据目录和
+数据卷默认值会保留，安装完成后使用 `dshd reverse menu` 管理。
 
 安装完成后：
 

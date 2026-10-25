@@ -9,13 +9,28 @@ JSDELIVR_URL="https://cdn.jsdelivr.net/gh/${REPO}@main/dshd"
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
+usage() {
+  cat <<'EOF'
+用法：bash install.sh [reverse]
+
+  不传参数          打开序号安装向导，选择 Standard / Research / Reverse
+  reverse           直接进入独立 Reverse 安装（隔离配置和数据）
+  -h, --help        显示帮助，不下载或安装任何内容
+
+安装后运行 dshd 管理；独立逆向实例使用 dshd reverse menu。
+EOF
+}
+
 # Optional independent Reverse installer; Standard remains the default.
 INSTALL_ACTION=install
-if [[ "${1:-}" == reverse || "${1:-}" == reverse-install ]]; then
-  INSTALL_ACTION=reverse
-  shift
-  set -- install "$@"
-fi
+(( $# <= 1 )) || { usage >&2; die "安装入口只接受一个操作参数。"; }
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+  reverse|reverse-install) INSTALL_ACTION=reverse; set -- install ;;
+  install) shift ;;
+  '') ;;
+  *) usage >&2; die "未知安装参数：$1" ;;
+esac
 # Only reuse a sibling manager when this installer was executed from a real
 # file. When piped to "bash", BASH_SOURCE may be "main"; treating the current
 # directory as the script directory can accidentally launch an unrelated or
@@ -71,7 +86,7 @@ fi
 [[ -s "$TMP" ]] || die "下载到的 dshd 文件为空。"
 chmod +x "$TMP"
 if has_controlling_tty; then
-  exec bash "$TMP" "$INSTALL_ACTION" "$@" </dev/tty
+  bash "$TMP" "$INSTALL_ACTION" "$@" </dev/tty
 else
-  exec bash "$TMP" "$INSTALL_ACTION" "$@"
+  bash "$TMP" "$INSTALL_ACTION" "$@"
 fi

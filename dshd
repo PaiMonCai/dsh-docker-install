@@ -3,7 +3,7 @@
 # 项目: https://github.com/PaiMonCai/dsh-docker-install
 set -Eeuo pipefail
 
-DSHD_VERSION="0.12.3"
+DSHD_VERSION="0.12.4"
 WEB_WORKER_SHA256="5e54b2c95b5ec026a68aea178a86324a7795f8739e9ebc0b4f9c2aacd6c15d79"
 # Defaults also apply when dshd is sourced by existing shell tests/tools without load_config().
 DSH_SEARCH_ENABLED="${DSH_SEARCH_ENABLED:-false}"
@@ -163,13 +163,62 @@ confirm() {
     [[ "$default" =~ ^[Yy]$ ]]
     return
   fi
-  if [[ "$default" =~ ^[Yy]$ ]]; then
-    read -r -p "$prompt [Y/n] " ans || { printf '\n' >&2; warn "输入已结束，按“否”处理。"; return 1; }
-    [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]]
-  else
-    read -r -p "$prompt [y/N] " ans || { printf '\n' >&2; warn "输入已结束，按“否”处理。"; return 1; }
-    [[ "$ans" =~ ^[Yy]$ ]]
+  local default_number=2
+  [[ "$default" =~ ^[Yy]$ ]] && default_number=1
+  printf '%s\n  1) 是\n  2) 否\n' "$prompt"
+  while true; do
+    read -r -p "请选择 [$default_number]: " ans || {
+      DSHD_INPUT_EOF=1
+      printf '\n' >&2; warn "输入已结束，按“否”处理。"; return 1;
+    }
+    case "${ans:-$default_number}" in
+      1|y|Y|yes|YES|是) return 0 ;;
+      2|n|N|no|NO|否) return 1 ;;
+      *) warn "请输入 1 或 2（也支持 y/n）。" ;;
+    esac
+  done
+}
+
+# Values stay canonical in config.env; only the interactive surface is numbered.
+prompt_choice() {
+  local _pc_destination="$1" _pc_title="$2" _pc_current="$3"
+  shift 3
+  local -a _pc_values=() _pc_labels=()
+  local _pc_default="" _pc_answer="" _pc_i
+  while (( $# >= 2 )); do
+    _pc_values+=("$1"); _pc_labels+=("$2"); shift 2
+  done
+  (( $# == 0 && ${#_pc_values[@]} > 0 )) || { err "选择菜单配置不完整。"; return 1; }
+  if ! is_tty; then
+    printf -v "$_pc_destination" '%s' "$_pc_current"
+    return 0
   fi
+  for _pc_i in "${!_pc_values[@]}"; do
+    [[ "${_pc_values[$_pc_i]}" != "$_pc_current" ]] || _pc_default="$((_pc_i + 1))"
+  done
+  if [[ -z "$_pc_default" ]]; then
+    _pc_values+=("$_pc_current"); _pc_labels+=("保留当前值：${_pc_current:-空}")
+    _pc_default="${#_pc_values[@]}"
+  fi
+  printf '\n%s\n' "$_pc_title"
+  for _pc_i in "${!_pc_values[@]}"; do
+    printf '  %s) %s\n' "$((_pc_i + 1))" "${_pc_labels[$_pc_i]}"
+  done
+  while true; do
+    if ! read -r -p "请选择 [$_pc_default]: " _pc_answer; then
+      DSHD_INPUT_EOF=1
+      err "输入已结束（EOF），已取消本次操作。"
+      return 1
+    fi
+    _pc_answer="${_pc_answer:-$_pc_default}"
+    for _pc_i in "${!_pc_values[@]}"; do
+      if [[ "$_pc_answer" == "$((_pc_i + 1))" || "$_pc_answer" == "${_pc_values[$_pc_i]}" ]]; then
+        printf -v "$_pc_destination" '%s' "${_pc_values[$_pc_i]}"
+        return 0
+      fi
+    done
+    warn "请输入 1-${#_pc_values[@]} 的序号。"
+  done
 }
 
 prompt_value() {
@@ -2999,13 +3048,16 @@ read_api_key() {
   if ! is_tty; then
     return 0
   fi
-  if ! read -r -s -p "DeepSeek API Key（可留空）: " value; then
+  local prompt="DeepSeek API Key（可留空，稍后配置）: "
+  [[ -z "${DEEPSEEK_API_KEY:-}" ]] || prompt="新 API Key（回车保留当前密钥）: "
+  if ! read -r -s -p "$prompt" value; then
     printf '\n' >&2
     err "输入已结束（EOF），已保留原有 API Key。"
     return 1
   fi
   printf '\n'
-  DEEPSEEK_API_KEY="$value"
+  [[ -n "$value" ]] && DEEPSEEK_API_KEY="$value"
+  return 0
 }
 
 interactive_api_config() {
@@ -3019,13 +3071,8 @@ interactive_api_config() {
   fi
 
   if is_tty; then
-    cat <<'EOF'
-  1) DeepSeek 官方 API
-  2) 自定义 Base URL
-EOF
-    read -r -p "API 接入方式 [$default_choice]: " choice \
-      || { err "输入已结束（EOF），已取消本次操作。"; return 1; }
-    choice="${choice:-$default_choice}"
+    prompt_choice choice "API 接入方式" "$default_choice" \
+      1 "DeepSeek 官方 API" 2 "自定义 Base URL" || return 1
 
     case "$choice" in
       1)
@@ -3043,15 +3090,16 @@ EOF
           warn "Base URL 必须以 http:// 或 https:// 开头。"
         done
         ;;
-      *)
-        warn "无效选项，保持当前 API 接入方式。"
-        ;;
     esac
 
     if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
-      if confirm "API Key 已配置，是否修改？" N; then
-        read_api_key || return 1
-      fi
+      local key_action=""
+      prompt_choice key_action "API Key 已配置（不显示密钥）" keep \
+        keep "保留当前密钥" replace "输入新密钥" clear "清空密钥，稍后配置" || return 1
+      case "$key_action" in
+        replace) read_api_key || return 1 ;;
+        clear) DEEPSEEK_API_KEY="" ;;
+      esac
     else
       read_api_key || return 1
     fi
@@ -3066,8 +3114,116 @@ EOF
   info "API Key: $(api_key_state)"
 }
 
+prompt_install_edition() {
+  prompt_choice "$1" "DSH 版本" 1 \
+    1 "Standard  通用开发版" \
+    2 "Research  一般科研版（Python / Jupyter / Quarto / LaTeX）" \
+    3 "Reverse   独立逆向版（隔离配置、端口与数据目录）"
+}
+
+runtime_resources_valid() {
+  validate_docker_size "$DSH_SHM_SIZE" && validate_timezone "$DSH_TIMEZONE" \
+    && is_absolute_path "$DSH_NPM_CACHE" || return 1
+  [[ -z "$DSH_MEMORY_LIMIT" ]] || validate_docker_size "$DSH_MEMORY_LIMIT" || return 1
+  if [[ -n "$DSH_MEMORY_SWAP" ]]; then
+    [[ -n "$DSH_MEMORY_LIMIT" ]] && validate_docker_size "$DSH_MEMORY_SWAP" || return 1
+    (( $(docker_size_bytes "$DSH_MEMORY_SWAP") >= $(docker_size_bytes "$DSH_MEMORY_LIMIT") )) || return 1
+  fi
+}
+
+interactive_runtime_config() {
+  local advanced="" memory_choice="" swap_choice="" swap_candidate="" swap_current=""
+  prompt_choice advanced "高级配置" keep \
+    keep "保留当前/推荐配置（资源限制、时区、缓存与 Whale 权限）" \
+    edit "自定义高级配置" || return 1
+  [[ "$advanced" == edit ]] || return 0
+
+  heading "Whale Widget 远程写权限"
+  info "此项只用于 Whale 的非回环写操作，不替代 Trusted Hosts 或浏览器认证。"
+  prompt_value DSHW_ADMIN_HOSTS "Whale Admin Hosts（多个用逗号分隔，无则留空）" "${DSHW_ADMIN_HOSTS:-}"
+  [[ "${DSHD_INPUT_EOF:-0}" != 1 ]] || return 1
+
+  heading "容器运行资源"
+  prompt_validated DSH_SHM_SIZE "共享内存 /dev/shm（Chromium 推荐 1g）" "${DSH_SHM_SIZE:-$DEFAULT_SHM_SIZE}" \
+    validate_docker_size "请输入 Docker 大小格式，例如 512m、1g。" || return 1
+  prompt_validated DSH_TIMEZONE "容器时区" "${DSH_TIMEZONE:-$DEFAULT_TIMEZONE}" validate_timezone \
+    "时区格式不合法，例如 Asia/Shanghai、UTC。" || return 1
+  prompt_validated DSH_NPM_CACHE "npm cache 路径" "${DSH_NPM_CACHE:-$DEFAULT_NPM_CACHE}" \
+    is_absolute_path "npm cache 必须使用绝对路径。" || return 1
+
+  prompt_choice memory_choice "容器内存上限" "${DSH_MEMORY_LIMIT:-off}" \
+    off "不限制（Docker 默认）" 2g "2g" 4g "4g" 8g "8g" custom "自定义大小" || return 1
+  if [[ "$memory_choice" == custom ]]; then
+    prompt_validated memory_choice "内存上限" "${DSH_MEMORY_LIMIT:-2g}" validate_docker_size \
+      "请输入有效大小，例如 1536m、2g。" || return 1
+  fi
+  [[ "$memory_choice" != off ]] || memory_choice=""
+  DSH_MEMORY_LIMIT="$memory_choice"
+  if [[ -z "$DSH_MEMORY_LIMIT" ]]; then
+    DSH_MEMORY_SWAP=""
+    info "未限制内存，RAM+Swap 使用 Docker 默认策略。"
+    return 0
+  fi
+
+  swap_current="${DSH_MEMORY_SWAP:-off}"
+  [[ "$swap_current" != "$DSH_MEMORY_LIMIT" ]] || swap_current=same
+  while true; do
+    prompt_choice swap_choice "RAM+Swap 总上限（不能小于 $DSH_MEMORY_LIMIT）" "$swap_current" \
+      off "使用 Docker 默认策略" same "与内存上限相同（$DSH_MEMORY_LIMIT）" \
+      custom "自定义 RAM+Swap 总上限" || return 1
+    case "$swap_choice" in
+      off) DSH_MEMORY_SWAP=""; return 0 ;;
+      same) DSH_MEMORY_SWAP="$DSH_MEMORY_LIMIT"; return 0 ;;
+      custom)
+        prompt_validated swap_candidate "RAM+Swap 总上限" "${DSH_MEMORY_SWAP:-$DSH_MEMORY_LIMIT}" \
+          validate_docker_size "请输入有效大小，例如 2g、4g。" || return 1
+        ;;
+      *) swap_candidate="$swap_choice" ;;
+    esac
+    if (( $(docker_size_bytes "$swap_candidate") >= $(docker_size_bytes "$DSH_MEMORY_LIMIT") )); then
+      DSH_MEMORY_SWAP="$swap_candidate"
+      return 0
+    fi
+    warn "RAM+Swap 总上限不能小于内存上限（$DSH_MEMORY_LIMIT）。"
+  done
+}
+
+show_config_summary() {
+  local docker_access_label="关闭"
+  [[ "$DSH_DOCKER_ACCESS" != true ]] || docker_access_label="开启"
+  heading "配置摘要"
+  printf '版本:       %s / %s\n镜像:       %s\n' "$DSH_EDITION" "$DSH_RESEARCH_PACK" "$DSH_IMAGE"
+  printf '容器:       %s\n监听:       %s:%s\n' "$DSH_NAME" "$DSH_BIND_ADDR" "$DSH_PORT"
+  printf '工作区:     %s\n' "$DSH_WORKSPACE"
+  if [[ "$DSH_STORAGE_MODE" == bind ]]; then
+    printf 'DSH 数据:   宿主机目录 %s\n' "$DSH_DATA_DIR"
+  else
+    printf 'DSH 数据:   Docker 数据卷 %s\n' "$DSH_VOLUME"
+  fi
+  printf '内存上限:   %s\nRAM+Swap:   %s\n' "${DSH_MEMORY_LIMIT:-Docker 默认}" "${DSH_MEMORY_SWAP:-Docker 默认}"
+  printf 'API 接入:   %s；Key %s\n' "$(api_mode_label)" "$(api_key_state)"
+  printf 'Docker 管理: %s\n配置文件:   %s\n' "$docker_access_label" "$CONFIG_FILE"
+}
+
+configure_with_review() {
+  local mode="$1" edition="${2:-}" apply_label="${3:-保存配置}" review_action=""
+  while true; do
+    interactive_config "$mode" "$edition" || return 1
+    show_config_summary
+    is_tty || return 0
+    prompt_choice review_action "下一步" apply \
+      apply "$apply_label" edit "修改上述配置" cancel "取消，本次不保存" || return 1
+    case "$review_action" in
+      apply) return 0 ;;
+      edit) mode=edit; edition="" ;;
+      cancel) info "已取消，本次配置未保存。"; return 1 ;;
+    esac
+  done
+}
+
 interactive_config() {
   local mode="${1:-edit}" value=""
+  DSHD_INPUT_EOF=0
 
   heading "交互式配置"
   if is_tty; then
@@ -3079,22 +3235,8 @@ interactive_config() {
       DSH_RESEARCH_PACK="none"
       DSH_IMAGE="$REVERSE_IMAGE"
       info "独立 Reverse Edition：使用隔离的管理配置、端口与工作区"
-    elif is_tty && [[ -z "${DSHD_INSTANCE_EDITION:-}" ]]; then
-      heading "DSH 版本"
-      cat <<'EOF'
-  1) Standard  通用开发版
-  2) Research  一般科研版（Python / Jupyter / Quarto / LaTeX）
-EOF
-      local edition_choice=""
-      while true; do
-        read -r -p "选择版本 [1]: " edition_choice \
-          || { err "输入已结束（EOF），已取消本次操作。"; return 1; }
-        edition_choice="${edition_choice:-1}"
-        case "$edition_choice" in
-          1|2) break ;;
-          *) warn "请输入 1 或 2。" ;;
-        esac
-      done
+    elif [[ "${2:-}" == 1 || "${2:-}" == 2 ]]; then
+      local edition_choice="$2"
       case "$edition_choice" in
         1)
           DSH_EDITION="standard"
@@ -3103,21 +3245,9 @@ EOF
           ;;
         2)
           DSH_EDITION="research"
-          heading "Research Pack"
-          cat <<'EOF'
-  1) None       通用科研
-  2) Economics  经济学 / 计量经济学
-EOF
           local pack_choice=""
-          while true; do
-            read -r -p "选择 Research Pack [1]: " pack_choice \
-              || { err "输入已结束（EOF），已取消本次操作。"; return 1; }
-            pack_choice="${pack_choice:-1}"
-            case "$pack_choice" in
-              1|2) break ;;
-              *) warn "请输入 1 或 2。" ;;
-            esac
-          done
+          prompt_choice pack_choice "Research Pack" 1 \
+            1 "None       通用科研" 2 "Economics  经济学 / 计量经济学" || return 1
           case "$pack_choice" in
             1) DSH_RESEARCH_PACK="none"; DSH_IMAGE="$RESEARCH_IMAGE" ;;
             2) DSH_RESEARCH_PACK="economics"; DSH_IMAGE="$RESEARCH_ECONOMICS_IMAGE" ;;
@@ -3179,10 +3309,12 @@ EOF
       break
     done
 
-    DSH_WORKSPACE="$DEFAULT_WORKSPACE"
-    DSH_STORAGE_MODE="bind"
-    DSH_DATA_DIR="$DEFAULT_DATA_DIR"
-    DSH_VOLUME="${DSH_NAME}-home"
+    DSH_WORKSPACE="${DSH_WORKSPACE:-$DEFAULT_WORKSPACE}"
+    DSH_STORAGE_MODE="${DSH_STORAGE_MODE:-$DEFAULT_STORAGE_MODE}"
+    DSH_DATA_DIR="${DSH_DATA_DIR:-$DEFAULT_DATA_DIR}"
+    if [[ "${DSHD_REVERSE_MODE:-0}" != 1 && -z "${DSHD_INSTANCE_ID:-}" && "${DSH_VOLUME:-}" == "$DEFAULT_VOLUME" ]]; then
+      DSH_VOLUME="${DSH_NAME}-home"
+    fi
   else
     local previous_name="$DSH_NAME" previous_port="$DSH_PORT"
     prompt_validated DSH_NAME "容器名称" "$DSH_NAME" validate_container_name \
@@ -3199,19 +3331,23 @@ EOF
     fi
   fi
 
-  prompt_value DSH_BIND_ADDR "监听地址（127.0.0.1 推荐；0.0.0.0 可供局域网/反代访问）" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}"
+  local bind_choice=""
+  prompt_choice bind_choice "访问方式" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}" \
+    127.0.0.1 "本机访问 / 本机反代（127.0.0.1，推荐）" \
+    0.0.0.0 "局域网 / 远程访问（0.0.0.0）" custom "自定义监听地址" || return 1
+  if [[ "$bind_choice" == custom ]]; then
+    prompt_validated DSH_BIND_ADDR "自定义监听地址" "${DSH_BIND_ADDR:-$DEFAULT_BIND_ADDR}" \
+      is_non_empty "监听地址不能为空。" || return 1
+  else
+    DSH_BIND_ADDR="$bind_choice"
+  fi
 
   heading "持久化目录"
   prompt_validated DSH_WORKSPACE "项目工作区目录（宿主机 → /workspace）" "$DSH_WORKSPACE" \
     is_absolute_path "工作区目录必须使用绝对路径，例如 /opt/dsh/workspace。" || return 1
 
-  while true; do
-    prompt_value DSH_STORAGE_MODE "DSH 数据存储模式（bind=宿主机目录，volume=Docker 数据卷）" "${DSH_STORAGE_MODE:-$DEFAULT_STORAGE_MODE}"
-    case "$DSH_STORAGE_MODE" in
-      bind|volume) break ;;
-      *) warn "请输入 bind 或 volume。" ;;
-    esac
-  done
+  prompt_choice DSH_STORAGE_MODE "DSH 数据存储模式" "${DSH_STORAGE_MODE:-$DEFAULT_STORAGE_MODE}" \
+    bind "宿主机目录（bind，便于备份，推荐）" volume "Docker 数据卷（volume）" || return 1
   if [[ "$DSH_STORAGE_MODE" == "bind" ]]; then
     prompt_validated DSH_DATA_DIR "DSH 数据目录（宿主机 → /root/.dsh）" "${DSH_DATA_DIR:-$DEFAULT_DATA_DIR}" \
       is_absolute_path "DSH 数据目录必须使用绝对路径，例如 /opt/dsh/data。" || return 1
@@ -3222,57 +3358,8 @@ EOF
 
   prompt_value DSH_TRUSTED_HOSTS "Trusted Hosts（多个用逗号分隔，无则留空）" "${DSH_TRUSTED_HOSTS:-}"
 
-  heading "Whale Widget 远程写权限"
-  warn "DSHW_ADMIN_HOSTS 只用于 dsh-whale-widget 的非回环写操作；它不会替代 DSH_TRUSTED_HOSTS 或浏览器会话认证。"
-  warn "只有明确需要通过域名/局域网修改 Whale 配置时才填写；多个 Host 用逗号分隔。"
-  prompt_value DSHW_ADMIN_HOSTS "Whale Admin Hosts（默认留空）" "${DSHW_ADMIN_HOSTS:-}"
-
-  heading "容器运行资源"
-  prompt_validated DSH_SHM_SIZE "共享内存 /dev/shm（Chromium 推荐 1g）" "${DSH_SHM_SIZE:-$DEFAULT_SHM_SIZE}" \
-    validate_docker_size "请输入 Docker 大小格式，例如 512m、1g。" || return 1
-
-  prompt_validated DSH_TIMEZONE "容器时区" "${DSH_TIMEZONE:-$DEFAULT_TIMEZONE}" validate_timezone \
-    "时区格式不合法，例如 Asia/Shanghai、UTC。" || return 1
-
-  prompt_validated DSH_NPM_CACHE "npm cache 路径（建议放在沙箱可写目录）" "${DSH_NPM_CACHE:-$DEFAULT_NPM_CACHE}" \
-    is_absolute_path "npm cache 必须使用绝对路径。" || return 1
-
-  local memory_default="${DSH_MEMORY_LIMIT:-off}" swap_default="${DSH_MEMORY_SWAP:-off}"
-  while true; do
-    prompt_value DSH_MEMORY_LIMIT "容器内存上限（off=不限制，例如 1536m/2g）" "$memory_default"
-    [[ "$DSH_MEMORY_LIMIT" == "off" || "$DSH_MEMORY_LIMIT" == "none" || "$DSH_MEMORY_LIMIT" == "0" ]] && DSH_MEMORY_LIMIT=""
-    if [[ -z "$DSH_MEMORY_LIMIT" ]] || validate_docker_size "$DSH_MEMORY_LIMIT"; then
-      break
-    fi
-    warn "内存上限格式不合法，例如 1536m、2g 或 off。"
-    memory_default="off"
-  done
-
-  while true; do
-    prompt_value DSH_MEMORY_SWAP "RAM+Swap 总上限（off=Docker 默认；需先设置内存上限）" "$swap_default"
-    [[ "$DSH_MEMORY_SWAP" == "off" || "$DSH_MEMORY_SWAP" == "none" || "$DSH_MEMORY_SWAP" == "0" ]] && DSH_MEMORY_SWAP=""
-    if [[ -z "$DSH_MEMORY_SWAP" ]]; then
-      break
-    fi
-    if ! validate_docker_size "$DSH_MEMORY_SWAP"; then
-      warn "memory-swap 格式不合法，例如 2g、3g 或 off。"
-      swap_default="off"
-      continue
-    fi
-    if [[ -z "$DSH_MEMORY_LIMIT" ]]; then
-      warn "未设置内存上限，memory-swap 将被清空。"
-      DSH_MEMORY_SWAP=""
-      break
-    fi
-    local memory_bytes swap_bytes
-    memory_bytes="$(docker_size_bytes "$DSH_MEMORY_LIMIT")"
-    swap_bytes="$(docker_size_bytes "$DSH_MEMORY_SWAP")"
-    if (( swap_bytes >= memory_bytes )); then
-      break
-    fi
-    warn "RAM+Swap 总上限不能小于内存上限（$DSH_MEMORY_LIMIT）。"
-    swap_default="$DSH_MEMORY_LIMIT"
-  done
+  interactive_runtime_config || return 1
+  runtime_resources_valid || { err "资源配置不合法，请选择自定义高级配置检查大小、时区、缓存路径和内存上限。"; return 1; }
 
   if [[ "${DSHD_INPUT_EOF:-0}" == "1" ]]; then
     err "输入已结束（EOF），本次修改未保存。"
@@ -3725,7 +3812,7 @@ cmd_install() {
   ensure_docker
   network_report
 
-  local first_install=false
+  local first_install=false configuration_mode=edit edition_choice=""
   local requested_name="${DSH_NAME:-}" requested_port="${DSH_PORT:-}"
   [[ -f "$CONFIG_FILE" ]] || first_install=true
   load_config
@@ -3734,6 +3821,15 @@ cmd_install() {
   fi
 
   if [[ "$first_install" == "true" ]]; then
+    configuration_mode=initial
+    if is_tty && [[ "${DSHD_REVERSE_MODE:-0}" != "1" && -z "${DSHD_INSTANCE_EDITION:-}" ]]; then
+      prompt_install_edition edition_choice || return 1
+      if [[ "$edition_choice" == 3 ]]; then
+        # Delegate before saving the primary config or preparing its storage.
+        cmd_reverse_instance install
+        return $?
+      fi
+    fi
     # 交互安装必须由用户明确输入；无 TTY 时只接受调用方显式传入的环境变量。
     if is_tty && [[ "${DSHD_REVERSE_MODE:-0}" != "1" && -z "${DSHD_INSTANCE_ID:-}" ]]; then
       DSH_NAME=""
@@ -3742,11 +3838,10 @@ cmd_install() {
       DSH_NAME="$requested_name"
       DSH_PORT="$requested_port"
     fi
-    interactive_config initial || return 1
   else
     info "检测到已有 dshd 配置，将进入修改模式。"
-    interactive_config edit || return 1
   fi
+  configure_with_review "$configuration_mode" "$edition_choice" "保存并开始安装" || return 1
 
   # 先落盘：后面的镜像拉取 / 容器创建即使失败，用户刚才的输入也不会丢。
   save_config
@@ -3760,7 +3855,13 @@ cmd_install() {
   save_config
   web_prepare auto || warn "Web 管理后台未启用；安装完成后可执行 dshd web enable。"
   create_container
-  ok "安装完成。输入 dshd 即可进入运维菜单。"
+  if [[ -n "${DSHD_INSTANCE_ID:-}" ]]; then
+    ok "安装完成。输入 dshd -i $DSHD_INSTANCE_ID menu 管理此实例。"
+  elif [[ "${DSHD_REVERSE_MODE:-0}" == 1 ]]; then
+    ok "安装完成。输入 dshd reverse menu 进入独立逆向版运维菜单。"
+  else
+    ok "安装完成。输入 dshd 即可进入运维菜单。"
+  fi
 }
 
 cmd_search() {
@@ -4232,7 +4333,7 @@ cmd_rollback() {
 cmd_config() {
   load_config
   ensure_docker
-  interactive_config edit || {
+  configure_with_review edit "" "保存配置" || {
     warn "配置未保存，原有配置保持不变。"
     return 1
   }
